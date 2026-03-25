@@ -1,8 +1,84 @@
 # MCP Tools Reference
 
-This document is the primary implementation reference for all MCP tools exposed by `insar-mcp-server`. Each tool entry defines its parameters, return structure, error cases, and which layer owns the logic.
+This document is the primary implementation reference for all MCP tools, resources, and prompts exposed by `insar-mcp-server`.
 
 For system context see [architecture.md](architecture.md). For data object definitions see [domain-model.md](domain-model.md).
+
+---
+
+## Resources
+
+Resources are read-only documents the AI client fetches to understand constraints and workflow before calling any tool.
+
+---
+
+### `insar://workflow-guide`
+
+Complete workflow guide — hard constraints, step-by-step instructions for both processing paths, allowed/forbidden field rules, and error reference.
+
+**Returns:** Plain text. Contains:
+- Hard constraints (no core parameter modification, official workflows only)
+- Path A: mandatory step order for single-pair RSLC → GUNW processing
+- Path B: batch stack + interferogram network preparation
+- Required and optional settable fields for each workflow
+- Error code reference
+
+**Implementation:** `mcp/server.py::get_workflow_guide`
+
+---
+
+### `insar://allowed-fields/{workflow}`
+
+Dynamic list of fields that may be set via `insar_set_runconfig_value` for the given workflow.
+
+**URI parameter:** `workflow` — e.g. `insar`, `gslc`
+
+**Returns:** Plain text with Required and Optional sections. Error message for unknown workflows.
+
+**Implementation:** `mcp/server.py::get_allowed_fields`
+
+---
+
+## Prompts
+
+Prompts are task templates. Invoke to get pre-filled step-by-step instructions.
+
+---
+
+### `process_insar_pair`
+
+Guided template for processing a single RSLC pair (Path A workflow).
+
+**Parameters:** `reference_rslc`, `secondary_rslc`, `dem`, `output_dir`, `conda_env`
+
+**Returns:** 8-step instructions pre-filled with provided paths + constraint reminders.
+
+---
+
+### `process_insar_batch`
+
+Guided template for batch stack + interferogram network preparation (Path B workflow).
+
+**Parameters:** `data_dir`, `base_runconfig`, `dem`, `output_dir`, `network_mode`, `max_temporal_baseline_days`
+
+**Returns:** 2-step instructions with terminal commands and output structure.
+
+---
+
+## next_step guidance
+
+These tools include a `next_step` field in their return value:
+
+| Tool | `next_step` content |
+|------|---------------------|
+| `insar_create_project` | Lists required fields + call `insar_set_runconfig_value` |
+| `insar_validate_runconfig` (invalid) | Fix errors and validate again |
+| `insar_validate_runconfig` (valid) | Call `insar_export_runconfig` |
+| `insar_export_runconfig` | Call `insar_run_workflow` |
+| `insar_run_workflow` | Poll `insar_get_job_status` with returned job_id |
+| `insar_list_outputs` | Product format + batch path suggestion |
+| `insar_prepare_stack` | Exact `bash run_parallel.sh` command + call `insar_prepare_network` |
+| `insar_prepare_network` | Exact `bash run_parallel.sh` command + GUNW output path pattern |
 
 ---
 

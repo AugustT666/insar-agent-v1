@@ -28,6 +28,284 @@ _ENGINES = {_ADAPTER.name: _ADAPTER}
 mcp = FastMCP("insar-mcp-server")
 
 
+# ── Resources ──────────────────────────────────────────────────────────────────
+
+_WORKFLOW_GUIDE = """\
+# insar-agent Workflow Guide
+
+This server exposes ISCE3 NISAR InSAR processing as MCP tools.
+Read this guide before calling any tool.
+
+---
+
+## Hard constraints (NEVER violate)
+
+1. Only official ISCE3 NISAR workflows. Do not invent custom workflows.
+2. Only PATH fields may be changed. Core processing parameters
+   (multilook, filtering, unwrapping, thresholds, iterations) are LOCKED.
+   Attempting to set them via insar_set_runconfig_value returns error: key_not_allowed.
+3. Always start from the default runconfig template —
+   insar_create_project loads it automatically.
+4. Execution command is always:
+   conda run -n <env> python -m nisar.workflows.<workflow> /path/to/runconfig.yaml
+
+---
+
+## Path A — Single RSLC pair → GUNW product (M1-M3 tools)
+
+Mandatory order:
+  1. insar_create_project        → get project_id
+  2. insar_set_runconfig_value   → fill all required path fields (see below)
+  3. insar_validate_runconfig    → must return valid=true before proceeding
+  4. insar_export_runconfig      → write YAML to disk (required before execution)
+  5. insar_run_workflow          → launch ISCE3 in background, get job_id
+  6. insar_get_job_status        → poll until status is 'done' or 'failed'
+  7. insar_get_job_logs          → read log if failed
+  8. insar_list_outputs          → list products when done
+
+Required fields for workflow 'insar':
+  - runconfig.groups.input_file_group.reference_rslc_file   (RSLC .h5 path)
+  - runconfig.groups.input_file_group.secondary_rslc_file   (RSLC .h5 path)
+  - runconfig.groups.dynamic_ancillary_file_group.dem_file  (DEM .tif path)
+  - runconfig.groups.product_path_group.product_path        (output dir)
+  - runconfig.groups.product_path_group.scratch_path        (temp dir)
+  - runconfig.groups.product_path_group.sas_output_file     (output filename)
+
+Optional settable fields for workflow 'insar':
+  - runconfig.groups.dynamic_ancillary_file_group.water_mask_file
+  - runconfig.groups.logging.path
+  - runconfig.groups.worker.gpu_enabled  (bool)
+  - runconfig.groups.worker.gpu_id       (int)
+
+---
+
+## Path B — Multi-scene batch processing (M4 tools)
+
+These tools operate directly on the filesystem, independent of the project registry.
+
+  1. insar_prepare_stack(data_dir, base_runconfig, dem, output_dir)
+       Scans data_dir for NISAR RSLC .h5 files, picks reference (earliest by default),
+       generates one runconfig per secondary scene + run_parallel.sh.
+       → After this call, USER executes: bash <output_dir>/run_parallel.sh <output_dir> <N>
+
+  2. insar_prepare_network(data_dir, base_runconfig, dem, output_dir, network_mode, ...)
+       Generates interferogram network runconfigs.
+       network_mode='tbase': connect pairs with temporal baseline ≤ max_temporal_baseline_days (default 36)
+       network_mode='conn':  connect each date to next connection_span dates (default 3)
+       pair_list=<path>:     use a custom YYYYMMDD_YYYYMMDD pair list file instead
+       → After this call, USER executes: bash <output_dir>/run_parallel.sh <output_dir> <N>
+
+---
+
+## What to do when a field is rejected
+
+If insar_set_runconfig_value returns error: key_not_allowed,
+the key is a core processing parameter. Do NOT attempt workarounds.
+Tell the user: these parameters affect algorithm reproducibility and must be
+edited manually in the exported YAML. Point to the field location.
+
+---
+
+## Error reference
+
+  project_not_found      — wrong project_id
+  key_not_allowed        — attempting to set a core processing parameter (LOCKED)
+  key_not_found          — dotted path does not exist in runconfig
+  runconfig_invalid      — required path fields missing or null
+  runconfig_not_exported — must call insar_export_runconfig before insar_run_workflow
+  path_not_found         — a filesystem path argument does not exist
+  invalid_input          — bad parameter value (e.g. negative baseline, unknown network_mode)
+"""
+
+
+@mcp.resource("insar://workflow-guide")
+def get_workflow_guide() -> str:
+    """Workflow constraints and step-by-step guide for ISCE3 InSAR processing."""
+    return _WORKFLOW_GUIDE
+
+
+@mcp.resource("insar://allowed-fields/{workflow}")
+def get_allowed_fields(workflow: str) -> str:
+    """List the fields that may be set via insar_set_runconfig_value for a workflow."""
+    from insar_agent.engines.isce3.defaults import ALLOWED_SET_FIELDS, REQUIRED_PATH_FIELDS
+    allowed = ALLOWED_SET_FIELDS.get(workflow)
+    if allowed is None:
+        return f"Unknown workflow: {workflow!r}. Available: {list(ALLOWED_SET_FIELDS)}"
+    required = REQUIRED_PATH_FIELDS.get(workflow, [])
+    lines = [f"# Settable fields for workflow '{workflow}'", "",
+             "## Required (must be set before insar_validate_runconfig passes)"]
+    lines += [f"  {f}" for f in required]
+    optional = [f for f in allowed if f not in required]
+    if optional:
+        lines += ["", "## Optional"]
+        lines += [f"  {f}" for f in optional]
+    lines += ["", "All other fields are core processing parameters and cannot be changed via MCP."]
+    return "\n".join(lines)
+
+
+# ── Prompts ────────────────────────────────────────────────────────────────────
+
+@mcp.prompt()
+def process_insar_pair(
+    reference_rslc: str = "",
+    secondary_rslc: str = "",
+    dem: str = "",
+    output_dir: str = "",
+    conda_env: str = "isce3",
+) -> str:
+    """
+    Guided prompt for processing a single RSLC pair with ISCE3 InSAR workflow.
+
+    Provides step-by-step instructions pre-filled with the user's data paths.
+    Call with empty strings to get a generic template.
+    """
+    ref = reference_rslc or "/path/to/reference_rslc.h5"
+    sec = secondary_rslc or "/path/to/secondary_rslc.h5"
+    dem_p = dem or "/path/to/dem.tif"
+    out = output_dir or "/path/to/workspace"
+    env = conda_env or "isce3"
+
+    return f"""\
+Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps exactly.
+
+## Inputs
+- Reference RSLC : {ref}
+- Secondary RSLC : {sec}
+- DEM            : {dem_p}
+- Workspace      : {out}
+- Conda env      : {env}
+
+## Steps
+
+1. Create project:
+   insar_create_project(engine="isce3", workflow="insar",
+       workspace_root="{out}", conda_env="{env}")
+   → save the returned project_id
+
+2. Set required path fields (call insar_set_runconfig_value once per field):
+   - runconfig.groups.input_file_group.reference_rslc_file  = "{ref}"
+   - runconfig.groups.input_file_group.secondary_rslc_file  = "{sec}"
+   - runconfig.groups.dynamic_ancillary_file_group.dem_file = "{dem_p}"
+   - runconfig.groups.product_path_group.product_path       = "{out}/outputs"
+   - runconfig.groups.product_path_group.scratch_path       = "{out}/scratch"
+   - runconfig.groups.product_path_group.sas_output_file    = "GUNW_product.h5"
+
+3. Validate:
+   insar_validate_runconfig(project_id)
+   → if valid=false, fix the reported errors and validate again before proceeding
+
+4. Export runconfig to disk:
+   insar_export_runconfig(project_id)
+
+5. Launch workflow:
+   insar_run_workflow(project_id)
+   → returns job_id
+
+6. Poll until done:
+   insar_get_job_status(job_id, project_id)
+   → repeat until status is 'done' or 'failed'
+
+7. On failure — read logs:
+   insar_get_job_logs(job_id, project_id, tail=100)
+
+8. On success — list products:
+   insar_list_outputs(job_id, project_id)
+
+## Constraints reminder
+- Do NOT attempt to set core processing parameters (multilook, filtering, etc.)
+- Do NOT skip validate or export steps
+- Do NOT modify the runconfig YAML manually for path fields — use insar_set_runconfig_value
+"""
+
+
+@mcp.prompt()
+def process_insar_batch(
+    data_dir: str = "",
+    base_runconfig: str = "",
+    dem: str = "",
+    output_dir: str = "",
+    network_mode: str = "tbase",
+    max_temporal_baseline_days: int = 36,
+) -> str:
+    """
+    Guided prompt for batch ISCE3 stack + interferogram network preparation.
+
+    Covers insar_prepare_stack and insar_prepare_network (wangshuai two-layer workflow).
+    """
+    dd = data_dir or "/path/to/rslc_dir"
+    rc = base_runconfig or "/path/to/insar_nisar.yaml"
+    dm = dem or "/path/to/dem.tif"
+    out = output_dir or "/path/to/work"
+
+    return f"""\
+Prepare a batch ISCE3 interferogram network for MintPy time-series analysis.
+This is a two-layer workflow; the MCP tools generate runconfigs and runner scripts —
+the actual ISCE3 execution must be triggered by the user from the terminal.
+
+## Inputs
+- RSLC directory  : {dd}
+- Template config : {rc}
+- DEM             : {dm}
+- Work directory  : {out}
+- Network mode    : {network_mode}  (tbase = temporal baseline threshold, conn = fixed neighbors)
+
+## Step 1 — Single-reference stack (registration baseline)
+
+Call:
+  insar_prepare_stack(
+      data_dir="{dd}",
+      base_runconfig="{rc}",
+      dem="{dm}",
+      output_dir="{out}/isce3_stack",
+      reference="auto"   # uses earliest acquisition date
+  )
+
+Then execute in terminal:
+  bash {out}/isce3_stack/run_parallel.sh {out}/isce3_stack <num_parallel_jobs>
+
+## Step 2 — Interferogram network
+
+Call:
+  insar_prepare_network(
+      data_dir="{dd}",
+      base_runconfig="{rc}",
+      dem="{dm}",
+      output_dir="{out}/isce3_network",
+      network_mode="{network_mode}",
+      max_temporal_baseline_days={max_temporal_baseline_days}
+  )
+
+Then execute in terminal:
+  bash {out}/isce3_network/run_parallel.sh {out}/isce3_network <num_parallel_jobs>
+
+## What the tools produce
+
+insar_prepare_stack →
+  {out}/isce3_stack/runconfigs/         one YAML per secondary scene
+  {out}/isce3_stack/run_parallel.sh     parallel batch runner
+  {out}/isce3_stack/stack_manifest.csv  reference/secondary/runconfig index
+  {out}/isce3_stack/reference_date.txt  selected reference date
+
+insar_prepare_network →
+  {out}/isce3_network/runconfigs/                    one YAML per pair
+  {out}/isce3_network/run_parallel.sh               parallel batch runner
+  {out}/isce3_network/pair_lists/pairs_selected.txt  pair list
+  {out}/isce3_network/stack_manifest.csv
+
+## After execution
+The GUNW products land in:
+  {out}/isce3_network/runs/<date1>_<date2>/products/*.h5
+
+These are the inputs for MintPy time-series analysis (future insar_run_mintpy tool).
+
+## Constraints reminder
+- reference="auto" selects the earliest acquisition to avoid negative temporal baselines
+- If insar_prepare_stack/network returns error: invalid_input, check that all RSLC
+  filenames contain _YYYYMMDDTHHMMSS_ date stamps
+- Do not hand-edit generated runconfigs — re-run the prepare tool with corrected inputs
+"""
+
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def _utc_now() -> str:
@@ -184,6 +462,7 @@ def insar_create_project(
     except Exception as exc:
         return {"error": "workspace_not_writable", "message": str(exc)}
 
+    required = ALLOWED_SET_FIELDS.get(workflow, [])
     return {
         "project_id": project.project_id,
         "name": project.name,
@@ -192,6 +471,11 @@ def insar_create_project(
         "workspace_root": project.workspace_root,
         "conda_env": project.conda_env,
         "created_at": project.created_at,
+        "next_step": (
+            f"Call insar_set_runconfig_value to fill the required path fields, "
+            f"then call insar_validate_runconfig. "
+            f"Required fields for '{workflow}': {required}"
+        ),
     }
 
 
@@ -313,10 +597,16 @@ def insar_validate_runconfig(project_id: str) -> dict:
         return _project_error(project_id)
 
     errors = validate_runconfig(project.runconfig, project.workflow)
+    valid = len(errors) == 0
     return {
         "project_id": project_id,
-        "valid": len(errors) == 0,
+        "valid": valid,
         "errors": errors,
+        "next_step": (
+            "Call insar_export_runconfig to write the runconfig YAML to disk."
+            if valid else
+            "Fix the reported errors with insar_set_runconfig_value, then call insar_validate_runconfig again."
+        ),
     }
 
 
@@ -358,6 +648,7 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
         "project_id": project_id,
         "yaml_path": str(yaml_path),
         "exported_at": exported_at,
+        "next_step": "Call insar_run_workflow to launch the ISCE3 processing job.",
     }
 
 
@@ -456,6 +747,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         "submitted_at": job.submitted_at,
         "log_path": log_path,
         "dry_run": False,
+        "next_step": f"Poll insar_get_job_status(job_id='{job.job_id}', project_id='{project_id}') until status is 'done' or 'failed'.",
     }
 
 
@@ -578,7 +870,16 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
                     "recommended_viewer": viewer,
                 })
 
-    return {"job_id": job_id, "outputs": artifacts}
+    return {
+        "job_id": job_id,
+        "outputs": artifacts,
+        "next_step": (
+            "Processing complete. GUNW .h5 products can be opened with h5py or QGIS. "
+            "Use insar_prepare_network to build a batch interferogram network from multiple scenes."
+            if job.status == "done" else
+            "Job failed. Call insar_get_job_logs to inspect the error log."
+        ),
+    }
 
 
 # ── Group 5: Stack / Network (M4) ─────────────────────────────────────────────
@@ -607,13 +908,19 @@ def insar_prepare_stack(
                    string, or an absolute RSLC file path.
     """
     try:
-        return prepare_stack(
+        result = prepare_stack(
             data_dir=data_dir,
             base_runconfig=base_runconfig,
             dem=dem,
             output_dir=output_dir,
             reference=reference,
         )
+        result["next_step"] = (
+            f"Execute the batch runner from the terminal: "
+            f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>  "
+            f"Then call insar_prepare_network to build the interferogram network."
+        )
+        return result
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
     except ValueError as exc:
@@ -653,7 +960,7 @@ def insar_prepare_network(
                    line. When provided, network_mode/span/threshold are ignored.
     """
     try:
-        return prepare_network(
+        result = prepare_network(
             data_dir=data_dir,
             base_runconfig=base_runconfig,
             dem=dem,
@@ -663,6 +970,12 @@ def insar_prepare_network(
             connection_span=connection_span,
             pair_list=pair_list or None,
         )
+        result["next_step"] = (
+            f"Execute the batch runner from the terminal: "
+            f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>  "
+            f"GUNW products will appear in {result['output_dir']}/runs/*/products/*.h5"
+        )
+        return result
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
     except ValueError as exc:

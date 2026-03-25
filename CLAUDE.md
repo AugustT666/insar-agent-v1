@@ -58,7 +58,7 @@ Agent Client (Codex / Claude Code / etc.)
 
 ## Current Status
 
-**M0–M4 complete. 74 unit tests + 5 integration tests passing (2026-03-25).**
+**M0–M4 + agent onboarding complete. 97 unit tests + 5 integration tests passing (2026-03-25).**
 
 Before making non-trivial changes, read:
 
@@ -88,6 +88,7 @@ Knowledge base:
 - M2: job execution ✓ — `insar_run_workflow`, `insar_get_job_status`, `insar_get_job_logs`
 - M3: output handling ✓ — `insar_list_outputs`
 - M4: stack/network ✓ — `insar_prepare_stack`, `insar_prepare_network` (wangshuai two-layer architecture)
+- M4b: agent onboarding ✓ — MCP Resources, Prompts, `next_step` guidance in tool returns
 - M5 (next): MintPy integration — `insar_run_mintpy`, `insar_plot_baseline` (run_mintpy_nisar_stack.sh, plot_isce3_baseline_network.py)
 
 **engines/isce3/ modules:**
@@ -97,6 +98,13 @@ Knowledge base:
 - `runner.py` — build_workflow_command (conda run wrapper)
 - `stack.py` — prepare_stack() (single-reference stack, from wangshuai)
 - `network.py` — prepare_network() (interferogram network tbase/conn, from wangshuai)
+
+**Agent onboarding (mcp/server.py):**
+- Resource `insar://workflow-guide` — hard constraints + step order for both workflows
+- Resource `insar://allowed-fields/{workflow}` — dynamic list of settable fields per workflow
+- Prompt `process_insar_pair(ref, sec, dem, output_dir, conda_env)` — single-pair guided template
+- Prompt `process_insar_batch(data_dir, dem, output_dir, network_mode, ...)` — batch stack/network template
+- `next_step` field in returns of: `insar_create_project`, `insar_validate_runconfig`, `insar_export_runconfig`, `insar_run_workflow`, `insar_list_outputs`, `insar_prepare_stack`, `insar_prepare_network`
 
 **Test data:**
 - NAS RSLC files: `/home/august/NAS/NISAR_wangshuai_data/` (referenced directly by integration tests)
