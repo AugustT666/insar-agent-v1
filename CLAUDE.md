@@ -65,8 +65,7 @@ Before making non-trivial changes, read:
 1. `docs/architecture.md` — system overview, layer boundaries, milestone status
 2. `docs/mcp-tools.md` — full input/output spec for every MCP tool
 3. `docs/domain-model.md` — Project, Job, WorkflowTemplate, Artifact field definitions
-4. `docs/decisions/0001-project-scope.md` — why this is an independent repo
-5. `docs/plans/2026-03-23-insar-agent-tech-spec-v0.1.md` — original Chinese draft (historical reference)
+4. `docs/interaction-flow.md` — how User, AI, and MCP interact; constraint propagation chain
 
 ## Collaboration Workflow
 
