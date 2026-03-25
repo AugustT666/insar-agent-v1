@@ -482,3 +482,124 @@ Generates a lightweight preview (PNG thumbnail or statistics summary) from a job
 - `preview_not_supported` — artifact type does not support preview generation
 
 **Implementation:** `engines/isce3/` (to be added), `runtime/workspace.py`
+
+---
+
+## Group 5: Stack / Network (M4)
+
+These tools implement wangshuai's two-layer ISCE3 batch processing architecture.
+They operate independently of the project registry — they take direct filesystem
+paths and generate self-contained directory structures with runconfigs and runner scripts.
+
+---
+
+### `insar_prepare_stack`
+
+Generate single-reference ISCE3 runconfigs from a directory of RSLC files (Layer 1).
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `data_dir` | string | yes | Directory containing NISAR RSLC `.h5` files |
+| `base_runconfig` | string | yes | Path to template ISCE3 runconfig YAML |
+| `dem` | string | yes | Path to the DEM file |
+| `output_dir` | string | yes | Directory where runconfigs and scripts are written |
+| `reference` | string | no | Reference scene: `'auto'` (earliest date), `YYYYMMDD`, or RSLC path |
+
+**Returns:**
+```json
+{
+  "reference_date": "20251122",
+  "num_pairs": 1,
+  "output_dir": "/path/to/stack",
+  "runconfigs": ["/path/to/stack/runconfigs/20251122_20251204.yaml"],
+  "run_all_sh": "/path/to/stack/run_all.sh",
+  "run_parallel_sh": "/path/to/stack/run_parallel.sh",
+  "manifest_csv": "/path/to/stack/stack_manifest.csv"
+}
+```
+
+**Output structure:**
+```
+output_dir/
+  runconfigs/          # Per-secondary runconfig YAMLs
+  runs/<date1>_<date2>/
+    products/          # ISCE3 output destination
+    scratch/           # ISCE3 temp dir
+    qa/                # QA outputs
+    logs/
+  run_all.sh           # Sequential runner
+  run_parallel.sh      # Parallel runner (MAX_JOBS=8)
+  stack_manifest.csv   # reference/secondary/runconfig/run_dir index
+  reference_date.txt   # Selected reference date
+```
+
+**Errors:**
+- `path_not_found` — data_dir, base_runconfig, or dem does not exist
+- `invalid_input` — fewer than 2 RSLC files, duplicate dates, or negative baseline from reference selection
+
+**Implementation:** `engines/isce3/stack.py::prepare_stack`
+
+---
+
+### `insar_prepare_network`
+
+Generate ISCE3 runconfigs for an interferogram network from a directory of RSLC files (Layer 2).
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `data_dir` | string | yes | Directory containing NISAR RSLC `.h5` files |
+| `base_runconfig` | string | yes | Path to template ISCE3 runconfig YAML |
+| `dem` | string | yes | Path to the DEM file |
+| `output_dir` | string | yes | Directory where runconfigs and scripts are written |
+| `network_mode` | string | no | `'tbase'` (default) or `'conn'` |
+| `max_temporal_baseline_days` | int | no | Max days between pair dates in tbase mode (default: 36) |
+| `connection_span` | int | no | Forward neighbors per date in conn mode (default: 3) |
+| `pair_list` | string | no | Path to file with `YYYYMMDD_YYYYMMDD` pairs, one per line |
+
+**Network modes:**
+- `tbase`: connect all pairs whose temporal baseline ≤ `max_temporal_baseline_days`
+- `conn`: connect each date to the next `connection_span` dates
+- Custom: when `pair_list` is provided, `network_mode` and span/threshold are ignored
+
+**Returns:**
+```json
+{
+  "num_pairs": 3,
+  "output_dir": "/path/to/network",
+  "runconfigs": ["..."],
+  "run_all_sh": "/path/to/network/run_all.sh",
+  "run_parallel_sh": "/path/to/network/run_parallel.sh",
+  "pairs_selected_txt": "/path/to/network/pair_lists/pairs_selected.txt",
+  "manifest_csv": "/path/to/network/stack_manifest.csv",
+  "network_label": "pairs_tbase36d",
+  "network_description": "Connect acquisitions with temporal baseline <= 36 days"
+}
+```
+
+**Output structure:**
+```
+output_dir/
+  runconfigs/          # Per-pair runconfig YAMLs
+  runs/<date1>_<date2>/
+    products/
+    scratch/
+    qa/
+    logs/
+  run_all.sh
+  run_parallel.sh
+  pair_lists/
+    pairs_selected.txt       # YYYYMMDD_YYYYMMDD, one per line
+    pairs_tbase36d.txt       # (or pairs_conn3.txt depending on mode)
+    pairs_selected.csv       # date1/date2/rslc mapping
+  stack_manifest.csv
+```
+
+**Errors:**
+- `path_not_found` — data_dir, base_runconfig, dem, or pair_list does not exist
+- `invalid_input` — invalid network_mode, span < 1, threshold < 1, bad pair format, or pair references unknown date
+
+**Implementation:** `engines/isce3/network.py::prepare_network`

@@ -192,10 +192,20 @@ Never invent workflow parameters or undocumented operational steps when source m
 | Milestone | Status | Scope |
 |---|---|---|
 | M0: Server skeleton | **Done** | Package layout, scaffold server, smoke tests |
-| M1: Config management | In progress | `create_project`, `get/set/validate/export runconfig` |
-| M2: Job execution | Pending | `run_workflow`, `get_job_status`, `get_job_logs` |
-| M3: Output handling | Pending | `list_outputs`, `generate_preview` |
+| M1: Config management | **Done** | FastMCP server, `create_project`, `get/set/unset/validate/export runconfig`, project registry, conda env support |
+| M2: Job execution | **Done** (wired) | `run_workflow` (async Popen), `get_job_status`, `get_job_logs` |
+| M3: Output handling | **Done** (wired) | `list_outputs` with artifact type inference |
 | M4: Second engine | Pending | ISCE2 or GMTSAR adapter |
+
+### M1 implementation notes (2026-03-24)
+
+- **MCP SDK**: `mcp>=1.0` (FastMCP) is installed and wired in `mcp/server.py`
+- **Runconfig templates**: copied from `/home/august/isce3/share/nisar/defaults/` (`insar.yaml`, `gslc.yaml`) into `engines/isce3/assets/`
+- **Project registry**: `~/.local/share/insar_agent/registry.json` maps `project_id → workspace_root`; overridable via `$XDG_DATA_HOME`
+- **Safety policy**: `ALLOWED_SET_FIELDS` in `defaults.py` blocks core processing parameters; only path fields and worker flags are settable via MCP
+- **Conda env**: stored per-project, injected into `build_workflow_command()` as `conda run -n <env>`
+- **Test data**: wangshuai's NISAR RSLC files remain on NAS at `/home/august/NAS/NISAR_wangshuai_data/` (too large to copy); integration tests reference them directly; `insar_nisar.yaml` fixture copied to `tests/fixtures/`
+- **Knowledge bases**: `knowledge-base/tianxiaolong/` is the primary source (SKILL.md constraints); `knowledge-base/wangshuai/` provides supplementary stack/MintPy workflow scripts (M4+ scope)
 
 ---
 

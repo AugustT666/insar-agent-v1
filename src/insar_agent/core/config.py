@@ -18,3 +18,15 @@ def set_path(data: dict, dotted_path: str, value) -> None:
         if not isinstance(current, dict):
             raise TypeError(f"path segment {part!r} is not a mapping")
     current[parts[-1]] = value
+
+
+def unset_path(data: dict, dotted_path: str) -> None:
+    parts = dotted_path.split(".")
+    current = data
+    for part in parts[:-1]:
+        if not isinstance(current, dict) or part not in current:
+            raise KeyError(dotted_path)
+        current = current[part]
+    if parts[-1] not in current:
+        raise KeyError(dotted_path)
+    del current[parts[-1]]

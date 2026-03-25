@@ -58,7 +58,9 @@ Agent Client (Codex / Claude Code / etc.)
 
 ## Current Status
 
-M0 is complete. M1 (config management) is in progress. Before making non-trivial changes, read:
+**M0–M4 complete. 74 unit tests + 5 integration tests passing (2026-03-25).**
+
+Before making non-trivial changes, read:
 
 1. `docs/architecture.md` — system overview, layer boundaries, milestone status
 2. `docs/mcp-tools.md` — full input/output spec for every MCP tool
@@ -70,16 +72,35 @@ M0 is complete. M1 (config management) is in progress. Before making non-trivial
 
 The domain expert (user) provides ISCE3 processing scripts, runconfig templates, and workflow documentation. Claude Code implements the corresponding MCP tools and engine adapter code.
 
+Knowledge base:
+- `knowledge-base/tianxiaolong/` — primary: SKILL.md (workflow constraints), runconfig template, DEM/GeoTIFF scripts
+- `knowledge-base/wangshuai/` — supplementary: stack/network preparation, MintPy time-series, baseline visualization
+
 **Typical flow for each new capability:**
-1. User provides ISCE3 script or runconfig template
-2. Claude normalizes it into `engines/isce3/` (validator, runner, defaults)
-3. Claude wires it as an MCP tool in `mcp/server.py` via the `core` layer
+1. User provides ISCE3 script or runconfig template (in knowledge-base/)
+2. Claude normalizes it into `engines/isce3/` (library module, not CLI)
+3. Claude wires it as an MCP tool in `mcp/server.py`
 4. Tests are added in `tests/unit/` or `tests/integration/`
 
-**Milestone targets:**
-- M0: scaffold ✓ (package layout, scaffold server, smoke tests)
-- M1: runconfig management — `insar_create_project`, `get/set/unset/validate/export runconfig`
-- M2: job execution — `insar_run_workflow`, `insar_get_job_status`, `insar_get_job_logs`
-- M3: output handling — `insar_list_outputs`, `insar_generate_preview`
+**Milestone status:**
+- M0: scaffold ✓
+- M1: runconfig management ✓ — `insar_create_project`, `get/set/unset/validate/export runconfig`, project registry
+- M2: job execution ✓ — `insar_run_workflow`, `insar_get_job_status`, `insar_get_job_logs`
+- M3: output handling ✓ — `insar_list_outputs`
+- M4: stack/network ✓ — `insar_prepare_stack`, `insar_prepare_network` (wangshuai two-layer architecture)
+- M5 (next): MintPy integration — `insar_run_mintpy`, `insar_plot_baseline` (run_mintpy_nisar_stack.sh, plot_isce3_baseline_network.py)
+
+**engines/isce3/ modules:**
+- `adapter.py` — ISCE3Adapter (list_workflows)
+- `defaults.py` — ALLOWED_SET_FIELDS, REQUIRED_PATH_FIELDS, load_default_runconfig
+- `validator.py` — validate_runconfig (required path checks)
+- `runner.py` — build_workflow_command (conda run wrapper)
+- `stack.py` — prepare_stack() (single-reference stack, from wangshuai)
+- `network.py` — prepare_network() (interferogram network tbase/conn, from wangshuai)
+
+**Test data:**
+- NAS RSLC files: `/home/august/NAS/NISAR_wangshuai_data/` (referenced directly by integration tests)
+- Fixture runconfig: `tests/fixtures/insar_nisar.yaml`
+- Integration tests skip automatically if NAS not mounted
 
 Full tool specs are in `docs/mcp-tools.md`. Domain object fields are in `docs/domain-model.md`.
