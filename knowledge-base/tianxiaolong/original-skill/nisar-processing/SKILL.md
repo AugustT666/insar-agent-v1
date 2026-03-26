@@ -1,6 +1,6 @@
 ---
 name: nisar-processing
-description: Run ISCE3 NISAR workflows (focus/GSLC/GCOV/InSAR) using official runconfigs and conda execution. Use when asked to process NISAR data with ISCE3, generate NISAR products, export GeoTIFFs, or troubleshoot workflow failures while preserving reproducibility and only adjusting input/output paths.
+description: Use when asked to process NISAR data with ISCE3, generate NISAR products (GSLC/GCOV/InSAR/focus), export GeoTIFFs, or troubleshoot ISCE3 workflow failures.
 ---
 
 # NISAR Processing with ISCE3

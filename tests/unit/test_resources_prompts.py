@@ -1,4 +1,4 @@
-"""Tests for MCP Resources, Prompts, and next_step guidance."""
+"""Tests for MCP Resources, Prompts, and tool return fields."""
 from __future__ import annotations
 
 from insar_agent.mcp.server import (
@@ -31,25 +31,22 @@ def test_workflow_guide_mentions_hard_constraints():
     assert "key_not_allowed" in guide
 
 
-def test_workflow_guide_mentions_both_paths():
+def test_workflow_guide_mentions_skills():
     guide = get_workflow_guide()
-    assert "Path A" in guide
-    assert "Path B" in guide
+    # Guide should point to skills as the guidance source
+    assert "skill" in guide.lower()
 
 
-def test_workflow_guide_lists_required_fields():
+def test_workflow_guide_has_error_codes():
     guide = get_workflow_guide()
-    assert "reference_rslc_file" in guide
-    assert "secondary_rslc_file" in guide
-    assert "dem_file" in guide
+    assert "key_not_allowed" in guide
+    assert "runconfig_not_exported" in guide
+    assert "path_not_found" in guide
 
 
-def test_workflow_guide_mentions_step_order():
+def test_workflow_guide_has_allowed_fields_resource():
     guide = get_workflow_guide()
-    # Steps must be present in order
-    assert guide.index("insar_create_project") < guide.index("insar_validate_runconfig")
-    assert guide.index("insar_validate_runconfig") < guide.index("insar_export_runconfig")
-    assert guide.index("insar_export_runconfig") < guide.index("insar_run_workflow")
+    assert "allowed-fields" in guide
 
 
 def test_allowed_fields_insar():
@@ -136,7 +133,7 @@ def test_process_insar_batch_step_order():
     assert prompt.index("insar_prepare_stack") < prompt.index("insar_prepare_network")
 
 
-# ── next_step in tool returns ─────────────────────────────────────────────────
+# ── tool return fields ────────────────────────────────────────────────────────
 
 import os
 import pytest
@@ -157,20 +154,21 @@ def insar_project(tmp_path):
     return result
 
 
-def test_create_project_has_next_step(insar_project):
-    assert "next_step" in insar_project
-    assert "insar_set_runconfig_value" in insar_project["next_step"]
-    assert "reference_rslc_file" in insar_project["next_step"]
+def test_create_project_returns_required_fields(insar_project):
+    # Skills drive workflow — create_project returns required_fields data, not narrative guidance
+    assert "required_fields" in insar_project
+    assert "runconfig.groups.input_file_group.reference_rslc_file" in insar_project["required_fields"]
+    assert "next_step" not in insar_project
 
 
-def test_validate_invalid_has_next_step(insar_project):
+def test_validate_returns_valid_and_errors_no_next_step(insar_project):
     result = insar_validate_runconfig(insar_project["project_id"])
     assert result["valid"] is False
-    assert "next_step" in result
-    assert "insar_set_runconfig_value" in result["next_step"]
+    assert "errors" in result
+    assert "next_step" not in result
 
 
-def test_validate_valid_has_next_step(insar_project):
+def test_validate_valid_no_next_step(insar_project):
     pid = insar_project["project_id"]
     for key, val in [
         ("runconfig.groups.input_file_group.reference_rslc_file", "/data/ref.h5"),
@@ -183,14 +181,13 @@ def test_validate_valid_has_next_step(insar_project):
         insar_set_runconfig_value(pid, key, val)
     result = insar_validate_runconfig(pid)
     assert result["valid"] is True
-    assert "next_step" in result
-    assert "insar_export_runconfig" in result["next_step"]
+    assert "next_step" not in result
 
 
-def test_export_runconfig_has_next_step(insar_project):
+def test_export_runconfig_no_next_step(insar_project):
     result = insar_export_runconfig(insar_project["project_id"])
-    assert "next_step" in result
-    assert "insar_run_workflow" in result["next_step"]
+    assert "yaml_path" in result
+    assert "next_step" not in result
 
 
 def test_run_workflow_dry_run_has_next_step(insar_project):
@@ -210,8 +207,10 @@ def test_run_workflow_dry_run_has_next_step(insar_project):
     # dry_run does not add next_step (no job launched), this is fine
 
 
-def test_prepare_stack_has_next_step(tmp_path):
-    from tests.unit.test_m4_stack_network import make_rslc, make_fixture_runconfig, make_dem
+def test_prepare_stack_returns_run_command(tmp_path):
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).parent))
+    from test_m4_stack_network import make_rslc, make_fixture_runconfig, make_dem
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
     make_rslc(data_dir, "20251122")
@@ -223,13 +222,15 @@ def test_prepare_stack_has_next_step(tmp_path):
         data_dir=str(data_dir), base_runconfig=str(rc),
         dem=str(dem), output_dir=str(tmp_path / "stack"),
     )
-    assert "next_step" in result
-    assert "run_parallel.sh" in result["next_step"]
-    assert "insar_prepare_network" in result["next_step"]
+    assert "run_command" in result
+    assert "run_parallel.sh" in result["run_command"]
+    assert "next_step" not in result
 
 
-def test_prepare_network_has_next_step(tmp_path):
-    from tests.unit.test_m4_stack_network import make_rslc, make_fixture_runconfig, make_dem
+def test_prepare_network_returns_run_command_and_pattern(tmp_path):
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).parent))
+    from test_m4_stack_network import make_rslc, make_fixture_runconfig, make_dem
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
     make_rslc(data_dir, "20251122")
@@ -241,6 +242,8 @@ def test_prepare_network_has_next_step(tmp_path):
         data_dir=str(data_dir), base_runconfig=str(rc),
         dem=str(dem), output_dir=str(tmp_path / "network"),
     )
-    assert "next_step" in result
-    assert "run_parallel.sh" in result["next_step"]
-    assert "products" in result["next_step"]
+    assert "run_command" in result
+    assert "run_parallel.sh" in result["run_command"]
+    assert "gunw_pattern" in result
+    assert "products" in result["gunw_pattern"]
+    assert "next_step" not in result

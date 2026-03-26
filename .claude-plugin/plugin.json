@@ -1,0 +1,8 @@
+{
+  "name": "insar-agent-skills",
+  "description": "Claude Code skills for NISAR InSAR processing with ISCE3 via insar-agent MCP tools",
+  "author": {
+    "name": "insar-agent project",
+    "email": "user@local"
+  }
+}

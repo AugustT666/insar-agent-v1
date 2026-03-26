@@ -527,38 +527,6 @@ Lists output files produced by a completed job.
 
 ---
 
-### `insar_generate_preview`
-
-Generates a lightweight preview (PNG thumbnail or statistics summary) from a job output file.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|---|---|---|---|
-| `job_id` | string | yes | Job UUID |
-| `artifact_path` | string | no | Specific output file to preview (default: auto-select primary product) |
-
-**Returns:**
-```json
-{
-  "job_id": "j-001",
-  "preview_path": "/data/.../output/preview.png",
-  "stats": {
-    "min": -3.14,
-    "max": 3.14,
-    "mean": 0.01,
-    "nodata_fraction": 0.02
-  }
-}
-```
-
-**Errors:**
-- `job_not_found`
-- `job_not_done`
-- `preview_not_supported` — artifact type does not support preview generation
-
-**Implementation:** `engines/isce3/` (to be added), `runtime/workspace.py`
-
 ---
 
 ## Group 5: Stack / Network (M4)
@@ -679,3 +647,71 @@ output_dir/
 - `invalid_input` — invalid network_mode, span < 1, threshold < 1, bad pair format, or pair references unknown date
 
 **Implementation:** `engines/isce3/network.py::prepare_network`
+
+---
+
+## Group 6: Utilities (M5)
+
+These tools support data preparation and output conversion tasks that are independent of the project registry.
+
+---
+
+### `insar_extract_bbox`
+
+Extract the union bounding box from one or more NISAR RSLC HDF5 files. Use before downloading a DEM to ensure full coverage.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `rslc_paths` | list[string] | yes | Absolute paths to NISAR RSLC `.h5` files |
+
+**Returns:**
+```json
+{
+  "min_lon": 120.5,
+  "min_lat": 35.2,
+  "max_lon": 121.3,
+  "max_lat": 36.0,
+  "n_files": 2
+}
+```
+
+**Errors:**
+- `invalid_input` — empty list
+- `path_not_found` — one or more files do not exist
+- `bbox_failed` — could not read bounding polygon from HDF5
+
+**Implementation:** `engines/isce3/bbox.py::union_bbox`
+
+---
+
+### `insar_export_geotiff`
+
+Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images. Iterates all spatial datasets in the file and writes outputs under `<output_dir>/browse/`.
+
+Requires h5py, numpy, and GDAL — must be run inside the isce3 conda environment.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `h5_path` | string | yes | Absolute path to a NISAR GUNW `.h5` output file |
+| `output_dir` | string | yes | Directory where `browse/` subdirectory will be created |
+
+**Returns:**
+```json
+{
+  "output_dir": "/data/.../browse",
+  "n_files": 4,
+  "files": ["/data/.../browse/unwrappedPhase.tif", "..."],
+  "skipped": []
+}
+```
+
+**Errors:**
+- `path_not_found` — h5_path does not exist
+- `dependency_missing` — h5py, numpy, or GDAL not available in current environment
+- `export_failed` — unexpected error during conversion
+
+**Implementation:** `engines/isce3/geotiff.py::export_geotiff`

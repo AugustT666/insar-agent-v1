@@ -97,6 +97,8 @@ The long-term asset is not any client-specific wrapper. It is the accumulated op
 - `isce3/defaults.py` — supported workflows (`gslc`, `insar`) and their metadata
 - `isce3/stack.py` — `prepare_stack()`: single-reference stack batch generation (from wangshuai)
 - `isce3/network.py` — `prepare_network()`: interferogram network tbase/conn (from wangshuai)
+- `isce3/bbox.py` — `union_bbox()`: extract union bounding box from RSLC HDF5 files
+- `isce3/geotiff.py` — `export_geotiff()`: convert GUNW HDF5 to GeoTIFF + PNG browse images
 - Key files: `src/insar_agent/engines/`
 
 ### `insar_agent.runtime`
@@ -172,6 +174,10 @@ See [mcp-tools.md](mcp-tools.md) for full input/output specs.
 - `insar_prepare_stack` — batch single-reference runconfig generation
 - `insar_prepare_network` — batch interferogram network runconfig generation
 
+**Utilities** (M5)
+- `insar_extract_bbox` — extract union bounding box from RSLC files (for DEM download)
+- `insar_export_geotiff` — convert GUNW HDF5 to GeoTIFF + PNG browse images
+
 ---
 
 ## Typical Agent Interaction Flow
@@ -240,8 +246,9 @@ Never invent workflow parameters or undocumented operational steps when source m
 | M2: Job execution | **Done** | `run_workflow` (async Popen), `get_job_status`, `get_job_logs` |
 | M3: Output handling | **Done** | `list_outputs` with artifact type inference |
 | M4: Stack / network | **Done** | `prepare_stack`, `prepare_network` (wangshuai two-layer architecture) |
-| M4b: Agent onboarding | **Done** | Resources, Prompts, `next_step` guidance; 97 unit + 5 integration tests |
-| M5: MintPy integration | Pending | `insar_run_mintpy`, `insar_plot_baseline`, `insar_extract_bbox`, `insar_export_geotiff` |
+| M4b: Agent onboarding | **Done** | Resources, Prompts, skill-first architecture; 104 unit + 5 integration tests |
+| M5: Utilities | **Done** | `insar_extract_bbox`, `insar_export_geotiff`; skill-first arch (skills = guidance, MCP = execution) |
+| M5 (next): MintPy integration | Pending | `insar_run_mintpy`, `insar_plot_baseline` (run_mintpy_nisar_stack.sh, plot_isce3_baseline_network.py) |
 
 ### Implementation notes (2026-03-25)
 
@@ -252,6 +259,7 @@ Never invent workflow parameters or undocumented operational steps when source m
 - **Conda env**: stored per-project, injected into `build_workflow_command()` as `conda run -n <env>`
 - **Test data**: NISAR RSLC files on NAS at `/home/august/NAS/NISAR_wangshuai_data/`; integration tests reference directly; `insar_nisar.yaml` fixture in `tests/fixtures/`
 - **Knowledge bases**: `knowledge-base/tianxiaolong/` — primary (SKILL.md constraints, runconfig template); `knowledge-base/wangshuai/` — supplementary (stack/network scripts, MintPy integration)
+- **Developer documents**: `docs/developer-documents/` — project management docs (dev-plan, workflow showcase); not referenced by CLAUDE.md
 
 ---
 

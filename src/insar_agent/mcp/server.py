@@ -17,6 +17,8 @@ from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS,
     load_default_runconfig,
 )
+from insar_agent.engines.isce3.bbox import union_bbox
+from insar_agent.engines.isce3.geotiff import export_geotiff
 from insar_agent.engines.isce3.network import prepare_network
 from insar_agent.engines.isce3.runner import build_workflow_command
 from insar_agent.engines.isce3.stack import prepare_stack
@@ -27,101 +29,20 @@ _ENGINES = {_ADAPTER.name: _ADAPTER}
 
 mcp = FastMCP("insar-mcp-server")
 
+# Path to the external agent guide — single source of truth for AI constraints.
+# Stored in docs/agent-guide.md so it can be edited without touching server code.
+_GUIDE_PATH = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "agent-guide.md"
+
 
 # ── Resources ──────────────────────────────────────────────────────────────────
-
-_WORKFLOW_GUIDE = """\
-# insar-agent Workflow Guide
-
-This server exposes ISCE3 NISAR InSAR processing as MCP tools.
-Read this guide before calling any tool.
-
----
-
-## Hard constraints (NEVER violate)
-
-1. Only official ISCE3 NISAR workflows. Do not invent custom workflows.
-2. Only PATH fields may be changed. Core processing parameters
-   (multilook, filtering, unwrapping, thresholds, iterations) are LOCKED.
-   Attempting to set them via insar_set_runconfig_value returns error: key_not_allowed.
-3. Always start from the default runconfig template —
-   insar_create_project loads it automatically.
-4. Execution command is always:
-   conda run -n <env> python -m nisar.workflows.<workflow> /path/to/runconfig.yaml
-
----
-
-## Path A — Single RSLC pair → GUNW product (M1-M3 tools)
-
-Mandatory order:
-  1. insar_create_project        → get project_id
-  2. insar_set_runconfig_value   → fill all required path fields (see below)
-  3. insar_validate_runconfig    → must return valid=true before proceeding
-  4. insar_export_runconfig      → write YAML to disk (required before execution)
-  5. insar_run_workflow          → launch ISCE3 in background, get job_id
-  6. insar_get_job_status        → poll until status is 'done' or 'failed'
-  7. insar_get_job_logs          → read log if failed
-  8. insar_list_outputs          → list products when done
-
-Required fields for workflow 'insar':
-  - runconfig.groups.input_file_group.reference_rslc_file   (RSLC .h5 path)
-  - runconfig.groups.input_file_group.secondary_rslc_file   (RSLC .h5 path)
-  - runconfig.groups.dynamic_ancillary_file_group.dem_file  (DEM .tif path)
-  - runconfig.groups.product_path_group.product_path        (output dir)
-  - runconfig.groups.product_path_group.scratch_path        (temp dir)
-  - runconfig.groups.product_path_group.sas_output_file     (output filename)
-
-Optional settable fields for workflow 'insar':
-  - runconfig.groups.dynamic_ancillary_file_group.water_mask_file
-  - runconfig.groups.logging.path
-  - runconfig.groups.worker.gpu_enabled  (bool)
-  - runconfig.groups.worker.gpu_id       (int)
-
----
-
-## Path B — Multi-scene batch processing (M4 tools)
-
-These tools operate directly on the filesystem, independent of the project registry.
-
-  1. insar_prepare_stack(data_dir, base_runconfig, dem, output_dir)
-       Scans data_dir for NISAR RSLC .h5 files, picks reference (earliest by default),
-       generates one runconfig per secondary scene + run_parallel.sh.
-       → After this call, USER executes: bash <output_dir>/run_parallel.sh <output_dir> <N>
-
-  2. insar_prepare_network(data_dir, base_runconfig, dem, output_dir, network_mode, ...)
-       Generates interferogram network runconfigs.
-       network_mode='tbase': connect pairs with temporal baseline ≤ max_temporal_baseline_days (default 36)
-       network_mode='conn':  connect each date to next connection_span dates (default 3)
-       pair_list=<path>:     use a custom YYYYMMDD_YYYYMMDD pair list file instead
-       → After this call, USER executes: bash <output_dir>/run_parallel.sh <output_dir> <N>
-
----
-
-## What to do when a field is rejected
-
-If insar_set_runconfig_value returns error: key_not_allowed,
-the key is a core processing parameter. Do NOT attempt workarounds.
-Tell the user: these parameters affect algorithm reproducibility and must be
-edited manually in the exported YAML. Point to the field location.
-
----
-
-## Error reference
-
-  project_not_found      — wrong project_id
-  key_not_allowed        — attempting to set a core processing parameter (LOCKED)
-  key_not_found          — dotted path does not exist in runconfig
-  runconfig_invalid      — required path fields missing or null
-  runconfig_not_exported — must call insar_export_runconfig before insar_run_workflow
-  path_not_found         — a filesystem path argument does not exist
-  invalid_input          — bad parameter value (e.g. negative baseline, unknown network_mode)
-"""
-
 
 @mcp.resource("insar://workflow-guide")
 def get_workflow_guide() -> str:
     """Workflow constraints and step-by-step guide for ISCE3 InSAR processing."""
-    return _WORKFLOW_GUIDE
+    try:
+        return _GUIDE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "# Agent guide not found — see docs/agent-guide.md"
 
 
 @mcp.resource("insar://allowed-fields/{workflow}")
@@ -471,11 +392,7 @@ def insar_create_project(
         "workspace_root": project.workspace_root,
         "conda_env": project.conda_env,
         "created_at": project.created_at,
-        "next_step": (
-            f"Call insar_set_runconfig_value to fill the required path fields, "
-            f"then call insar_validate_runconfig. "
-            f"Required fields for '{workflow}': {required}"
-        ),
+        "required_fields": required,
     }
 
 
@@ -602,11 +519,6 @@ def insar_validate_runconfig(project_id: str) -> dict:
         "project_id": project_id,
         "valid": valid,
         "errors": errors,
-        "next_step": (
-            "Call insar_export_runconfig to write the runconfig YAML to disk."
-            if valid else
-            "Fix the reported errors with insar_set_runconfig_value, then call insar_validate_runconfig again."
-        ),
     }
 
 
@@ -648,7 +560,6 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
         "project_id": project_id,
         "yaml_path": str(yaml_path),
         "exported_at": exported_at,
-        "next_step": "Call insar_run_workflow to launch the ISCE3 processing job.",
     }
 
 
@@ -747,7 +658,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         "submitted_at": job.submitted_at,
         "log_path": log_path,
         "dry_run": False,
-        "next_step": f"Poll insar_get_job_status(job_id='{job.job_id}', project_id='{project_id}') until status is 'done' or 'failed'.",
+        "poll": f"insar_get_job_status(job_id='{job.job_id}', project_id='{project_id}')",
     }
 
 
@@ -872,13 +783,8 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
 
     return {
         "job_id": job_id,
+        "status": job.status,
         "outputs": artifacts,
-        "next_step": (
-            "Processing complete. GUNW .h5 products can be opened with h5py or QGIS. "
-            "Use insar_prepare_network to build a batch interferogram network from multiple scenes."
-            if job.status == "done" else
-            "Job failed. Call insar_get_job_logs to inspect the error log."
-        ),
     }
 
 
@@ -915,11 +821,7 @@ def insar_prepare_stack(
             output_dir=output_dir,
             reference=reference,
         )
-        result["next_step"] = (
-            f"Execute the batch runner from the terminal: "
-            f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>  "
-            f"Then call insar_prepare_network to build the interferogram network."
-        )
+        result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         return result
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
@@ -970,16 +872,79 @@ def insar_prepare_network(
             connection_span=connection_span,
             pair_list=pair_list or None,
         )
-        result["next_step"] = (
-            f"Execute the batch runner from the terminal: "
-            f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>  "
-            f"GUNW products will appear in {result['output_dir']}/runs/*/products/*.h5"
-        )
+        result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
+        result["gunw_pattern"] = f"{result['output_dir']}/runs/*/products/*.h5"
         return result
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
     except ValueError as exc:
         return {"error": "invalid_input", "message": str(exc)}
+
+
+# ── Group 6: Utilities (M5) ───────────────────────────────────────────────────
+
+@mcp.tool()
+def insar_extract_bbox(rslc_paths: list[str]) -> dict:
+    """
+    Extract the union bounding box from one or more NISAR RSLC HDF5 files.
+
+    Reads the boundingPolygon field from each file and returns the combined
+    geographic extent. Use this before downloading a DEM to ensure coverage.
+
+    Args:
+        rslc_paths: List of absolute paths to NISAR RSLC .h5 files.
+    """
+    if not rslc_paths:
+        return {"error": "invalid_input", "message": "rslc_paths must not be empty"}
+
+    missing = [p for p in rslc_paths if not Path(p).exists()]
+    if missing:
+        return {"error": "path_not_found", "message": f"Files not found: {missing}"}
+
+    try:
+        bbox = union_bbox(rslc_paths)
+    except Exception as exc:
+        return {"error": "bbox_failed", "message": str(exc)}
+
+    return {
+        "min_lon": bbox["min_lon"],
+        "min_lat": bbox["min_lat"],
+        "max_lon": bbox["max_lon"],
+        "max_lat": bbox["max_lat"],
+        "n_files": len(rslc_paths),
+    }
+
+
+@mcp.tool()
+def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
+    """
+    Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images.
+
+    Iterates all spatial datasets in the HDF5 file and writes one GeoTIFF and
+    one colour-mapped PNG per dataset under <output_dir>/browse/.
+
+    Requires h5py, numpy, and GDAL — must be run inside the isce3 conda environment.
+
+    Args:
+        h5_path: Absolute path to a NISAR GUNW .h5 output file.
+        output_dir: Directory where browse/ subdirectory will be created.
+    """
+    if not Path(h5_path).exists():
+        return {"error": "path_not_found", "message": f"File not found: {h5_path!r}"}
+
+    try:
+        result = export_geotiff(h5_path=h5_path, output_dir=output_dir)
+    except RuntimeError as exc:
+        return {"error": "dependency_missing", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "export_failed", "message": str(exc)}
+
+    return {
+        "output_dir": result["output_dir"],
+        "n_files": len(result["files"]),
+        "files": result["files"],
+        "skipped": result["skipped"],
+    }
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────
@@ -1007,6 +972,8 @@ def build_server_description() -> dict:
             "insar_list_outputs",
             "insar_prepare_stack",
             "insar_prepare_network",
+            "insar_extract_bbox",
+            "insar_export_geotiff",
         ],
     }
 

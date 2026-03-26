@@ -47,7 +47,18 @@ Agent Client (Codex / Claude Code / etc.)
 
 **`insar_agent.runtime`** — workspace layout, conda env detection, structured logging helpers.
 
-**`skills/`** — host-specific teaching material for agent clients. Not the source of truth for execution logic.
+**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`) and installed into Claude Code. Invoke with the Skill tool:
+- `data-prep-nisar` — download NISAR RSLC data (ASF) and DEM (Copernicus 30m)
+- `d-insar-isce3` — single RSLC pair → GUNW product (Path A, M1-M3 tools)
+- `stack-insar-isce3` — multi-scene batch stack + network (Path B, M4 tools)
+- `env-setup-nisar` — ISCE3 + MCP installation guide (placeholder, M6+)
+- `insar-agent` — session router / entry point
+
+Plugin setup (run once, or after skills/ changes):
+```bash
+claude plugin marketplace add /home/august/insar-agent --scope project
+claude plugin install insar-agent-skills@insar-agent
+```
 
 ## Key Rules from AGENTS.md
 
@@ -58,14 +69,14 @@ Agent Client (Codex / Claude Code / etc.)
 
 ## Current Status
 
-**M0–M4 + agent onboarding complete. 97 unit tests + 5 integration tests passing (2026-03-25).**
+**M0–M5 + skill-first architecture complete. 97+ unit tests + 5 integration tests passing (2026-03-26).**
 
 Before making non-trivial changes, read:
 
 1. `docs/architecture.md` — system overview, layer boundaries, milestone status
 2. `docs/mcp-tools.md` — full input/output spec for every MCP tool
 3. `docs/domain-model.md` — Project, Job, WorkflowTemplate, Artifact field definitions
-4. `docs/interaction-flow.md` — how User, AI, and MCP interact; constraint propagation chain
+4. `docs/agent-guide.md` — AI constraint guide (single source of truth); served as `insar://workflow-guide` MCP resource
 
 ## Collaboration Workflow
 
@@ -88,6 +99,7 @@ Knowledge base:
 - M3: output handling ✓ — `insar_list_outputs`
 - M4: stack/network ✓ — `insar_prepare_stack`, `insar_prepare_network` (wangshuai two-layer architecture)
 - M4b: agent onboarding ✓ — MCP Resources, Prompts, `next_step` guidance in tool returns
+- M5: utilities ✓ — `insar_extract_bbox`, `insar_export_geotiff`; skill-first architecture (skills = single guidance source, MCP tools = pure execution)
 - M5 (next): MintPy integration — `insar_run_mintpy`, `insar_plot_baseline` (run_mintpy_nisar_stack.sh, plot_isce3_baseline_network.py)
 
 **engines/isce3/ modules:**
@@ -103,7 +115,9 @@ Knowledge base:
 - Resource `insar://allowed-fields/{workflow}` — dynamic list of settable fields per workflow
 - Prompt `process_insar_pair(ref, sec, dem, output_dir, conda_env)` — single-pair guided template
 - Prompt `process_insar_batch(data_dir, dem, output_dir, network_mode, ...)` — batch stack/network template
-- `next_step` field in returns of: `insar_create_project`, `insar_validate_runconfig`, `insar_export_runconfig`, `insar_run_workflow`, `insar_list_outputs`, `insar_prepare_stack`, `insar_prepare_network`
+- `poll` field in `insar_run_workflow` return (contains exact job_id for polling)
+- `run_command` + `gunw_pattern` fields in `insar_prepare_stack` / `insar_prepare_network` returns
+- All narrative `next_step` fields removed — workflow guidance is owned by skills, not MCP tools
 
 **Test data:**
 - NAS RSLC files: `/home/august/NAS/NISAR_wangshuai_data/` (referenced directly by integration tests)
