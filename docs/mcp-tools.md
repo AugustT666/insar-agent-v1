@@ -715,3 +715,114 @@ Requires h5py, numpy, and GDAL — must be run inside the isce3 conda environmen
 - `export_failed` — unexpected error during conversion
 
 **Implementation:** `engines/isce3/geotiff.py::export_geotiff`
+
+---
+
+## Group 7: MintPy Time-Series (M6)
+
+These tools run MintPy time-series analysis on a completed ISCE3 interferogram network (Path B, filesystem-direct — no project registry).
+
+---
+
+### `insar_run_mintpy`
+
+Launch MintPy time-series processing asynchronously. Wraps `run_mintpy_nisar_stack.sh` inside the given conda environment. Logs are written to `<mintpy_work_dir>/logs/<job_id>.log`. Job metadata is persisted to `<mintpy_work_dir>/.jobs/<job_id>.json`.
+
+Requires MintPy and GDAL in the conda environment.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `mintpy_work_dir` | string | yes | Output directory for MintPy results |
+| `gunw_glob` | string | yes | Shell glob matching GUNW `.h5` files, e.g. `/path/to/network/runs/*/products/*.h5` |
+| `mintpy_config` | string | yes | Path to MintPy smallbaselineApp config file (`.cfg` or `.txt`) |
+| `dem_path` | string | yes | Path to the DEM GeoTIFF used during ISCE3 processing |
+| `conda_env` | string | yes | Conda environment that contains MintPy and GDAL |
+
+**Returns:**
+```json
+{
+  "job_id": "uuid",
+  "pid": 12345,
+  "status": "running",
+  "log_path": "/work/mintpy/logs/uuid.log",
+  "submitted_at": "2026-01-01T00:00:00+00:00",
+  "poll": "insar_get_mintpy_status(job_id='uuid', mintpy_work_dir='/work/mintpy')"
+}
+```
+
+**Errors:**
+- `invalid_input` — `gunw_glob` is empty
+- `path_not_found` — `mintpy_config` or `dem_path` does not exist
+- `launch_failed` — subprocess could not be started
+
+**Implementation:** `engines/isce3/mintpy.py::run_mintpy`
+
+---
+
+### `insar_get_mintpy_status`
+
+Return the current status of a MintPy job launched by `insar_run_mintpy`. Checks whether the process is still alive; if the process has exited, inspects the log tail to determine `done` vs `failed` and updates the persisted job JSON.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `job_id` | string | yes | UUID returned by `insar_run_mintpy` |
+| `mintpy_work_dir` | string | yes | Same directory passed to `insar_run_mintpy` |
+
+**Returns:**
+```json
+{
+  "job_id": "uuid",
+  "pid": 12345,
+  "status": "done",
+  "log_path": "/work/mintpy/logs/uuid.log",
+  "submitted_at": "2026-01-01T00:00:00+00:00",
+  "finished_at": "2026-01-01T01:30:00+00:00"
+}
+```
+
+Status values: `running` | `done` | `failed`
+
+**Errors:**
+- `path_not_found` — `mintpy_work_dir` does not exist
+- `job_not_found` — no job with the given `job_id` in this directory
+- `status_failed` — unexpected error reading job state
+
+**Implementation:** `engines/isce3/mintpy.py::get_mintpy_status`
+
+---
+
+### `insar_plot_baseline`
+
+Generate a spatiotemporal baseline network plot and CSV files from a completed interferogram network. Reads perpendicular baseline from GUNW HDF5 products, solves per-scene baselines via least-squares, and saves PNG, PDF, and two CSV files.
+
+Requires h5py, matplotlib, and numpy — must be run inside the isce3 conda environment.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `network_dir` | string | yes | Network output directory containing `runs/` and `pair_lists/` |
+| `pair_list` | string | no | Path to a pair-list file (`YYYYMMDD_YYYYMMDD` per line). Leave empty to use `pair_lists/pairs_selected.txt` |
+| `title` | string | no | Figure title (default: `"ISCE3 Spatiotemporal Baseline Network"`) |
+
+**Returns:**
+```json
+{
+  "png_path": "/network/pair_lists/baseline_network.png",
+  "pdf_path": "/network/pair_lists/baseline_network.pdf",
+  "pair_csv": "/network/pair_lists/pair_baselines.csv",
+  "scene_csv": "/network/pair_lists/scene_baselines.csv",
+  "n_pairs": 12
+}
+```
+
+**Errors:**
+- `path_not_found` — `network_dir` or explicit `pair_list` does not exist
+- `dependency_missing` — h5py, matplotlib, or numpy not available
+- `plot_failed` — unexpected error during plot generation
+
+**Implementation:** `engines/isce3/baseline.py::plot_baseline_network`

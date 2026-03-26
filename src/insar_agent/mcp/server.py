@@ -17,8 +17,10 @@ from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS,
     load_default_runconfig,
 )
+from insar_agent.engines.isce3.baseline import plot_baseline_network
 from insar_agent.engines.isce3.bbox import union_bbox
 from insar_agent.engines.isce3.geotiff import export_geotiff
+from insar_agent.engines.isce3.mintpy import get_mintpy_status, run_mintpy
 from insar_agent.engines.isce3.network import prepare_network
 from insar_agent.engines.isce3.runner import build_workflow_command
 from insar_agent.engines.isce3.stack import prepare_stack
@@ -947,6 +949,156 @@ def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
     }
 
 
+# ── Group 7: M6 MintPy ─────────────────────────────────────────────────────────
+
+@mcp.tool()
+def insar_run_mintpy(
+    mintpy_work_dir: str,
+    gunw_glob: str,
+    mintpy_config: str,
+    dem_path: str,
+    conda_env: str,
+) -> dict:
+    """Launch MintPy time-series processing asynchronously.
+
+    Wraps run_mintpy_nisar_stack.sh inside the given conda environment.
+    stdout and stderr are written to <mintpy_work_dir>/logs/<job_id>.log.
+
+    Args:
+        mintpy_work_dir: Output directory for MintPy results.
+        gunw_glob:       Shell glob pattern matching GUNW .h5 files,
+                         e.g. /path/to/network/runs/*/products/*.h5
+        mintpy_config:   Path to MintPy smallbaselineApp config (.cfg or .txt).
+        dem_path:        Path to the DEM GeoTIFF used during preprocessing.
+        conda_env:       Conda environment that contains MintPy and GDAL.
+    """
+    if not gunw_glob.strip():
+        return {"error": "invalid_input", "message": "gunw_glob must not be empty"}
+
+    for label, path in [("mintpy_config", mintpy_config), ("dem_path", dem_path)]:
+        if not Path(path).exists():
+            return {
+                "error": "path_not_found",
+                "message": f"{label} not found: {path!r}",
+            }
+
+    try:
+        result = run_mintpy(
+            mintpy_work_dir=mintpy_work_dir,
+            gunw_glob=gunw_glob,
+            mintpy_config=mintpy_config,
+            dem_path=dem_path,
+            conda_env=conda_env,
+        )
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "launch_failed", "message": str(exc)}
+
+    job_id = result["job_id"]
+    return {
+        "job_id": job_id,
+        "pid": result["pid"],
+        "status": result["status"],
+        "log_path": result["log_path"],
+        "submitted_at": result["submitted_at"],
+        "poll": (
+            f"insar_get_mintpy_status("
+            f"job_id='{job_id}', "
+            f"mintpy_work_dir='{mintpy_work_dir}')"
+        ),
+    }
+
+
+@mcp.tool()
+def insar_get_mintpy_status(job_id: str, mintpy_work_dir: str) -> dict:
+    """Return the current status of a MintPy job launched by insar_run_mintpy.
+
+    Checks whether the process is still running.  If the process has exited,
+    the job status is updated to 'done' or 'failed' by inspecting the log tail.
+
+    Args:
+        job_id:          UUID returned by insar_run_mintpy.
+        mintpy_work_dir: Same directory passed to insar_run_mintpy.
+    """
+    if not Path(mintpy_work_dir).exists():
+        return {
+            "error": "path_not_found",
+            "message": f"mintpy_work_dir not found: {mintpy_work_dir!r}",
+        }
+
+    try:
+        data = get_mintpy_status(job_id=job_id, mintpy_work_dir=mintpy_work_dir)
+    except FileNotFoundError:
+        return {
+            "error": "job_not_found",
+            "message": f"No job with id {job_id!r} in {mintpy_work_dir!r}",
+        }
+    except Exception as exc:
+        return {"error": "status_failed", "message": str(exc)}
+
+    return {
+        "job_id": data.get("job_id"),
+        "pid": data.get("pid"),
+        "status": data.get("status"),
+        "log_path": data.get("log_path"),
+        "submitted_at": data.get("submitted_at"),
+        "finished_at": data.get("finished_at"),
+    }
+
+
+@mcp.tool()
+def insar_plot_baseline(
+    network_dir: str,
+    pair_list: str = "",
+    title: str = "ISCE3 Spatiotemporal Baseline Network",
+) -> dict:
+    """Generate a spatiotemporal baseline network plot and CSV files.
+
+    Reads GUNW products from the interferogram network directory produced by
+    insar_prepare_network.  Outputs PNG, PDF, and two CSV files.
+
+    Args:
+        network_dir: Network output directory containing runs/ and pair_lists/.
+        pair_list:   Path to a pair-list file (YYYYMMDD_YYYYMMDD per line).
+                     Leave empty to use pair_lists/pairs_selected.txt.
+        title:       Figure title.
+    """
+    if not Path(network_dir).exists():
+        return {
+            "error": "path_not_found",
+            "message": f"network_dir not found: {network_dir!r}",
+        }
+
+    pair_list_arg: str | None = pair_list if pair_list.strip() else None
+    if pair_list_arg is not None and not Path(pair_list_arg).exists():
+        return {
+            "error": "path_not_found",
+            "message": f"pair_list not found: {pair_list_arg!r}",
+        }
+
+    try:
+        result = plot_baseline_network(
+            network_dir=network_dir,
+            pair_list=pair_list_arg,
+            title=title,
+        )
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except RuntimeError as exc:
+        return {"error": "dependency_missing", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "plot_failed", "message": str(exc)}
+
+    return {
+        "png_path": result["png_path"],
+        "pdf_path": result["pdf_path"],
+        "pair_csv": result["pair_csv"],
+        "scene_csv": result["scene_csv"],
+        "n_pairs": result["n_pairs"],
+    }
+
+
 # ── CLI entry point ────────────────────────────────────────────────────────────
 
 def build_server_description() -> dict:
@@ -974,6 +1126,9 @@ def build_server_description() -> dict:
             "insar_prepare_network",
             "insar_extract_bbox",
             "insar_export_geotiff",
+            "insar_run_mintpy",
+            "insar_get_mintpy_status",
+            "insar_plot_baseline",
         ],
     }
 

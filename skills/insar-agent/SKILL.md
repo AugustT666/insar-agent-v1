@@ -3,8 +3,9 @@ name: insar-agent
 description: >
   Entry point for all insar-agent tasks. Invoke this skill at the start of any
   InSAR processing session, when the user mentions NISAR, ISCE3, RSLC, GUNW,
-  interferogram, coherence, unwrapped phase, InSAR, DEM preparation, or time-series
-  analysis. Also invoke when the user asks "how do I start", environment setup is
+  interferogram, coherence, unwrapped phase, InSAR, DEM preparation, time-series
+  analysis, MintPy, smallbaselineApp, displacement, baseline plot, or temporal
+  coherence. Also invoke when the user asks "how do I start", environment setup is
   needed, or it is unclear which specific workflow applies. Always invoke this skill
   before any other insar-agent skill.
 ---
@@ -28,6 +29,7 @@ Select the skill that matches the user's task and invoke it:
 | Download NISAR RSLC data or prepare/download DEM | `data-prep-nisar` |
 | Single RSLC pair → GUNW interferogram product | `d-insar-isce3` |
 | Multiple RSLC scenes → interferogram network (batch) | `stack-insar-isce3` |
+| MintPy time-series, displacement, baseline plot | `mintpy-isce3` |
 
 If the task spans multiple rows (e.g., data is missing AND a single pair needs processing),
 invoke `data-prep-nisar` first, then `D-InSAR-isce3`.

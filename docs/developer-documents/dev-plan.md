@@ -48,37 +48,38 @@
 
 **测试状态（2026-03-26）：104 unit tests + 5 integration tests 全部通过**
 
----
+### M6 — MintPy 时序分析集成 ✓
 
-## 下一里程碑
-
-### M6 — MintPy 时序分析集成（规划中）
-
-**目标：** 将 MintPy 时序处理流程接入 MCP，让 Agent 可以在 Stack-InSAR 完成后直接调用 MintPy。
+**目标：** 将 MintPy 时序处理流程接入 MCP，让 Agent 在 Stack-InSAR 完成后可以直接调用 MintPy。
 
 **参考脚本（knowledge-base/wangshuai/Scripts/）：**
-- `run_mintpy_nisar_stack.sh` — MintPy 全流程入口
-- `plot_isce3_baseline_network.py` — 时空基线网络可视化
+- `run_mintpy_nisar_stack.sh` — MintPy 全流程入口（复制到 `engines/isce3/assets/`，DEM 参数化为第 4 个位置参数）
+- `plot_isce3_baseline_network.py` — 时空基线网络可视化（规范化为 `engines/isce3/baseline.py`）
+- `prep_nisar_current_gunw.py` + `apply_common_ifgram_mask.py` — 辅助脚本（复制到 `engines/isce3/scripts/`）
 
-**计划工具：**
+**新增工具：**
 
 | 工具 | 描述 |
 |------|------|
-| `insar_run_mintpy` | 调用 run_mintpy_nisar_stack.sh，返回 job_id |
-| `insar_plot_baseline` | 调用 plot_isce3_baseline_network.py，返回图像路径 |
+| `insar_run_mintpy` | 异步启动 MintPy，返回 job_id + log_path |
+| `insar_get_mintpy_status` | 轮询 MintPy 作业（Path B，无项目注册表，按 mintpy_work_dir 定位） |
+| `insar_plot_baseline` | 生成时空基线网络图（PNG/PDF）+ CSV 基线统计 |
 
-**引擎模块（engines/isce3/）：**
-- `mintpy.py` — MintPy runner（conda run 封装）
-- `baseline.py` — 基线可视化调用封装
+**新增引擎模块：**
+- `engines/isce3/mintpy.py` — `run_mintpy()` + `get_mintpy_status()`
+- `engines/isce3/baseline.py` — `plot_baseline_network()`
 
-**测试计划：**
-- unit：mock MintPy 调用，验证命令构造
-- integration：依赖 NAS 数据，自动跳过（同 M2）
+**新增 Skill：**
+- `skills/mintpy-isce3/SKILL.md` — MintPy 工作流引导（先画基线图，再启动 MintPy，轮询直到完成）
+- `skills/insar-agent/SKILL.md` 路由表更新：新增 `mintpy-isce3` 条目
 
-**依赖确认（开始前需用户提供）：**
-- MintPy conda 环境名称
-- 完整的 MintPy 配置文件结构（smallbaselineApp.cfg）
-- 是否需要 NISAR-specific 预处理步骤
+**测试：** `tests/unit/test_m6_mintpy_baseline.py`（~20 个 unit tests）
+
+**测试状态（2026-03-26）：~124 unit tests + 5 integration tests**
+
+---
+
+## 下一里程碑
 
 ---
 
@@ -122,5 +123,6 @@ insar-agent/
     insar-agent/       # 路由/入口 skill
     D-InSAR-isce3/     # Path A 单对干涉图
     Stack-InSAR-isce3/ # Path B 批量堆叠网络
+    mintpy-isce3/      # Path B MintPy 时序分析
     data-prep-nisar/   # 数据准备（RSLC + DEM）
 ```
