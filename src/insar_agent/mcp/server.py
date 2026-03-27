@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from datetime import datetime, UTC
 from pathlib import Path
@@ -233,6 +234,17 @@ These are the inputs for MintPy time-series analysis (future insar_run_mintpy to
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _read_log_tail(log_path: str | None, n: int = 20) -> str:
+    """Return the last *n* lines of a log file, or '' on any error."""
+    if not log_path:
+        return ""
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+        return "\n".join(lines[-n:])
+    except Exception:
+        return ""
 
 
 def _engine_error(engine: str) -> dict:
@@ -639,12 +651,14 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
 
     try:
         with open(log_path, "w") as log_file:
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 command,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 cwd=project.workspace_root,
             )
+        job.pid = proc.pid
+        job.save(project.jobs_dir())
     except Exception as exc:
         job.status = "failed"
         job.finished_at = _utc_now()
@@ -657,6 +671,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         "project_id": project_id,
         "command": command,
         "status": "running",
+        "pid": proc.pid,
         "submitted_at": job.submitted_at,
         "log_path": log_path,
         "dry_run": False,
@@ -683,10 +698,40 @@ def insar_get_job_status(job_id: str, project_id: str) -> dict:
     except FileNotFoundError:
         return _job_error(job_id)
 
+    # PID-based liveness check: update status if process has exited
+    if job.status == "running" and job.pid is not None:
+        alive = True
+        try:
+            os.kill(job.pid, 0)
+            # os.kill(pid, 0) succeeds for zombie processes too — check /proc
+            state_line = next(
+                (ln for ln in Path(f"/proc/{job.pid}/status").read_text().splitlines()
+                 if ln.startswith("State:")),
+                "",
+            )
+            if "Z" in state_line:
+                alive = False
+        except (ProcessLookupError, FileNotFoundError):
+            alive = False
+        if not alive:
+            log_tail = _read_log_tail(job.log_path)
+            log_lower = log_tail.lower()
+            failed = (
+                "error:" in log_lower
+                or "traceback" in log_lower
+                or "exception:" in log_lower
+                or "critical:" in log_lower
+            )
+            job.status = "failed" if failed else "done"
+            job.finished_at = _utc_now()
+            job.exit_code = 1 if failed else 0
+            job.save(project.jobs_dir())
+
     return {
         "job_id": job.job_id,
         "project_id": job.project_id,
         "status": job.status,
+        "pid": job.pid,
         "exit_code": job.exit_code,
         "submitted_at": job.submitted_at,
         "started_at": job.started_at,

@@ -116,8 +116,8 @@ runconfig:
                     # - Only frequencies listed (i.e, 'A' and/or 'B') will be processed.
                     # - If the [polarizations] list is empty, all available polarizations
                     # for given frequency will be processed
-                    A:
-                    B:
+                    A: [HH]
+                    # B:
 
             # TODO OPTIONAL - Only checked when internet access is available
             dem_download:
@@ -257,8 +257,8 @@ runconfig:
                 # Polarization to be used for ionosphere estimation.
                 # Split_main_band method does not require frequency B.
                 list_of_frequencies:
-                   A:
-                   B:
+                   A: [HH]
+                   # B:
                 # Options for split_main_band method
                 split_range_spectrum:
                     lines_per_block: 2048
@@ -740,7 +740,7 @@ runconfig:
                     # Overlap, in pixels, between neighboring tiles. Increasing overlap may help to
                     # avoid phase discontinuities between tiles. If `tile_overlap` is a scalar
                     # integer, the number of overlapping rows and columns will be the same.
-                    tile_overlap: [0, 0]
+                    tile_overlap: [100, 100]
                     # Maximum number of child processes to spawn for parallel tile unwrapping. If
                     # `nproc` is less than 1, use all available processors. Defaults to 1.
                     nproc: 1

@@ -21,6 +21,7 @@ class Job:
     submitted_at: str = field(default_factory=_utc_now)
     started_at: str | None = None
     finished_at: str | None = None
+    pid: int | None = None
     exit_code: int | None = None
     command: list[str] = field(default_factory=list)
     runconfig_path: str | None = None

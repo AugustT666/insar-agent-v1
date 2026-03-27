@@ -20,6 +20,7 @@ from insar_agent.engines.isce3.validator import validate_runconfig
 from insar_agent.engines.isce3.runner import build_workflow_command
 from insar_agent.mcp.server import (
     insar_create_project,
+    insar_get_project,
     insar_get_runconfig,
     insar_set_runconfig_value,
     insar_unset_runconfig_value,
@@ -345,3 +346,26 @@ def test_run_workflow_invalid_runconfig_fails(insar_project):
     insar_export_runconfig(pid)
     result = insar_run_workflow(pid, dry_run=True)
     assert result["error"] == "runconfig_invalid"
+
+
+# ── insar_get_project ─────────────────────────────────────────────────────────
+
+class TestGetProject:
+    def test_returns_metadata(self, insar_project):
+        pid = insar_project["project_id"]
+        result = insar_get_project(pid)
+        assert result["project_id"] == pid
+        assert result["engine"] == "isce3"
+        assert result["workflow"] == "insar"
+        assert "workspace_root" in result
+
+    def test_not_found(self):
+        result = insar_get_project("nonexistent-id-000")
+        assert result.get("error") == "project_not_found"
+
+    def test_fields_match_create(self, insar_project):
+        pid = insar_project["project_id"]
+        result = insar_get_project(pid)
+        assert result["engine"] == insar_project["engine"]
+        assert result["workflow"] == insar_project["workflow"]
+        assert result["workspace_root"] == insar_project["workspace_root"]
