@@ -21,6 +21,8 @@ import pytest
 from insar_agent.mcp.server import (
     insar_create_project,
     insar_export_runconfig,
+    insar_export_geotiff,
+    insar_extract_bbox,
     insar_get_job_logs,
     insar_get_job_status,
     insar_run_workflow,
@@ -34,6 +36,7 @@ NAS_ROOT = Path("/home/august/NAS/NISAR_wangshuai_data")
 REF_RSLC = NAS_ROOT / "NISAR_L1_PR_RSLC_005_172_A_008_2005_DHDH_A_20251122T024618_20251122T024652_X05007_N_F_J_001_cropped.h5"
 SEC_RSLC = NAS_ROOT / "NISAR_L1_PR_RSLC_006_172_A_008_2005_DHDH_A_20251204T024618_20251204T024653_X05007_N_F_J_001_cropped.h5"
 DEM_FILE = NAS_ROOT / "dem.wgs84"
+NAS_GUNW = NAS_ROOT / "insar_out2" / "GUNW_product.h5"
 CONDA_ENV = "isce3gpu"
 
 NAS_AVAILABLE = REF_RSLC.exists() and SEC_RSLC.exists() and DEM_FILE.exists()
@@ -177,3 +180,33 @@ def test_full_dinsar_produces_gunw(dinsar_project, tmp_path):
         for path in EXPECTED:
             assert path in f, f"Missing HDF5 dataset: {path}"
     print(f"  All {len(EXPECTED)} expected HDF5 datasets present.")
+
+
+# ── M5 utilities: bbox + geotiff ──────────────────────────────────────────────
+
+def test_extract_bbox_real_rslcs():
+    """insar_extract_bbox must return a valid union bounding box for the two NAS RSLCs."""
+    result = insar_extract_bbox(rslc_paths=[str(REF_RSLC), str(SEC_RSLC)])
+    assert "error" not in result, f"Unexpected error: {result}"
+    assert result["min_lon"] < result["max_lon"], "min_lon must be less than max_lon"
+    assert result["min_lat"] < result["max_lat"], "min_lat must be less than max_lat"
+    # Area is in Ethiopia / Horn of Africa (~40–42°E, 13–15°N)
+    assert 30 < result["min_lon"] < 50, f"Unexpected longitude: {result['min_lon']}"
+    assert 10 < result["min_lat"] < 20, f"Unexpected latitude: {result['min_lat']}"
+    print(f"  BBox: lon [{result['min_lon']:.3f}, {result['max_lon']:.3f}]  "
+          f"lat [{result['min_lat']:.3f}, {result['max_lat']:.3f}]")
+
+
+def test_export_geotiff_real_gunw(tmp_path):
+    """insar_export_geotiff must produce GeoTIFF and PNG files from a real GUNW product."""
+    if not NAS_GUNW.exists():
+        pytest.skip(f"NAS GUNW not available: {NAS_GUNW}")
+
+    result = insar_export_geotiff(h5_path=str(NAS_GUNW), output_dir=str(tmp_path))
+    assert "error" not in result, f"Unexpected error: {result}"
+
+    tifs = list(tmp_path.rglob("*.tif"))
+    pngs = list(tmp_path.rglob("*.png"))
+    assert len(tifs) > 0, "No GeoTIFF files produced"
+    assert len(pngs) > 0, "No PNG preview files produced"
+    print(f"  GeoTIFFs: {len(tifs)}  PNGs: {len(pngs)}")

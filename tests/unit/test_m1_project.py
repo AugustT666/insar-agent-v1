@@ -22,6 +22,7 @@ from insar_agent.mcp.server import (
     insar_create_project,
     insar_get_project,
     insar_get_runconfig,
+    insar_list_outputs,
     insar_set_runconfig_value,
     insar_unset_runconfig_value,
     insar_validate_runconfig,
@@ -369,3 +370,94 @@ class TestGetProject:
         assert result["engine"] == insar_project["engine"]
         assert result["workflow"] == insar_project["workflow"]
         assert result["workspace_root"] == insar_project["workspace_root"]
+
+
+# ── insar_list_outputs ────────────────────────────────────────────────────────
+
+class TestListOutputs:
+
+    def _make_done_job(self, project_id: str) -> str:
+        """Launch a mock job, then manually mark it done in the JSON."""
+        from unittest.mock import patch, MagicMock
+        from insar_agent.core.project import Project
+
+        # Set required fields and export so insar_run_workflow accepts the project
+        for key, val in [
+            ("runconfig.groups.input_file_group.reference_rslc_file", "/data/ref.h5"),
+            ("runconfig.groups.input_file_group.secondary_rslc_file", "/data/sec.h5"),
+            ("runconfig.groups.dynamic_ancillary_file_group.dem_file", "/data/dem.tif"),
+            ("runconfig.groups.product_path_group.product_path", "/out"),
+            ("runconfig.groups.product_path_group.scratch_path", "/scratch"),
+            ("runconfig.groups.product_path_group.sas_output_file", "GUNW.h5"),
+        ]:
+            insar_set_runconfig_value(project_id, key, val)
+        insar_export_runconfig(project_id)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc):
+            result = insar_run_workflow(project_id, dry_run=False)
+
+        # Manually flip status to "done" so list_outputs won't reject it
+        project = Project.load(project_id)
+        job_file = project.jobs_dir() / f"{result['job_id']}.json"
+        data = json.loads(job_file.read_text())
+        data["status"] = "done"
+        job_file.write_text(json.dumps(data))
+        return result["job_id"]
+
+    def test_empty_outputs_dir(self, insar_project):
+        pid = insar_project["project_id"]
+        job_id = self._make_done_job(pid)
+        result = insar_list_outputs(job_id, pid)
+        assert result["job_id"] == job_id
+        assert result["status"] == "done"
+        assert result["outputs"] == []
+
+    def test_files_typed_correctly(self, insar_project, tmp_path):
+        pid = insar_project["project_id"]
+        job_id = self._make_done_job(pid)
+
+        # Place test files in the outputs/job_id directory
+        from insar_agent.core.project import Project
+        out_dir = Project.load(pid).outputs_dir() / job_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "GUNW_product.h5").write_text("fake")
+        (out_dir / "wrapped_phase.tif").write_text("fake")
+        (out_dir / "browse.png").write_text("fake")
+
+        result = insar_list_outputs(job_id, pid)
+        paths_by_type = {a["artifact_type"]: a["path"] for a in result["outputs"]}
+        assert "hdf5" in paths_by_type
+        assert "geotiff" in paths_by_type
+        assert "preview" in paths_by_type
+
+    def test_job_not_done_returns_error(self, insar_project):
+        pid = insar_project["project_id"]
+        from unittest.mock import patch, MagicMock
+        for key, val in [
+            ("runconfig.groups.input_file_group.reference_rslc_file", "/data/ref.h5"),
+            ("runconfig.groups.input_file_group.secondary_rslc_file", "/data/sec.h5"),
+            ("runconfig.groups.dynamic_ancillary_file_group.dem_file", "/data/dem.tif"),
+            ("runconfig.groups.product_path_group.product_path", "/out"),
+            ("runconfig.groups.product_path_group.scratch_path", "/scratch"),
+            ("runconfig.groups.product_path_group.sas_output_file", "GUNW.h5"),
+        ]:
+            insar_set_runconfig_value(pid, key, val)
+        insar_export_runconfig(pid)
+        mock_proc = MagicMock()
+        mock_proc.pid = 11111
+        with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc):
+            result = insar_run_workflow(pid, dry_run=False)
+        # Job is still "running" — list_outputs should reject it
+        status_result = insar_list_outputs(result["job_id"], pid)
+        assert status_result.get("error") == "job_not_done"
+
+    def test_project_not_found(self):
+        result = insar_list_outputs("fake-job-id", "nonexistent-project")
+        assert result.get("error") == "project_not_found"
+
+    def test_job_not_found(self, insar_project):
+        pid = insar_project["project_id"]
+        result = insar_list_outputs("nonexistent-job-id", pid)
+        assert result.get("error") == "job_not_found"

@@ -69,7 +69,7 @@ claude plugin install insar-agent-skills@insar-agent
 
 ## Current Status
 
-**M0–M6 + skill-first architecture complete. 139 unit tests + 9 integration tests passing (2026-03-28).**
+**M0–M6 + skill-first architecture complete. 144 unit tests + 11 integration tests passing (2026-03-28).**
 
 Before making non-trivial changes, read:
 
