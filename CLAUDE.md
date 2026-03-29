@@ -41,9 +41,9 @@ Agent Client (Codex / Claude Code / etc.)
 
 **`insar_agent.core`** — owns the domain model. `Project` (persisted as JSON) holds `engine`, `workflow`, `runconfig` (dict), and `workspace_root`. `config.py` provides `get_path`/`set_path` for dotted-key access into runconfig dicts. `jobs.py` will own the `Job` state machine.
 
-**`insar_agent.mcp`** — owns MCP server wiring. Currently a scaffold (`server.py` prints planned metadata). Will be replaced with an SDK-backed stdio transport. MCP tools must delegate all domain logic to `core` and `engines`; no business logic belongs here.
+**`insar_agent.mcp`** — owns MCP server wiring. `server.py` uses FastMCP (stdio transport). MCP tools must delegate all domain logic to `core` and `engines`; no business logic belongs here.
 
-**`insar_agent.engines`** — owns software-specific behavior. `base.py` defines `EngineAdapter` (Protocol) and `WorkflowInfo`. `isce3/` is the first adapter: `adapter.py` implements `ISCE3Adapter`, `defaults.py` declares supported workflows (`gslc`, `insar`), `validator.py` and `runner.py` are stubs for runconfig validation and `nisar.workflows` execution.
+**`insar_agent.engines`** — owns software-specific behavior. `base.py` defines `EngineAdapter` (Protocol) and `WorkflowInfo`. `isce3/` is the first adapter: `adapter.py` implements `ISCE3Adapter`, `defaults.py` declares supported workflows (`gslc`, `insar`) and the processing-param registry, `validator.py` validates runconfigs, `runner.py` builds the conda run wrapper command.
 
 **`insar_agent.runtime`** — workspace layout, conda env detection, structured logging helpers.
 
@@ -51,7 +51,8 @@ Agent Client (Codex / Claude Code / etc.)
 - `data-prep-nisar` — download NISAR RSLC data (ASF) and DEM (Copernicus 30m)
 - `d-insar-isce3` — single RSLC pair → GUNW product (Path A, M1-M3 tools)
 - `stack-insar-isce3` — multi-scene batch stack + network (Path B, M4 tools)
-- `env-setup-nisar` — ISCE3 + MCP installation guide (placeholder, M6+)
+- `param-advisor-isce3` — parameter tuning advisor (multilook, unwrapping, iono/tropo corrections)
+- `env-setup-nisar` — ISCE3 + MCP installation guide
 - `insar-agent` — session router / entry point
 
 Plugin setup (run once, or after skills/ changes):
@@ -69,7 +70,7 @@ claude plugin install insar-agent-skills@insar-agent
 
 ## Current Status
 
-**M0–M6 + skill-first architecture complete. 144 unit tests + 11 integration tests passing (2026-03-28).**
+**M0–M6 complete, agent behavior test (opencode + gpt-5.3-codex) verified 9/9. 155 total tests passing (2026-03-28).**
 
 Before making non-trivial changes, read:
 
@@ -100,15 +101,21 @@ Knowledge base:
 - M4: stack/network ✓ — `insar_prepare_stack`, `insar_prepare_network` (wangshuai two-layer architecture)
 - M4b: agent onboarding ✓ — MCP Resources, Prompts, `next_step` guidance in tool returns
 - M5: utilities ✓ — `insar_extract_bbox`, `insar_export_geotiff`; skill-first architecture (skills = single guidance source, MCP tools = pure execution)
-- M5 (next): MintPy integration — `insar_run_mintpy`, `insar_plot_baseline` (run_mintpy_nisar_stack.sh, plot_isce3_baseline_network.py)
+- M5b: MintPy ✓ — `insar_run_mintpy`, `insar_plot_baseline`, `insar_get_mintpy_status`
+- M6 (in progress): param advisor — `insar_set_processing_param` + `param-advisor-isce3` skill (processing_params_insar.yaml whitelist)
 
 **engines/isce3/ modules:**
 - `adapter.py` — ISCE3Adapter (list_workflows)
-- `defaults.py` — ALLOWED_SET_FIELDS, REQUIRED_PATH_FIELDS, load_default_runconfig
+- `defaults.py` — ALLOWED_SET_FIELDS, REQUIRED_PATH_FIELDS, load_default_runconfig, get_processing_param_keys, load_processing_params
 - `validator.py` — validate_runconfig (required path checks)
 - `runner.py` — build_workflow_command (conda run wrapper)
 - `stack.py` — prepare_stack() (single-reference stack, from wangshuai)
 - `network.py` — prepare_network() (interferogram network tbase/conn, from wangshuai)
+- `bbox.py` — union_bbox() (RSLC bounding box extraction)
+- `geotiff.py` — export_geotiff() (HDF5 → GeoTIFF conversion)
+- `mintpy.py` — run_mintpy(), get_mintpy_status()
+- `baseline.py` — plot_baseline_network()
+- `assets/processing_params_insar.yaml` — whitelist of tunable processing parameters for `insar_set_processing_param`
 
 **Agent onboarding (mcp/server.py):**
 - Resource `insar://workflow-guide` — hard constraints + step order for both workflows

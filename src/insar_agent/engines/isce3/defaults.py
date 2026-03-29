@@ -54,6 +54,21 @@ ALLOWED_SET_FIELDS: dict[str, list[str]] = {
 }
 
 
+def load_processing_params(workflow: str) -> list[dict]:
+    """Load the tunable parameter registry for a workflow from assets."""
+    path = _ASSETS / f"processing_params_{workflow}.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"No processing params registry for workflow: {workflow!r}")
+    with path.open() as f:
+        data = yaml.safe_load(f)
+    return data["parameters"]
+
+
+def get_processing_param_keys(workflow: str) -> list[str]:
+    """Return the list of dotted keys allowed for insar_set_processing_param."""
+    return [p["key"] for p in load_processing_params(workflow)]
+
+
 def load_default_runconfig(workflow: str) -> dict:
     """Load the default runconfig template for a workflow from the assets directory."""
     template_file = _ASSETS / f"{workflow}.yaml"

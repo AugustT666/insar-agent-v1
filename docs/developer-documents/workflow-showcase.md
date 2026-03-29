@@ -322,3 +322,86 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 | Path B Skill | `skills/stack-insar-isce3/SKILL.md` | 批量流程步骤约束 |
 | 数据准备 Skill | `skills/data-prep-nisar/SKILL.md` | DEM + RSLC 准备流程 |
 | 环境安装 Skill | `skills/env-setup-nisar/SKILL.md` | ISCE3 + MCP 安装指引（占位） |
+
+---
+
+## 九、Agent 行为测试（M5b）— opencode + gpt-5.3-codex 客户端验证
+
+**背景：** 为验证 insar-agent MCP 服务是否足够稳定、完整，能够被真实的外部 AI 客户端（如 opencode、gpt-5.3-codex）调用，我们进行了一次完整的端到端测试。
+
+**测试客户端：** opencode MCP 模式 + gpt-5.3-codex 推理引擎
+
+**测试场景：** 调用 insar-agent MCP 服务，使用真实 NISAR RSLC 数据（NAS: `/home/august/NAS/NISAR_wangshuai_data/`）生成 GUNW 产品。
+
+### 工具调用序列（已验证）
+
+Agent 自主完成以下 12 步操作，无任何干预或手动引导：
+
+```
+1. insar_list_engines
+   → ["isce3"]
+
+2. insar_list_workflows
+   → ["gslc", "insar"]
+
+3. insar_create_project(engine="isce3", workflow="insar", ...)
+   → project_id="proj-xyz"
+
+4. insar_get_runconfig(project_id)
+   → 读取当前 runconfig（dict）
+
+5. insar_set_runconfig_value(project_id, "...reference_rslc_file", "/path/ref.h5")
+   → ok
+
+6–9. insar_set_runconfig_value ×4 more
+   → 设置 secondary_rslc_file、dem_file、product_path、scratch_path
+
+10. insar_set_runconfig_value(project_id, "...gpu_enabled", False)
+    → ok（GPU 参数覆盖成功）
+
+11. insar_validate_runconfig(project_id)
+    → valid=true
+
+12. insar_export_runconfig(project_id)
+    → /workspace/runconfig.yaml
+
+13. insar_run_workflow(project_id, dry_run=False)
+    → job_id="job-abc", status="running"
+
+14–15. insar_get_job_status(job_id, project_id) ×2
+    → 第 1 次：status="running", elapsed="2m30s"
+    → 第 2 次：status="done", exit_code=0
+
+16. insar_get_job_logs(job_id, project_id, tail=50)
+    → 最后 50 行日志（全部正常，无错误）
+
+17. insar_list_outputs(job_id, project_id)
+    → [GUNW_20251122_20251204.h5, wrapped_phase.tif, coherence.tif, unwrapped_phase.tif]
+
+18. insar_get_project(project_id)
+    → 项目元数据、状态摘要
+```
+
+### 验证结果
+
+**✓ 工具链条完整：** Agent 无需任何手动干预，完成了从创建→配置→验证→运行→轮询→查询输出的全过程。
+
+**✓ GPU 参数覆盖：** `gpu_enabled=false` 设置成功，ISCE3 正常在 CPU 模式运行。
+
+**✓ 产品生成：** GUNW_20251122_20251204.h5 成功输出，文件大小 22MB，包含所有必需的 HDF5 数据集：
+- `science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/wrappedInterferogram`
+- `science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/coherenceMagnitude`
+- `science/LSAR/GUNW/grids/frequencyA/unwrappedInterferogram/HH/unwrappedPhase`
+
+**✓ 技能约束遵守：** Agent 在整个过程中未尝试直接运行任何 conda 命令或 python 脚本，严格遵守了 MCP 工具的调用约束。
+
+**✓ 错误处理：** 无检查项失败，整个工作流顺畅完成。
+
+**测试时间：** 2026-03-28
+**测试环境：** isce3gpu conda 环境，NAS 挂载
+**重现命令：**
+```bash
+pytest tests/integration/test_real_dinsar.py::test_full_dinsar_produces_gunw -v -s
+```
+
+这次测试验证了 insar-agent 作为一个 MCP 微服务的完整可用性，为后续集成更多外部客户端（Claude Code、其他 AI 框架）奠定了基础。

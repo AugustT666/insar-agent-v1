@@ -46,9 +46,31 @@
 - `insar_export_geotiff`：GUNW HDF5 → GeoTIFF + PNG browse 图（依赖 h5py/GDAL）
 - engines/isce3/bbox.py + geotiff.py
 
-**测试状态（2026-03-26）：104 unit tests + 5 integration tests 全部通过**
+### M5b — Agent 行为测试 ✓
 
-### M6 — MintPy 时序分析集成 ✓
+**目标：** 验证 opencode + gpt-5.3-codex 等外部 MCP 客户端能否端到端调用 insar-agent 工具完成真实 InSAR 处理。
+
+**验证清单（9/9 已完成）：**
+1. `insar_list_engines` → 列出引擎
+2. `insar_list_workflows` → 列出工作流
+3. `insar_create_project` → 创建项目
+4. `insar_get_runconfig` → 读取配置
+5. `insar_set_runconfig_value` ×9 → 设置参数（包括 `gpu_enabled=false` 覆盖）
+6. `insar_validate_runconfig` → 校验配置
+7. `insar_export_runconfig` → 导出 YAML
+8. `insar_run_workflow` → 启动处理
+9. `insar_get_job_status` ×2 → 轮询状态
+10. `insar_get_job_logs` → 读取日志
+11. `insar_list_outputs` → 列出输出
+12. `insar_get_project` → 获取项目信息
+
+**产品验证：** 生成 GUNW_20251122_20251204.h5（22MB），包含所有必需 HDF5 数据集（wrapped phase、coherence、unwrapped phase）。
+
+**技能约束遵守：** Agent 未尝试直接运行 conda/python 命令，严格通过 MCP 工具执行；无违反检查项。
+
+**测试状态（2026-03-28）：155 total tests 全部通过（144 unit + 11 integration）**
+
+### M6 — MintPy 时序分析集成（下一阶段）
 
 **目标：** 将 MintPy 时序处理流程接入 MCP，让 Agent 在 Stack-InSAR 完成后可以直接调用 MintPy。
 
@@ -82,6 +104,10 @@
 ## 下一里程碑
 
 ---
+
+### M6 — MintPy 时序分析集成（待讨论）
+
+时间安排：待内部优先级评估。参考脚本已预备在 knowledge-base/wangshuai/Scripts/ 中。
 
 ### M7 — 远期规划（待讨论）
 

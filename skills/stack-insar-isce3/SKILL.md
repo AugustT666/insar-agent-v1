@@ -27,7 +27,10 @@ Each step generates shell scripts that the user runs manually to launch parallel
 
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
 - If workflow parameters are unclear, ask the user — do not invent them.
-- Do not modify core processing parameters in the base runconfig. Path B tools inherit them.
+- Core processing parameters in the base runconfig (multilook, unwrapping, etc.) are
+  inherited by all pairs in the stack. If the user wants to tune them, invoke
+  `param-advisor-isce3` **before Step 1**, using a temporary project to adjust and export
+  a modified base runconfig YAML, then pass that as the `base_runconfig` argument.
 - Run Step 1 and Step 2 separately. Wait for the user to confirm the shell script completed
   between steps.
 - Reference scene defaults to the earliest date; only override if the user explicitly specifies.

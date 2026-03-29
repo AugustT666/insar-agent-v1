@@ -23,9 +23,10 @@ description: >
 
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
 - If workflow parameters are unclear, ask the user — do not invent them.
-- Do not invent or modify ISCE3 processing parameters (multilook, filtering, unwrapping,
-  thresholds). If the user asks to change them, explain they are locked and must be edited
-  manually in the exported YAML after Step 4.
+- Core processing parameters (multilook, filtering, unwrapping, thresholds) cannot be changed
+  via this skill. If the user wants to tune them, invoke `param-advisor-isce3` **between
+  Step 2 and Step 3** (after setting paths, before validation). `param-advisor-isce3` will
+  apply parameters via `insar_set_processing_param` and show the full runconfig for confirmation.
 - Always start from the default runconfig template — `insar_create_project` loads it automatically.
 - Never skip validation (`insar_validate_runconfig` must return `valid=true`) before Step 4.
 - Never skip export (`insar_export_runconfig`) before Step 5.
@@ -49,6 +50,11 @@ description: >
    product_path, scratch_path, sas_output_file.
 
    Optional: `worker.gpu_enabled`, `worker.gpu_id`, `logging.path`
+
+2.5. **（可选）参数调优** — 若用户需要调整处理参数（多视数、解缠算法等），在此步骤调用
+   `param-advisor-isce3` skill。该 skill 会收集研究区和数据特征，给出参数建议，
+   经用户三选一确认后通过 `insar_set_processing_param` 应用参数。
+   完成后继续执行 Step 3。
 
 3. **Validate**
    ```

@@ -16,7 +16,9 @@ from insar_agent.core.project import Project, new_project
 from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS,
+    get_processing_param_keys,
     load_default_runconfig,
+    load_processing_params,
 )
 from insar_agent.engines.isce3.baseline import plot_baseline_network
 from insar_agent.engines.isce3.bbox import union_bbox
@@ -481,6 +483,110 @@ def insar_set_runconfig_value(project_id: str, key: str, value: object) -> dict:
         "project_id": project_id,
         "key": key,
         "value": value,
+        "updated_at": project.updated_at,
+    }
+
+
+@mcp.tool()
+def insar_set_processing_param(
+    project_id: str,
+    key: str,
+    value: object,
+    justification: str,
+) -> dict:
+    """
+    Set a core processing parameter in the project runconfig.
+
+    Unlike insar_set_runconfig_value (path fields only), this tool modifies
+    ISCE3 algorithm parameters such as multilook factors, phase unwrapping
+    settings, and correction toggles. Only keys listed in the processing
+    parameter registry (assets/processing_params_insar.yaml) are allowed.
+
+    Must be called by the param-advisor-isce3 skill with an explicit
+    justification for each change relative to the default template.
+
+    After applying all parameters, call insar_get_runconfig(format='yaml') to
+    show the full runconfig and wait for user confirmation before proceeding to
+    insar_export_runconfig.
+
+    Args:
+        project_id: Project UUID
+        key: Dotted path from the processing parameter registry
+        value: New value (int, float, str, bool, or list)
+        justification: Reason for this change relative to the default template.
+                       Must be specific (e.g. "城市L波段高相干，减少多视以保留分辨率").
+                       Empty or vague strings are rejected.
+    """
+    if not justification or not justification.strip():
+        return {
+            "error": "justification_required",
+            "message": "justification must not be empty. Provide a specific reason for this parameter change.",
+        }
+
+    try:
+        project = Project.load(project_id)
+    except (KeyError, FileNotFoundError):
+        return _project_error(project_id)
+
+    allowed_keys = get_processing_param_keys(project.workflow)
+    if key not in allowed_keys:
+        return {
+            "error": "key_not_allowed",
+            "message": (
+                f"Key {key!r} is not in the processing parameter registry for "
+                f"workflow {project.workflow!r}. "
+                f"Allowed keys: {allowed_keys}"
+            ),
+        }
+
+    # Capture old value for the return payload
+    from insar_agent.core.config import get_path
+    try:
+        old_value = get_path(project.runconfig, key)
+    except KeyError:
+        old_value = None
+
+    # Validate value type against registry metadata
+    params_meta = {p["key"]: p for p in load_processing_params(project.workflow)}
+    meta = params_meta[key]
+    expected_type = meta.get("type")
+    valid_values = meta.get("valid_values")
+    valid_range = meta.get("valid_range")
+
+    if valid_values is not None and value not in valid_values:
+        return {
+            "error": "value_not_allowed",
+            "message": f"Value {value!r} is not in valid_values {valid_values} for key {key!r}.",
+        }
+    if valid_range is not None and value is not None:
+        lo, hi = valid_range
+        try:
+            if not (lo <= value <= hi):
+                return {
+                    "error": "value_out_of_range",
+                    "message": f"Value {value!r} is outside valid_range {valid_range} for key {key!r}.",
+                }
+        except TypeError:
+            pass  # list or incomparable type — skip range check
+
+    try:
+        set_path(project.runconfig, key, value)
+    except (KeyError, TypeError) as exc:
+        return {"error": "key_invalid", "message": str(exc)}
+
+    try:
+        project.save()
+    except Exception as exc:
+        return {"error": "save_failed", "message": str(exc)}
+
+    return {
+        "project_id": project_id,
+        "key": key,
+        "label": meta.get("label", key),
+        "old_value": old_value,
+        "new_value": value,
+        "risk_level": meta.get("risk_level", "unknown"),
+        "justification": justification.strip(),
         "updated_at": project.updated_at,
     }
 
@@ -1160,6 +1266,7 @@ def build_server_description() -> dict:
             "insar_create_project",
             "insar_get_runconfig",
             "insar_set_runconfig_value",
+            "insar_set_processing_param",
             "insar_unset_runconfig_value",
             "insar_validate_runconfig",
             "insar_export_runconfig",

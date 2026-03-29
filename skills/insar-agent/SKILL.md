@@ -16,7 +16,7 @@ description: >
 
 - Use `insar_*` MCP tools for all ISCE3 operations. Do not run ISCE3 shell commands directly.
 - Skills define what to do and in what order. MCP tools execute the actions and return factual results.
-- Only path-type fields can be set via MCP. Core processing parameters (multilook, filtering, unwrapping) must be edited manually in the exported YAML — the server enforces this with `key_not_allowed`.
+- Path-type fields are set via `insar_set_runconfig_value`. Core processing parameters (multilook, filtering, unwrapping) are set via `insar_set_processing_param` (param-advisor-isce3 skill only). Both tools enforce their own allowlists server-side.
 - Do not invent workflow parameters when reference material is incomplete. Ask the user.
 
 ## Skill routing
@@ -30,6 +30,7 @@ Select the skill that matches the user's task and invoke it:
 | Single RSLC pair → GUNW interferogram product | `d-insar-isce3` |
 | Multiple RSLC scenes → interferogram network (batch) | `stack-insar-isce3` |
 | MintPy time-series, displacement, baseline plot | `mintpy-isce3` |
+| Processing parameter tuning (multilook, unwrapping, corrections) | `param-advisor-isce3` |
 
 If the task spans multiple rows (e.g., data is missing AND a single pair needs processing),
 invoke `data-prep-nisar` first, then `D-InSAR-isce3`.

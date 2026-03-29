@@ -1,0 +1,154 @@
+# 参数专家可修改的处理参数注册表 — insar 工作流
+#
+# 扩展方式：在 parameters 列表末尾追加新条目，无需改动任何 Python 代码。
+# 相应地在 skills/param-advisor-isce3/SKILL.md 中补充推理规则。
+#
+# risk_level:
+#   low    — 对处理结果影响小，可安全调整
+#   medium — 需结合数据特征判断，是参数专家的主要工作对象
+#   high   — 调整可能显著影响结果或引入误差，需充分理由
+#
+# type: int / float / str / bool / list
+
+version: "1"
+workflow: insar
+
+parameters:
+
+  # ── 多视（Multilook）──────────────────────────────────────────────────────
+  - key: runconfig.groups.processing.crossmul.range_looks
+    label: 距离向多视数（crossmul）
+    description: >
+      距离向多视窗口大小，影响干涉图分辨率与相干性的权衡。
+      值越大，相干性越高，空间分辨率越低。
+    default: 11
+    type: int
+    valid_range: [1, 50]
+    risk_level: medium
+
+  - key: runconfig.groups.processing.crossmul.azimuth_looks
+    label: 方位向多视数（crossmul）
+    description: >
+      方位向多视窗口大小，通常与 range_looks 配合调整。
+    default: 11
+    type: int
+    valid_range: [1, 50]
+    risk_level: medium
+
+  # ── 干涉图滤波（Filter）──────────────────────────────────────────────────
+  - key: runconfig.groups.processing.filter_interferogram.filter_type
+    label: 干涉图滤波类型
+    description: >
+      no_filter = 不滤波（适合高相干、城市形变）；
+      其他值（如 boxcar）可平滑相位噪声但会降低分辨率。
+    default: no_filter
+    type: str
+    risk_level: low
+
+  # ── 相位解缠（Phase Unwrapping）──────────────────────────────────────────
+  - key: runconfig.groups.processing.phase_unwrap.algorithm
+    label: 相位解缠算法
+    description: >
+      snaphu — 最常用，鲁棒性强；
+      icu / phass — 速度较快，适合较低噪声场景。
+    default: snaphu
+    type: str
+    valid_values: [snaphu, icu, phass]
+    risk_level: medium
+
+  - key: runconfig.groups.processing.phase_unwrap.snaphu.cost_mode
+    label: Snaphu 代价函数模式
+    description: >
+      smooth — 适用于缓慢、平滑形变（大气延迟、长期地面沉降）；
+      defo   — 适用于快速或局部形变（同震、滑坡）；
+      topo   — 适用于地形相位为主的场景。
+    default: smooth
+    type: str
+    valid_values: [smooth, defo, topo]
+    risk_level: medium
+
+  - key: runconfig.groups.processing.phase_unwrap.snaphu.nlooks
+    label: Snaphu 等效视数
+    description: >
+      近似等效视数，影响 Snaphu 内部统计模型。
+      若为 null，Snaphu 自动估计。大形变场景可适当调大。
+    default: null
+    type: float
+    valid_range: [1.0, 100.0]
+    risk_level: low
+
+  - key: runconfig.groups.processing.phase_unwrap.snaphu.ntiles
+    label: Snaphu 分块数 [行数, 列数]
+    description: >
+      将干涉图分块独立解缠，适合大形变（>10 cm）或覆盖范围超大的场景。
+      null 表示不分块（单片解缠）。示例：[4, 4]。
+    default: null
+    type: list
+    risk_level: medium
+
+  - key: runconfig.groups.processing.phase_unwrap.range_looks
+    label: 解缠前距离向额外多视数
+    description: >
+      在 crossmul 多视之外，解缠前额外叠加多视以降噪。
+      通常设为 1（不额外多视）。
+    default: 1
+    type: int
+    valid_range: [1, 20]
+    risk_level: medium
+
+  - key: runconfig.groups.processing.phase_unwrap.azimuth_looks
+    label: 解缠前方位向额外多视数
+    description: >
+      方位向额外多视，与 phase_unwrap.range_looks 配合使用。
+    default: 1
+    type: int
+    valid_range: [1, 20]
+    risk_level: medium
+
+  # ── 电离层校正（Ionosphere）──────────────────────────────────────────────
+  - key: runconfig.groups.processing.ionosphere_phase_correction.enabled
+    label: 电离层相位校正
+    description: >
+      L 波段在高纬度地区、极光带或太阳活动高峰期电离层影响显著，建议开启。
+      C 波段通常影响较小，一般不需要开启。
+      开启后会增加处理时间，并依赖辅助电离层数据。
+    default: false
+    type: bool
+    risk_level: high
+
+  # ── 对流层延迟（Troposphere）─────────────────────────────────────────────
+  - key: runconfig.groups.processing.troposphere_delay.enabled
+    label: 对流层延迟校正
+    description: >
+      地形起伏显著（>500 m）或覆盖范围超过 100 km 的区域建议开启。
+      湿润气候区（季风区、沿海）对流层延迟较大，开启可改善精度。
+      平坦、干旱、短基线场景通常不需要。
+      开启后需要外部气象/再分析数据。
+    default: false
+    type: bool
+    risk_level: high
+
+# ── 候选扩展参数（暂未开放，等待充分专家规则支撑）──────────────────────────
+#
+# 若未来参数专家具备足够推理能力，可将以下注释取消并补充推理规则：
+#
+#  - key: runconfig.groups.processing.geocode.output_posting.A
+#    label: 地理编码输出分辨率（方位向，度）
+#    description: 控制输出 GUNW 产品的地面分辨率，影响文件大小和精度。
+#    default: null
+#    type: float
+#    risk_level: high
+#
+#  - key: runconfig.groups.processing.dense_offsets.enabled
+#    label: 密集偏移量估计
+#    description: 开启后估计像素级偏移量，可用于大形变场景或验证解缠。
+#    default: false
+#    type: bool
+#    risk_level: high
+#
+#  - key: runconfig.groups.processing.rubbersheet.enabled
+#    label: Rubbersheet 校正
+#    description: 利用密集偏移量对干涉图做几何校正，与 dense_offsets 配合使用。
+#    default: false
+#    type: bool
+#    risk_level: high

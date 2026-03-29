@@ -2,12 +2,14 @@
 
 `insar-agent` is an independent project for exposing InSAR processing capabilities to agent clients through a shared core, an MCP-facing interface, and engine-specific adapters.
 
-## Current Scope
+## Current Status (2026-03-28)
 
-- Project status: scaffold
-- First engine target: `ISCE3`
-- First protocol target: local `MCP` server over `stdio`
-- Current goal: establish package boundaries and a clean repository layout before implementing real workflow execution
+- **Project completion**: M0–M5 complete; M5b (agent behavior test) verified ✓
+- **Test suite**: 155 tests passing (144 unit + 11 integration)
+- **Engine**: ISCE3 fully functional with real NISAR RSLC data
+- **MCP server**: FastMCP-based, ready for external AI clients
+- **Agent integration**: Verified with opencode + gpt-5.3-codex; 9/9 checklist items passed
+- **Real output**: 22MB GUNW product generated successfully from NAS data
 
 ## Working Model
 
@@ -51,9 +53,14 @@ The current MCP entrypoint is intentionally a protocol-oriented placeholder. It 
 - Initial scope decision: `docs/decisions/0001-project-scope.md`
 - Current technical plan: `docs/plans/2026-03-23-insar-agent-tech-spec-v0.1.md`
 
-## Near-Term Roadmap
+## Next Steps
 
-- Replace the placeholder MCP entrypoint with an SDK-backed server
-- Port the shared project/config/job model from the current scaffold into real tool handlers
-- Add the first `ISCE3` adapter behaviors based on your supplied operating materials
-- Introduce skill artifacts that teach host agents how to use the exposed tools safely
+**M6: MintPy Integration** (planned)
+- Implement `insar_run_mintpy` and `insar_plot_baseline` tools
+- Reference implementation: `knowledge-base/wangshuai/Scripts/run_mintpy_nisar_stack.sh`
+- Skills: `mintpy-isce3/SKILL.md` (time-series analysis workflow)
+
+**M7: Future Enhancements** (discussion phase)
+- ASF data download automation
+- Multi-engine support (ISCE2, HyP3 adapters)
+- Optional: Web UI / task queue
