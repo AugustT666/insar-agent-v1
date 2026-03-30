@@ -96,14 +96,20 @@ def test_process_insar_pair_contains_constraint_reminder():
     prompt = process_insar_pair()
     assert "core processing parameters" in prompt.lower() or "Constraints reminder" in prompt
     assert "param-advisor-isce3" in prompt
+    assert ".claude/agents/param-advisor-isce3.md" in prompt
     assert "project-level subagent" in prompt.lower()
+    assert "insar_describe_rslc" in prompt
+    assert "external search" in prompt.lower()
 
 
 def test_process_insar_pair_step_order():
     prompt = process_insar_pair()
-    assert prompt.index("insar_create_project") < prompt.index("insar_validate_runconfig")
-    assert prompt.index("insar_validate_runconfig") < prompt.index("insar_export_runconfig")
-    assert prompt.index("insar_export_runconfig") < prompt.index("insar_run_workflow")
+    assert prompt.index("insar_create_project") < prompt.index("insar_run_workflow")
+    assert prompt.index("insar_run_workflow") < prompt.index("insar_get_job")
+    assert "insar_validate_runconfig" not in prompt
+    assert "insar_export_runconfig" not in prompt
+    assert "insar_get_job_status" not in prompt
+    assert "insar_get_job_logs" not in prompt
 
 
 def test_process_insar_batch_returns_string():
@@ -129,8 +135,13 @@ def test_process_insar_batch_interpolates_params():
 def test_process_insar_batch_mentions_run_parallel():
     prompt = process_insar_batch()
     assert "run_parallel.sh" in prompt
+    assert "insar_run_batch" in prompt
+    assert "insar_get_job" in prompt
     assert "param-advisor-isce3" in prompt
+    assert ".claude/agents/param-advisor-isce3.md" in prompt
     assert "project-level subagent" in prompt.lower()
+    assert "insar_describe_rslc" in prompt
+    assert "external search" in prompt.lower()
 
 
 def test_process_insar_batch_step_order():
@@ -163,9 +174,12 @@ def test_create_project_returns_required_fields(insar_project):
     # Skills drive workflow — create_project returns required_fields data, not narrative guidance
     assert "required_fields" in insar_project
     assert "runconfig.groups.input_file_group.reference_rslc_file" in insar_project["required_fields"]
+    assert "runconfig.groups.worker.gpu_enabled" not in insar_project["required_fields"]
     assert "guidance" in insar_project
     assert "param-advisor-isce3" in insar_project["guidance"]
+    assert ".claude/agents/param-advisor-isce3.md" in insar_project["guidance"]
     assert "project-level subagent" in insar_project["guidance"].lower()
+    assert "insar_describe_rslc" in insar_project["guidance"]
     assert "next_step" not in insar_project
 
 

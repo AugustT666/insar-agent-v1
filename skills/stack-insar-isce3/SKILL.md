@@ -12,7 +12,8 @@ description: >
 # Stack-InSAR: Multi-scene Batch → Interferogram Network (Path B)
 
 Path B tools operate directly on the filesystem and do not use the project registry.
-Each step generates shell scripts that the user runs manually to launch parallel jobs.
+Each step generates shell scripts that can either be launched manually or through
+`insar_run_batch`.
 
 ## Required confirmations (ask only if missing)
 
@@ -28,14 +29,14 @@ Each step generates shell scripts that the user runs manually to launch parallel
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
 - If workflow parameters are unclear, ask the user — do not invent them.
 - Core processing parameters in the base runconfig (multilook, unwrapping, etc.) are
-  inherited by all pairs in the stack. If the user wants to tune them, invoke
-  `param-advisor-isce3` **before Step 1**, using a temporary project to adjust and export
-  a modified base runconfig YAML, then pass that as the `base_runconfig` argument.
-  The advisor should infer as much evidence as possible from the temporary project,
-  RSLC naming, and DEM/workspace context before asking the user for missing facts.
-  For skill-aware clients, the recommendation stage must be delegated to the
-  project-level subagent defined in `.claude/agents/param-advisor-isce3.md`;
-  the main conversation must not generate parameter advice directly.
+  inherited by all pairs in the stack. If the user wants to tune them, this workflow must
+  invoke `param-advisor-isce3` **before Step 1** using a temporary project.
+  `param-advisor-isce3` 负责：
+  - 调 `insar_describe_rslc`
+  - 调 `.claude/agents/param-advisor-isce3.md`
+  - 展示参数 diff 和三选一确认
+  - 如用户接受建议，调用 `insar_set_processing_param`
+  - 导出调整后的 YAML 作为新的 `base_runconfig`
 - Run Step 1 and Step 2 separately. Wait for the user to confirm the shell script completed
   between steps.
 - Reference scene defaults to the earliest date; only override if the user explicitly specifies.

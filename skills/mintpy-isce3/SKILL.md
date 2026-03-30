@@ -67,13 +67,13 @@ Save the returned `job_id`. Tell the user MintPy is running and to wait.
 
 ### Step 3 — Poll status
 
-Call `insar_get_mintpy_status(job_id=<job_id>, mintpy_work_dir=<mintpy_work_dir>)`
+Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>)`
 every ~60 s until `status` is `done` or `failed`.
 
 ### Step 4 — If failed, read logs
 
-Read the last 50 lines of `log_path` (use the Read tool or ask the user to
-share the content). Summarise key error lines. Suggest:
+Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>, include_logs=True)`
+or read the last lines of `log_path`. Summarise key error lines. Suggest:
 - Path issues → fix and re-run `insar_run_mintpy`
 - MintPy parameter issues → user must edit `mintpy_config` manually, then re-run
 

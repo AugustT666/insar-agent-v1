@@ -9,6 +9,7 @@ import yaml
 
 from insar_agent.core.config import get_path
 from insar_agent.engines.isce3.defaults import load_default_runconfig, load_processing_params
+from insar_agent.engines.isce3.rslc_metadata import describe_rslc_pair
 
 _ASSETS = Path(__file__).parent / "assets"
 _RSLC_TIMESTAMP_RE = re.compile(r"_(\d{8}T\d{6})_")
@@ -46,37 +47,42 @@ def _pick_context(user_context: dict, key: str, *, default: object = None) -> di
     return _field(default, "missing")
 
 
+def _safe_get_path(runconfig: dict, key: str) -> object:
+    try:
+        return get_path(runconfig, key)
+    except KeyError:
+        return None
+
+
 def build_evidence_profile(
     runconfig: dict,
     workflow: str = "insar",
     user_context: dict | None = None,
 ) -> dict:
     """Build a machine-readable evidence profile from runconfig and user context."""
-    del workflow  # reserved for future non-insar support
     user_context = user_context or {}
 
-    reference = get_path(runconfig, "runconfig.groups.input_file_group.reference_rslc_file")
-    secondary = get_path(runconfig, "runconfig.groups.input_file_group.secondary_rslc_file")
-    polarization_list = get_path(
+    reference = _safe_get_path(runconfig, "runconfig.groups.input_file_group.reference_rslc_file")
+    secondary = _safe_get_path(runconfig, "runconfig.groups.input_file_group.secondary_rslc_file")
+    polarization_list = _safe_get_path(
         runconfig,
         "runconfig.groups.processing.input_subset.list_of_frequencies.A",
     )
-    reference_time = _infer_timestamp(reference)
-    secondary_time = _infer_timestamp(secondary)
-    temporal_baseline = None
-    if reference_time and secondary_time:
-        temporal_baseline = abs((secondary_time - reference_time).days)
-
-    sensor = "NISAR" if "NISAR" in f"{reference} {secondary}" else None
-    band = "L" if "NISAR_L" in f"{reference} {secondary}" else None
-    orbit_direction = None
-    if reference:
-        orbit_match = re.search(r"_([AD])_\d{3}_", reference)
-        if orbit_match:
-            orbit_direction = "ascending" if orbit_match.group(1) == "A" else "descending"
+    rslc_summary = describe_rslc_pair(
+        reference or "",
+        secondary,
+        runconfig=runconfig,
+        workflow=workflow,
+        require_existing=False,
+    )
+    temporal_baseline = rslc_summary["pair_metadata"]["temporal_baseline_days"]
+    sensor = rslc_summary["pair_metadata"]["sensor"]
+    band = rslc_summary["pair_metadata"]["band"]
+    orbit_direction = rslc_summary["pair_metadata"]["orbit_direction"]
+    polarizations = rslc_summary["pair_metadata"]["polarizations"] or polarization_list or []
 
     current_values = {}
-    for param in load_processing_params("insar"):
+    for param in load_processing_params(workflow):
         try:
             current_values[param["key"]] = get_path(runconfig, param["key"])
         except KeyError:
@@ -87,9 +93,19 @@ def build_evidence_profile(
             "sensor": _field(sensor, "metadata_inferred" if sensor else "missing", [reference, secondary]),
             "band": _field(band, "metadata_inferred" if band else "missing", [reference, secondary]),
             "polarization": _field(
-                polarization_list[0] if polarization_list else None,
-                "runconfig_inferred" if polarization_list else "missing",
-                ["runconfig.groups.processing.input_subset.list_of_frequencies.A"],
+                polarizations[0] if polarizations else None,
+                (
+                    "metadata_inferred"
+                    if rslc_summary["pair_metadata"]["polarizations"]
+                    else "runconfig_inferred"
+                    if polarization_list
+                    else "missing"
+                ),
+                (
+                    [reference, secondary]
+                    if rslc_summary["pair_metadata"]["polarizations"]
+                    else ["runconfig.groups.processing.input_subset.list_of_frequencies.A"]
+                ),
             ),
             "orbit_direction": _field(
                 orbit_direction,
@@ -118,6 +134,7 @@ def build_evidence_profile(
             "prefer_fast_turnaround": _pick_context(user_context, "prefer_fast_turnaround", default=False),
             "allow_high_risk_corrections": _pick_context(user_context, "allow_high_risk_corrections", default=False),
         },
+        "rslc_summary": rslc_summary,
         "current_config": current_values,
         "missing_information": [],
     }

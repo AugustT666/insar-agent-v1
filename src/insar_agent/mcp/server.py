@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 from datetime import datetime, UTC
 from pathlib import Path
@@ -16,6 +17,7 @@ from insar_agent.core.project import Project, new_project
 from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS,
+    REQUIRED_PATH_FIELDS,
     get_processing_param_keys,
     load_default_runconfig,
     load_processing_params,
@@ -25,6 +27,7 @@ from insar_agent.engines.isce3.bbox import union_bbox
 from insar_agent.engines.isce3.geotiff import export_geotiff
 from insar_agent.engines.isce3.mintpy import get_mintpy_status, run_mintpy
 from insar_agent.engines.isce3.network import prepare_network
+from insar_agent.engines.isce3.rslc_metadata import describe_rslc_pair
 from insar_agent.engines.isce3.runner import build_workflow_command
 from insar_agent.engines.isce3.stack import prepare_stack
 from insar_agent.engines.isce3.validator import validate_runconfig
@@ -37,6 +40,22 @@ mcp = FastMCP("insar-mcp-server")
 # Path to the external agent guide — single source of truth for AI constraints.
 # Stored in docs/agent-guide.md so it can be edited without touching server code.
 _GUIDE_PATH = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "agent-guide.md"
+
+
+def _ensure_logging_group(runconfig: dict, workspace_root: str) -> None:
+    """Backfill the ISCE3 logging block required by official workflows."""
+    groups = runconfig.setdefault("runconfig", {}).setdefault("groups", {})
+    logging_cfg = groups.setdefault("logging", {})
+    if not logging_cfg.get("path"):
+        logging_cfg["path"] = str(Path(workspace_root) / "logs" / "insar_workflow.log")
+    logging_cfg.setdefault("write_mode", "w")
+
+
+def _ensure_project_logging(project: Project) -> None:
+    """Ensure both live and template runconfigs carry a writable logging path."""
+    _ensure_logging_group(project.runconfig, project.workspace_root)
+    if project.runconfig_template:
+        _ensure_logging_group(project.runconfig_template, project.workspace_root)
 
 
 # ── Resources ──────────────────────────────────────────────────────────────────
@@ -59,7 +78,7 @@ def get_allowed_fields(workflow: str) -> str:
         return f"Unknown workflow: {workflow!r}. Available: {list(ALLOWED_SET_FIELDS)}"
     required = REQUIRED_PATH_FIELDS.get(workflow, [])
     lines = [f"# Settable fields for workflow '{workflow}'", "",
-             "## Required (must be set before insar_validate_runconfig passes)"]
+             "## Required (must be set before insar_run_workflow can launch successfully)"]
     lines += [f"  {f}" for f in required]
     optional = [f for f in allowed if f not in required]
     if optional:
@@ -118,40 +137,34 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
 
 2.5. Optional parameter tuning:
    If the user asks about multilook, filtering, unwrapping, ionosphere/troposphere
-   corrections, or provides study-area characteristics, invoke param-advisor-isce3
-   here (after paths are set, before validation). For skill-aware Claude Code
-   clients, param-advisor-isce3 must generate the recommendation through the
-   project-level subagent defined in .claude/agents/param-advisor-isce3.md, not
-   in the main conversation directly. The main agent may only apply
+   corrections, or provides study-area characteristics, enter the param-advisor-isce3
+   skill here (after paths are set, before validation). That skill starts by calling
+   insar_describe_rslc(...) to build a metadata-first evidence profile, then delegates
+   recommendation generation to the project-level subagent defined in
+   .claude/agents/param-advisor-isce3.md. The subagent may consult
+   .claude/agents/references/param-advisor-isce3.md and may use automatic external search
+   only when local evidence is insufficient. The main agent may only apply
    whitelist-controlled parameters via insar_set_processing_param after the
    subagent returns and the user confirms the plan.
 
-3. Validate:
-   insar_validate_runconfig(project_id)
-   → if valid=false, fix the reported errors and validate again before proceeding
-
-4. Export runconfig to disk:
-   insar_export_runconfig(project_id)
-
-5. Launch workflow:
+3. Launch workflow:
    insar_run_workflow(project_id)
-   → returns job_id
+   → auto-validates, exports the YAML, and returns job_id + poll hint
 
-6. Poll until done:
-   insar_get_job_status(job_id, project_id)
+4. Poll until done:
+   insar_get_job(job_id, project_id)
    → repeat until status is 'done' or 'failed'
 
-7. On failure — read logs:
-   insar_get_job_logs(job_id, project_id, tail=100)
+5. On failure — read logs inline:
+   insar_get_job(job_id, project_id, include_logs=True)
 
-8. On success — list products:
+6. On success — list products:
    insar_list_outputs(job_id, project_id)
 
 ## Constraints reminder
 - Path fields must go through insar_set_runconfig_value
-- Whitelist-controlled processing parameters may only be changed through param-advisor-isce3
-- For skill-aware clients, parameter advice must come from the param-advisor project-level subagent
-- Do NOT skip validate or export steps
+- Whitelist-controlled processing parameters should flow through param-advisor-isce3
+- For skill-aware clients, parameter advice should come from param-advisor-isce3 plus its project-level subagent
 - Do NOT modify the runconfig YAML manually for path fields — use insar_set_runconfig_value
 """
 
@@ -177,8 +190,9 @@ def process_insar_batch(
 
     return f"""\
 Prepare a batch ISCE3 interferogram network for MintPy time-series analysis.
-This is a two-layer workflow; the MCP tools generate runconfigs and runner scripts —
-the actual ISCE3 execution must be triggered by the user from the terminal.
+This is a two-layer workflow; the MCP tools generate runconfigs and runner scripts.
+Execution can either be started through insar_run_batch or by running the generated
+shell script manually from the terminal.
 
 ## Inputs
 - RSLC directory  : {dd}
@@ -190,9 +204,13 @@ the actual ISCE3 execution must be triggered by the user from the terminal.
 ## Optional parameter tuning before Step 1
 
 If the user wants to tune multilook, filtering, unwrapping, or geocode output spacing,
-invoke param-advisor-isce3 first using a temporary insar project. For skill-aware
-Claude Code clients, the recommendation stage must be delegated to the
-project-level subagent defined in .claude/agents/param-advisor-isce3.md.
+enter param-advisor-isce3 first using a temporary insar project. That skill must
+delegate recommendation generation to the project-level subagent defined in
+.claude/agents/param-advisor-isce3.md after calling insar_describe_rslc(...) to build
+a local metadata summary. The subagent may consult
+.claude/agents/references/param-advisor-isce3.md and may use automatic external search
+only when that evidence is insufficient, and the final recommendation must show
+provenance so the user can decide what to trust.
 Export the tuned YAML and pass that file as base_runconfig for both stack and
 network preparation.
 
@@ -207,8 +225,14 @@ Call:
       reference="auto"   # uses earliest acquisition date
   )
 
-Then execute in terminal:
+Then either:
+  insar_run_batch(batch_dir="{out}/isce3_stack", max_jobs=<num_parallel_jobs>)
+
+Or execute in terminal:
   bash {out}/isce3_stack/run_parallel.sh {out}/isce3_stack <num_parallel_jobs>
+
+When using insar_run_batch, poll with:
+  insar_get_job(job_id="<returned_job_id>", batch_dir="{out}/isce3_stack")
 
 ## Step 2 — Interferogram network
 
@@ -222,8 +246,14 @@ Call:
       max_temporal_baseline_days={max_temporal_baseline_days}
   )
 
-Then execute in terminal:
+Then either:
+  insar_run_batch(batch_dir="{out}/isce3_network", max_jobs=<num_parallel_jobs>)
+
+Or execute in terminal:
   bash {out}/isce3_network/run_parallel.sh {out}/isce3_network <num_parallel_jobs>
+
+When using insar_run_batch, poll with:
+  insar_get_job(job_id="<returned_job_id>", batch_dir="{out}/isce3_network")
 
 ## What the tools produce
 
@@ -243,7 +273,7 @@ insar_prepare_network →
 The GUNW products land in:
   {out}/isce3_network/runs/<date1>_<date2>/products/*.h5
 
-These are the inputs for MintPy time-series analysis (future insar_run_mintpy tool).
+These are the inputs for MintPy time-series analysis via insar_run_mintpy.
 
 ## Constraints reminder
 - reference="auto" selects the earliest acquisition to avoid negative temporal baselines
@@ -268,6 +298,46 @@ def _read_log_tail(log_path: str | None, n: int = 20) -> str:
         return "\n".join(lines[-n:])
     except Exception:
         return ""
+
+
+def _read_exit_code(exit_code_path: str | None) -> int | None:
+    """Read a persisted process exit code, or return None if unavailable."""
+    if not exit_code_path:
+        return None
+    try:
+        return int(Path(exit_code_path).read_text().strip())
+    except Exception:
+        return None
+
+
+def _finalize_job_status_from_artifacts(job: Job, jobs_dir: Path) -> None:
+    """Update a finished workflow job using persisted exit code or log fallback."""
+    exit_code = _read_exit_code(job.exit_code_path)
+    if exit_code is not None:
+        job.status = "done" if exit_code == 0 else "failed"
+        job.exit_code = exit_code
+    else:
+        log_tail = _read_log_tail(job.log_path)
+        log_lower = log_tail.lower()
+        failed = (
+            "error:" in log_lower
+            or "traceback" in log_lower
+            or "exception:" in log_lower
+            or "critical:" in log_lower
+        )
+        job.status = "failed" if failed else "done"
+        job.exit_code = 1 if failed else 0
+    job.finished_at = _utc_now()
+    job.save(jobs_dir)
+
+
+def _safe_get_path(runconfig: dict, key: str) -> object:
+    from insar_agent.core.config import get_path
+
+    try:
+        return get_path(runconfig, key)
+    except KeyError:
+        return None
 
 
 def _engine_error(engine: str) -> dict:
@@ -497,13 +567,14 @@ def insar_create_project(
     )
     project.runconfig = default_runconfig
     project.runconfig_template = default_runconfig
+    _ensure_project_logging(project)
 
     try:
         project.save()
     except Exception as exc:
         return {"error": "workspace_not_writable", "message": str(exc)}
 
-    required = ALLOWED_SET_FIELDS.get(workflow, [])
+    required = REQUIRED_PATH_FIELDS.get(workflow, [])
     return {
         "project_id": project.project_id,
         "name": project.name,
@@ -515,11 +586,15 @@ def insar_create_project(
         "required_fields": required,
         "guidance": (
             "Set required path fields with insar_set_runconfig_value. "
+            "Use insar_describe_rslc to build a metadata summary before parameter tuning. "
             "If you need to tune multilook, filtering, unwrapping, or atmospheric corrections, "
-            "invoke param-advisor-isce3 before validate/export/run. For skill-aware Claude "
-            "Code clients, param-advisor-isce3 must generate parameter advice through the "
+            "enter the param-advisor-isce3 skill before validate/export/run. That skill must "
+            "call insar_describe_rslc, then delegate recommendation generation to the "
             "project-level subagent defined in .claude/agents/param-advisor-isce3.md before "
-            "applying changes via insar_set_processing_param."
+            "applying changes via insar_set_processing_param. The subagent may consult "
+            ".claude/agents/references/param-advisor-isce3.md and may use automatic "
+            "external search only when local evidence is insufficient, and the user remains "
+            "responsible for accepting or rejecting those sources."
         ),
     }
 
@@ -811,6 +886,7 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
     except (KeyError, FileNotFoundError):
         return _project_error(project_id)
 
+    _ensure_project_logging(project)
     dest_dir = Path(output_dir.strip()) if output_dir.strip() else project.configs_dir()
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -856,6 +932,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
     except (KeyError, FileNotFoundError):
         return _project_error(project_id)
 
+    _ensure_project_logging(project)
     # Step 1: validate
     errors = validate_runconfig(project.runconfig, project.workflow)
     if errors:
@@ -893,7 +970,9 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         runconfig_path=runconfig_path,
     )
     log_path = str(project.logs_dir() / f"{job.job_id}.log")
+    exit_code_path = str(project.logs_dir() / f"{job.job_id}.exitcode")
     job.log_path = log_path
+    job.exit_code_path = exit_code_path
 
     if dry_run:
         return {
@@ -912,9 +991,15 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
     job.save(project.jobs_dir())
 
     try:
+        shell_command = (
+            f"{shlex.join(command)}; "
+            f"status=$?; "
+            f"printf '%s' \"$status\" > {shlex.quote(exit_code_path)}; "
+            f"exit $status"
+        )
         with open(log_path, "w") as log_file:
             proc = subprocess.Popen(
-                command,
+                ["bash", "-lc", shell_command],
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 cwd=project.workspace_root,
@@ -1077,18 +1162,7 @@ def insar_get_job(
         except (ProcessLookupError, FileNotFoundError):
             alive = False
         if not alive:
-            log_tail = _read_log_tail(job.log_path)
-            log_lower = log_tail.lower()
-            failed = (
-                "error:" in log_lower
-                or "traceback" in log_lower
-                or "exception:" in log_lower
-                or "critical:" in log_lower
-            )
-            job.status = "failed" if failed else "done"
-            job.finished_at = _utc_now()
-            job.exit_code = 1 if failed else 0
-            job.save(project.jobs_dir())
+            _finalize_job_status_from_artifacts(job, project.jobs_dir())
 
     result = {
         "job_id": job.job_id,
@@ -1138,18 +1212,7 @@ def insar_get_job_status(job_id: str, project_id: str) -> dict:
         except (ProcessLookupError, FileNotFoundError):
             alive = False
         if not alive:
-            log_tail = _read_log_tail(job.log_path)
-            log_lower = log_tail.lower()
-            failed = (
-                "error:" in log_lower
-                or "traceback" in log_lower
-                or "exception:" in log_lower
-                or "critical:" in log_lower
-            )
-            job.status = "failed" if failed else "done"
-            job.finished_at = _utc_now()
-            job.exit_code = 1 if failed else 0
-            job.save(project.jobs_dir())
+            _finalize_job_status_from_artifacts(job, project.jobs_dir())
 
     return {
         "job_id": job.job_id,
@@ -1230,15 +1293,25 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
         ".yaml": ("yaml", "Exported runconfig", "text editor"),
     }
 
-    outputs_dir = project.outputs_dir() / job_id
     artifacts = []
-    if outputs_dir.exists():
+    candidate_dirs = [project.outputs_dir() / job_id]
+    if project.outputs_dir() not in candidate_dirs:
+        candidate_dirs.append(project.outputs_dir())
+
+    seen_paths: set[str] = set()
+    for outputs_dir in candidate_dirs:
+        if not outputs_dir.exists():
+            continue
         for f in sorted(outputs_dir.rglob("*")):
             if f.is_file():
+                path_str = str(f)
+                if path_str in seen_paths:
+                    continue
+                seen_paths.add(path_str)
                 ext = f.suffix.lower()
                 artifact_type, description, viewer = _TYPE_MAP.get(ext, ("other", "Output file", ""))
                 artifacts.append({
-                    "path": str(f),
+                    "path": path_str,
                     "artifact_type": artifact_type,
                     "description": description,
                     "recommended_viewer": viewer,
@@ -1440,6 +1513,57 @@ def insar_run_batch(
 # ── Group 6: Utilities (M5) ───────────────────────────────────────────────────
 
 @mcp.tool()
+def insar_describe_rslc(
+    reference_rslc: str = "",
+    secondary_rslc: str = "",
+    project_id: str = "",
+) -> dict:
+    """
+    Summarize locally observable metadata for one RSLC or an RSLC pair.
+
+    This tool is intended to support metadata-first parameter advisory flows.
+    It reads facts from HDF5 when possible, falls back to filename-derived
+    inference, and optionally attaches the current project processing context.
+    """
+    project = None
+    runconfig = None
+    if project_id:
+        try:
+            project = Project.load(project_id)
+        except (KeyError, FileNotFoundError):
+            return _project_error(project_id)
+        runconfig = project.runconfig
+        if not reference_rslc:
+            reference_rslc = _safe_get_path(project.runconfig, "runconfig.groups.input_file_group.reference_rslc_file") or ""
+        if not secondary_rslc:
+            secondary_rslc = _safe_get_path(project.runconfig, "runconfig.groups.input_file_group.secondary_rslc_file") or ""
+
+    if not reference_rslc:
+        return {"error": "invalid_input", "message": "reference_rslc must not be empty"}
+
+    paths = [reference_rslc]
+    if secondary_rslc:
+        paths.append(secondary_rslc)
+    missing = [path for path in paths if not Path(path).exists()]
+    if missing:
+        return {"error": "path_not_found", "message": f"Files not found: {missing}"}
+
+    try:
+        result = describe_rslc_pair(
+            reference_rslc,
+            secondary_rslc or None,
+            runconfig=runconfig,
+            workflow=project.workflow if project else "insar",
+            project_id=project.project_id if project else None,
+            require_existing=True,
+        )
+    except Exception as exc:
+        return {"error": "metadata_summary_failed", "message": str(exc)}
+
+    return result
+
+
+@mcp.tool()
 def insar_extract_bbox(rslc_paths: list[str]) -> dict:
     """
     Extract the union bounding box from one or more NISAR RSLC HDF5 files.
@@ -1621,33 +1745,29 @@ def insar_plot_baseline(
 # ── CLI entry point ────────────────────────────────────────────────────────────
 
 def build_server_description() -> dict:
-    """Return server metadata (kept for backward compat with smoke tests)."""
+    """Return server metadata aligned with the active FastMCP surface."""
     return {
         "server_name": "insar-mcp-server",
         "transport": "stdio",
         "status": "active",
         "engines": ["isce3"],
         "tools": [
-            "insar_list_engines",
-            "insar_list_workflows",
+            "insar_discover",
             "insar_get_project",
             "insar_create_project",
             "insar_get_runconfig",
             "insar_set_runconfig_value",
             "insar_set_processing_param",
-            "insar_unset_runconfig_value",
-            "insar_validate_runconfig",
-            "insar_export_runconfig",
+            "insar_describe_rslc",
             "insar_run_workflow",
-            "insar_get_job_status",
-            "insar_get_job_logs",
+            "insar_get_job",
             "insar_list_outputs",
             "insar_prepare_stack",
             "insar_prepare_network",
+            "insar_run_batch",
             "insar_extract_bbox",
             "insar_export_geotiff",
             "insar_run_mintpy",
-            "insar_get_mintpy_status",
             "insar_plot_baseline",
         ],
     }

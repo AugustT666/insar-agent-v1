@@ -1,6 +1,6 @@
 """NISAR GUNW HDF5 → GeoTIFF + PNG conversion.
 
-Normalised from knowledge-base/tianxiaolong/.../save_geotiff_nisar.py.
+Normalised from docs/archive/knowledge-base/tianxiaolong/.../save_geotiff_nisar.py.
 Provides importable library functions used by the MCP tool layer.
 
 Runtime dependencies: h5py, numpy, gdal (osgeo) — only available inside
@@ -9,7 +9,11 @@ so the MCP tool can return a meaningful error message.
 """
 from __future__ import annotations
 
+import logging
+import math
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 
 def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, object]:
@@ -125,7 +129,7 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
 
             mode = _colormap_mode(safe_name)
             if mode == "phase":
-                lo, hi = -3.1416, 3.1416
+                lo, hi = -math.pi, math.pi
             elif mode == "coherence":
                 lo, hi = 0.0, 1.0
             else:
@@ -143,7 +147,8 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
             mem_ds = None
             created_files.append(png_path)
 
-        except Exception:
+        except Exception as exc:
+            _log.warning("Skipped dataset %s: %s", safe_name, exc)
             skipped += 1
 
     with h5py.File(h5_path, "r") as f:

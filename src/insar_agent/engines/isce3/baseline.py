@@ -1,6 +1,6 @@
 """ISCE3 spatiotemporal baseline network computation and visualisation.
 
-Normalised from knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py.
+Normalised from docs/archive/knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py.
 Provides importable library functions used by the MCP tool layer.
 
 Runtime dependencies: h5py, matplotlib, numpy — only available inside the

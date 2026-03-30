@@ -1,10 +1,10 @@
 # insar-agent 交互工作流展示
 
-本文展示用户、Claude Code（AI）、`param-advisor-isce3` project-level subagent 和 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
+本文展示用户、Claude Code（AI）、`param-advisor-isce3` skill、其 project-level subagent，以及 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
 
 ---
 
-## 一、三方角色
+## 一、多方角色
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -225,7 +225,8 @@ MCP → Claude: {error: "key_not_allowed"}
 Claude → 用户：
   "multilook 参数属于核心处理参数，MCP 服务器禁止通过工具修改。
    这类参数会影响处理精度和可复现性。
-   我可以告诉你它在 runconfig 中的路径，但需要您手动编辑 YAML 文件并确认。"
+   如果这个参数在白名单里，我可以切到 param-advisor-isce3 skill 流程；
+   否则只能离开当前 MCP 工作流，在外部手动管理 YAML。"
 ```
 
 ### 5.2 路径错误（path_not_found）
@@ -251,8 +252,8 @@ MCP → Claude: {status: "ok"}
 ```
 MCP → Claude: {status: "failed", job_id: "job-xyz"}
 
-Claude → MCP: insar_get_job_logs(job_id, project_id, tail=50)
-MCP → Claude: {logs: "...ERROR: DEM does not cover scene extent..."}
+Claude → MCP: insar_get_job(job_id, project_id, include_logs=True)
+MCP → Claude: {status: "failed", logs: "...ERROR: DEM does not cover scene extent..."}
 
 Claude → 用户：
   "作业失败，关键错误：DEM 覆盖范围不足，未覆盖全部场景范围。
@@ -277,7 +278,7 @@ Claude → MCP: insar_extract_bbox(rslc_paths=["/data/rslc/ref.h5", "/data/rslc/
 Claude → 用户：
   "Step B2：下载 Copernicus 30m DEM"
   请执行：
-  python knowledge-base/wangshuai/Scripts/ddem.py \
+  python docs/archive/knowledge-base/wangshuai/Scripts/ddem.py \
       --min-lon 120.5 --max-lon 121.3 \
       --min-lat 35.2  --max-lat 36.0 \
       --source copernicus_30 \
@@ -302,7 +303,8 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 **核心原则：**
 - Skills 是工作流步骤和顺序的唯一来源。MCP 工具只执行动作、返回事实性结果。
 - Claude **只修改路径类字段**（input、output、DEM、scratch 路径）
-- 所有核心处理参数（multilook、filtering、unwrapping）**由用户手动编辑** runconfig YAML
+- 所有核心处理参数必须走 `param-advisor-isce3` → `.claude/agents/param-advisor-isce3.md` → `insar_set_processing_param` 白名单路径；
+  主对话不得直接产出参数建议，也不应通过手工改导出的 YAML 规避 MCP 约束
 - MCP 服务器是最终执行层，`key_not_allowed` 错误无法绕过
 
 ---
@@ -311,14 +313,16 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 | 组件 | 路径 | 作用 |
 |------|------|------|
-| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，JSON-RPC 入口（15 工具） |
+| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，FastMCP stdio 入口（17 个活跃工具） |
 | ISCE3 适配器 | `src/insar_agent/engines/isce3/` | runconfig 验证、conda run 命令构造 |
-| 工具扩展（M5） | `src/insar_agent/engines/isce3/bbox.py` + `geotiff.py` | 包围盒提取、GeoTIFF 导出 |
+| 工具扩展（M5/M7） | `src/insar_agent/engines/isce3/bbox.py` + `geotiff.py` + `rslc_metadata.py` | 包围盒提取、GeoTIFF 导出、RSLC 元数据画像 |
 | MintPy 集成（M6） | `src/insar_agent/engines/isce3/mintpy.py` + `baseline.py` | 异步 MintPy 启动、基线网络图 |
 | 约束文档 | `docs/agent-guide.md` | 硬规则文档 = `insar://workflow-guide` 资源内容（server.py 直接读取） |
 | Skill 路由 | `skills/insar-agent/SKILL.md` | 任务 → skill 映射表 |
 | Path A Skill | `skills/d-insar-isce3/SKILL.md` | 单对流程步骤约束 |
 | Path B Skill | `skills/stack-insar-isce3/SKILL.md` | 批量流程步骤约束 |
+| 参数顾问 Skill | `skills/param-advisor-isce3/SKILL.md` | metadata-first 参数调优编排 |
+| 参数顾问 Reference | `.claude/agents/references/param-advisor-isce3.md` | 经验规则与参考知识 |
 | 数据准备 Skill | `skills/data-prep-nisar/SKILL.md` | DEM + RSLC 准备流程 |
 | 环境安装 Skill | `skills/env-setup-nisar/SKILL.md` | ISCE3 + MCP 安装指引（占位） |
 
@@ -326,8 +330,9 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 ## 九、Agent 行为测试（M5b）— opencode + gpt-5.3-codex 客户端验证
 
-> **注：** 本次测试在 Refinement 精简前进行，工具调用序列使用旧 API 名称。当前等效调用：
-> `insar_list_engines/list_workflows` → `insar_discover`；步骤 11-12 合并为 `insar_run_workflow`（自动 validate+export）；
+> **注：** 最初验证发生在 Refinement 精简前。当前 API 对应关系为：
+> `insar_list_engines/list_workflows` → `insar_discover`；
+> `insar_validate_runconfig` + `insar_export_runconfig` + `insar_run_workflow` → `insar_run_workflow`；
 > `insar_get_job_status` + `insar_get_job_logs` → `insar_get_job(include_logs=True)`
 
 **背景：** 为验证 insar-agent MCP 服务是否足够稳定、完整，能够被真实的外部 AI 客户端（如 opencode、gpt-5.3-codex）调用，我们进行了一次完整的端到端测试。
@@ -336,16 +341,16 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 **测试场景：** 调用 insar-agent MCP 服务，使用真实 NISAR RSLC 数据（NAS: `/home/august/NAS/NISAR_wangshuai_data/`）生成 GUNW 产品。
 
-### 工具调用序列（已验证）
+### 当前等效工具调用序列（已验证）
 
-Agent 自主完成以下 12 步操作，无任何干预或手动引导：
+按当前 MCP 面，等效序列如下：
 
 ```
-1. insar_list_engines
-   → ["isce3"]
+1. insar_discover()
+   → engines=["isce3"]
 
-2. insar_list_workflows
-   → ["gslc", "insar"]
+2. insar_discover(engine="isce3")
+   → workflows=["gslc", "insar"]
 
 3. insar_create_project(engine="isce3", workflow="insar", ...)
    → project_id="proj-xyz"
@@ -362,32 +367,23 @@ Agent 自主完成以下 12 步操作，无任何干预或手动引导：
 10. insar_set_runconfig_value(project_id, "...gpu_enabled", False)
     → ok（GPU 参数覆盖成功）
 
-11. insar_validate_runconfig(project_id)
-    → valid=true
+11. insar_run_workflow(project_id, dry_run=False)
+    → job_id="job-abc", status="running", poll="insar_get_job(...)"
 
-12. insar_export_runconfig(project_id)
-    → /workspace/runconfig.yaml
-
-13. insar_run_workflow(project_id, dry_run=False)
-    → job_id="job-abc", status="running"
-
-14–15. insar_get_job_status(job_id, project_id) ×2
+12–13. insar_get_job(job_id, project_id) ×2
     → 第 1 次：status="running", elapsed="2m30s"
     → 第 2 次：status="done", exit_code=0
 
-16. insar_get_job_logs(job_id, project_id, tail=50)
-    → 最后 50 行日志（全部正常，无错误）
-
-17. insar_list_outputs(job_id, project_id)
+14. insar_list_outputs(job_id, project_id)
     → [GUNW_20251122_20251204.h5, wrapped_phase.tif, coherence.tif, unwrapped_phase.tif]
 
-18. insar_get_project(project_id)
+15. insar_get_project(project_id)
     → 项目元数据、状态摘要
 ```
 
 ### 验证结果
 
-**✓ 工具链条完整：** Agent 无需任何手动干预，完成了从创建→配置→验证→运行→轮询→查询输出的全过程。
+**✓ 工具链条完整：** Agent 无需任何手动干预，完成了从创建→配置→运行→轮询→查询输出的全过程。
 
 **✓ GPU 参数覆盖：** `gpu_enabled=false` 设置成功，ISCE3 正常在 CPU 模式运行。
 

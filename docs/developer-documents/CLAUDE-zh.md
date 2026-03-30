@@ -19,8 +19,9 @@ pytest tests/unit/test_smoke.py::test_server_description_mentions_isce3
 # 运行 CLI
 PYTHONPATH=src python -m insar_agent describe
 
-# 运行 MCP 服务器（仅描述模式）
+# 运行 MCP 服务器
 PYTHONPATH=src python -m insar_agent.mcp.server --describe
+PYTHONPATH=src python -m insar_agent.mcp.server --stdio
 # 或安装后：insar-mcp-server --describe
 
 # 以可编辑模式安装（含开发依赖）
@@ -66,7 +67,7 @@ claude plugin marketplace add /home/august/insar-agent --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
-对 skill-aware 客户端，参数专家属于插件层约束：主会话必须把“参数建议生成”委派给 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent，而不是在主对话中直接给出建议。MCP 工具无法协议级验证这一点；它们只负责白名单和参数校验。
+对 skill-aware 客户端，参数专家采用三层结构：`skills/param-advisor-isce3/SKILL.md` 是统一参数优化入口，`.claude/agents/param-advisor-isce3.md` 是项目级 subagent contract，`.claude/agents/references/param-advisor-isce3.md` 存放经验规则与参考知识。主会话先进入 `param-advisor-isce3`，由它调用 `insar_describe_rslc` 汇总本地可观测事实，再委派给 subagent 生成建议；若本地证据不足，才允许补充外部搜索并返回 provenance。MCP 工具无法协议级验证这一点；它们只负责白名单和参数校验。
 
 ---
 
@@ -74,7 +75,6 @@ claude plugin install insar-agent-skills@insar-agent
 
 - 领域知识（ISCE3 runconfig、脚本、工作流说明）以参考输入形式提供，必须规范化到代码/提示/校验中。原始资料不完整时，不得凭空发明工作流参数。
 - 协议无关的逻辑放在 `core`。MCP 接线放在 `mcp`。引擎行为放在 `engines/<engine>`。
-- 不依赖 `cli-anything` 或其包结构。
 - 若依赖项（如 MCP SDK）尚未安装，保留干净的骨架并记录缺失依赖——不要绕过它猜测实现。
 
 ---
@@ -93,13 +93,13 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 ## 当前状态
 
-**M0–M6 已完成 + MCP API 精简（21→15 工具）。Agent 行为测试（opencode + gpt-5.3-codex）9/9 验证通过。160 个单元测试通过（2026-03-29）。**
+**当前 FastMCP 面为 17 个活跃工具。2026-03-31 fresh 验证结果：`pytest -q` → 205 passed, 1 warning。**
 
 进行非简单改动前，请先阅读：
 
-1. `docs/architecture.md` — 系统概述、层边界、里程碑状态
-2. `docs/mcp-tools.md` — 每个 MCP 工具的完整输入/输出规格
-3. `docs/domain-model.md` — Project、Job、WorkflowTemplate、Artifact 字段定义
+1. `docs/developer-documents/dev-plan.md` — 当前进度、后续计划、协作开发主文档
+2. `docs/architecture.md` — 系统概述、层边界、里程碑状态
+3. `docs/mcp-tools.md` — 每个 MCP 工具的完整输入/输出规格
 4. `docs/agent-guide.md` — AI 约束指南（唯一权威来源）；同时作为 `insar://workflow-guide` MCP 资源提供
 
 ---
@@ -108,12 +108,12 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 领域专家（用户）提供 ISCE3 处理脚本、runconfig 模板和工作流文档。Claude Code 实现对应的 MCP 工具和引擎适配代码。
 
-知识库：
-- `knowledge-base/tianxiaolong/` — 主要来源：SKILL.md（工作流约束）、runconfig 模板、DEM/GeoTIFF 脚本
-- `knowledge-base/wangshuai/` — 补充来源：堆叠/网络准备、MintPy 时序分析、基线可视化
+历史资料归档：
+- `docs/archive/knowledge-base/tianxiaolong/` — 主要来源：SKILL.md（工作流约束）、runconfig 模板、DEM/GeoTIFF 脚本
+- `docs/archive/knowledge-base/wangshuai/` — 补充来源：堆叠/网络准备、MintPy 时序分析、基线可视化
 
 **新增能力的典型流程：**
-1. 用户提供 ISCE3 脚本或 runconfig 模板（放入 knowledge-base/）
+1. 用户提供 ISCE3 脚本或 runconfig 模板（保留时归档到 `docs/archive/knowledge-base/`）
 2. Claude 将其规范化到 `engines/isce3/`（库模块，非 CLI）
 3. Claude 通过核心层将其接线为 `mcp/server.py` 中的 MCP 工具
 4. 在 `tests/unit/` 或 `tests/integration/` 中添加测试
@@ -126,9 +126,11 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 - M4：堆叠/网络 ✓ — `insar_prepare_stack`、`insar_prepare_network`（wangshuai 两层架构）
 - M4b：Agent 引导 ✓ — MCP 资源、提示、技能优先架构
 - M5：工具扩展 ✓ — `insar_extract_bbox`、`insar_export_geotiff`
+- M7 metadata-first 参数顾问更新 ✓ — `insar_describe_rslc`、metadata-first 参数建议流程、带 provenance 的 subagent 合约
 - M6：MintPy ✓ — `insar_run_mintpy`、`insar_plot_baseline`
-- 精简（2026-03-29）：MCP API 精简 21→15 工具；`insar_discover`、`insar_get_job`（ISCE3+MintPy 统一）、`insar_set_runconfig_value`（value=None 删除）、`insar_run_workflow` 吸收 validate+export
-- M7：待定
+- 精简（2026-03-29 检查点）：MCP API 精简 21→15 工具；`insar_discover`、`insar_get_job`（ISCE3+MintPy 统一）、`insar_set_runconfig_value`（value=None 删除）、`insar_run_workflow` 吸收 validate+export
+- M4c（2026-03-30）：新增 `insar_run_batch`；`insar_get_job` 通过 `batch_dir` 覆盖批处理作业；171 个单元测试
+- 当前活跃 MCP 工具总数：17
 
 ---
 
@@ -144,6 +146,7 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 | `network.py` | prepare_network()（干涉图网络 tbase/conn，来自 wangshuai） |
 | `bbox.py` | union_bbox()（RSLC 包围盒提取） |
 | `geotiff.py` | export_geotiff()（HDF5 → GeoTIFF 转换） |
+| `rslc_metadata.py` | summarize_rslc()、describe_rslc_pair()（参数顾问的本地元数据画像） |
 | `mintpy.py` | run_mintpy()、get_mintpy_status()（异步 MintPy 启动，PID 轮询） |
 | `baseline.py` | plot_baseline_network()（时空基线图） |
 | `assets/processing_params_insar.yaml` | `insar_set_processing_param` 可调参数白名单 |
@@ -168,4 +171,4 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 - 固定 runconfig：`tests/fixtures/insar_nisar.yaml`
 - NAS 未挂载时集成测试自动跳过
 
-完整工具规格见 `docs/mcp-tools.md`。领域对象字段见 `docs/domain-model.md`。
+完整工具规格与领域对象总览见 `docs/mcp-tools.md` 和 `docs/architecture.md`。

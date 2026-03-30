@@ -14,6 +14,7 @@ import pytest
 from insar_agent.mcp.server import (
     insar_create_project,
     insar_export_runconfig,
+    insar_get_job,
     insar_get_job_status,
     insar_run_workflow,
 )
@@ -161,6 +162,42 @@ class TestGetJobStatusLiveness:
 
         assert result["status"] == "failed"
         assert result["exit_code"] == 1
+
+    def test_dead_pid_nonzero_exit_code_file_returns_failed(self, ready_project):
+        """A recorded non-zero exit code must override an empty log."""
+        job_id = self._launch_job(ready_project, pid=77666)
+
+        project = Project.load(ready_project)
+        job_files = list(project.jobs_dir().glob("*.json"))
+        data = json.loads(job_files[0].read_text())
+        exit_code_path = Path(data["log_path"]).with_suffix(".exitcode")
+        exit_code_path.write_text("1")
+        data["exit_code_path"] = str(exit_code_path)
+        job_files[0].write_text(json.dumps(data))
+
+        with patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
+            result = insar_get_job(job_id=job_id, project_id=ready_project)
+
+        assert result["status"] == "failed"
+        assert result["exit_code"] == 1
+
+    def test_dead_pid_zero_exit_code_file_returns_done(self, ready_project):
+        """A recorded zero exit code should mark completion even with an empty log."""
+        job_id = self._launch_job(ready_project, pid=77665)
+
+        project = Project.load(ready_project)
+        job_files = list(project.jobs_dir().glob("*.json"))
+        data = json.loads(job_files[0].read_text())
+        exit_code_path = Path(data["log_path"]).with_suffix(".exitcode")
+        exit_code_path.write_text("0")
+        data["exit_code_path"] = str(exit_code_path)
+        job_files[0].write_text(json.dumps(data))
+
+        with patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
+            result = insar_get_job_status(job_id, ready_project)
+
+        assert result["status"] == "done"
+        assert result["exit_code"] == 0
 
     def test_dead_pid_critical_in_log_returns_failed(self, ready_project, tmp_path):
         """ISCE3 CRITICAL log level triggers failed status."""

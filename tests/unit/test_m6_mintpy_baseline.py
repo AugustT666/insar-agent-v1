@@ -269,7 +269,7 @@ class TestInsarRunMintpy:
             )
         assert "error" not in result
         assert result["job_id"] == "abc-123"
-        assert "insar_get_mintpy_status" in result["poll"]
+        assert "insar_get_job" in result["poll"]
         assert "abc-123" in result["poll"]
 
 

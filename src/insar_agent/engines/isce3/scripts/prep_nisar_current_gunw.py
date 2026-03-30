@@ -10,10 +10,16 @@ import sys
 import tempfile
 from pathlib import Path
 
+import logging
+
 from osgeo import gdal
 from mintpy.cli.prep_nisar import cmd_line_parse
 import mintpy.prep_nisar as prep_nisar
 
+_log = logging.getLogger(__name__)
+
+# NISAR nominal orbit altitude (metres) — used as HEIGHT metadata for MintPy.
+NISAR_ALTITUDE_METERS = 747000
 
 DATE_PAIR_RE = re.compile(r"(?P<d1>\d{8})_(?P<d2>\d{8})")
 
@@ -144,7 +150,7 @@ def extract_common_grid_metadata(
     meta["CENTER_LINE_UTC"] = (
         t_mid - prep_nisar.datetime.datetime(t_mid.year, t_mid.month, t_mid.day)
     ).total_seconds()
-    meta["HEIGHT"] = 747000
+    meta["HEIGHT"] = NISAR_ALTITUDE_METERS
 
     xcoord_common, ycoord_common, bounds = compute_common_grid(input_files, bbox)
     meta["X_FIRST"] = float(xcoord_common[0])
@@ -175,8 +181,8 @@ def prepare_geometry_common_grid(
     xcoord_common: prep_nisar.np.ndarray,
     ycoord_common: prep_nisar.np.ndarray,
 ) -> dict[str, object]:
-    print("-" * 50)
-    print(f"preparing geometry file: {outfile}")
+    _log.info("-" * 50)
+    _log.info("preparing geometry file: %s", outfile)
 
     dem_subset_array, slant_range, incidence_angle, mask = read_and_interpolate_geometry_on_grid(
         meta_file=meta_file,
@@ -208,12 +214,12 @@ def prepare_stack_common_grid(
     xcoord_common: prep_nisar.np.ndarray,
     ycoord_common: prep_nisar.np.ndarray,
 ) -> str:
-    print("-" * 50)
-    print(f"preparing ifgramStack file: {outfile}")
+    _log.info("-" * 50)
+    _log.info("preparing ifgramStack file: %s", outfile)
     num_pair = len(input_files)
     rows = len(ycoord_common)
     cols = len(xcoord_common)
-    print(f"number of inputs/unwrapped interferograms: {num_pair}")
+    _log.info("number of inputs/unwrapped interferograms: %s", num_pair)
 
     date12_arr = prep_nisar.np.array([x.split("_") for x in date12_list], dtype=prep_nisar.np.bytes_)
     drop_ifgram = prep_nisar.np.ones(num_pair, dtype=prep_nisar.np.bool_)
@@ -229,7 +235,7 @@ def prepare_stack_common_grid(
     meta["FILE_TYPE"] = "ifgramStack"
     prep_nisar.writefile.layout_hdf5(outfile, ds_name_dict, metadata=meta)
 
-    print(f"writing data to HDF5 file {outfile} with a mode ...")
+    _log.info("writing data to HDF5 file %s with a mode ...", outfile)
     with prep_nisar.h5py.File(outfile, "a") as f:
         prog_bar = prep_nisar.ptime.progressBar(maxValue=num_pair)
         for i, file in enumerate(input_files):
@@ -274,7 +280,7 @@ def prepare_stack_common_grid(
             prog_bar.update(i + 1, suffix=date12_list[i])
         prog_bar.close()
 
-    print(f"finished writing to HDF5 file: {outfile}")
+    _log.info("finished writing to HDF5 file: %s", outfile)
     return outfile
 
 
@@ -334,7 +340,7 @@ def read_and_interpolate_geometry_on_grid(
         )
 
         if mask_file in ["auto", "None", None]:
-            print("*** No mask was found ***")
+            _log.warning("No mask was found")
             mask_subset_array = prep_nisar.np.ones(dem_subset_array.shape, dtype="byte")
         else:
             mask_dataset = gdal.Open(mask_file, gdal.GA_ReadOnly)

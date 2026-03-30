@@ -13,16 +13,14 @@
 
 ### M1 — Runconfig 管理 ✓
 - `insar_create_project`：创建项目、加载默认 runconfig 模板
-- `insar_get/set/unset_runconfig_value`：dotted-key 访问
-- `insar_validate_runconfig`：必填路径字段校验
-- `insar_export_runconfig`：写出 YAML 到磁盘
+- `insar_get_runconfig` + `insar_set_runconfig_value`：dotted-key 访问（`value=None` 即 unset）
+- `insar_run_workflow` 内部吸收 validate + export
 - 项目注册表（JSON 持久化）
 - `ALLOWED_SET_FIELDS` / `REQUIRED_PATH_FIELDS`（engines/isce3/defaults.py）
 
 ### M2 — 作业执行 ✓
 - `insar_run_workflow`：conda run 启动 `nisar.workflows.<workflow>`
-- `insar_get_job_status`：轮询作业状态
-- `insar_get_job_logs`：读取日志（tail 参数）
+- `insar_get_job`：统一轮询作业状态 / 日志（ISCE3、MintPy、batch）
 - jobs.py 状态机（pending → running → done/failed）
 
 ### M3 — 输出处理 ✓
@@ -56,18 +54,15 @@
 > `insar_validate_runconfig` + `insar_export_runconfig` + `insar_run_workflow` → `insar_run_workflow`（单步）；
 > `insar_get_job_status` + `insar_get_job_logs` → `insar_get_job`
 
-1. `insar_list_engines` → 列出引擎
-2. `insar_list_workflows` → 列出工作流
+1. `insar_discover` → 列出引擎
+2. `insar_discover(engine="isce3")` → 列出工作流
 3. `insar_create_project` → 创建项目
 4. `insar_get_runconfig` → 读取配置
 5. `insar_set_runconfig_value` ×9 → 设置参数（包括 `gpu_enabled=false` 覆盖）
-6. `insar_validate_runconfig` → 校验配置
-7. `insar_export_runconfig` → 导出 YAML
-8. `insar_run_workflow` → 启动处理
-9. `insar_get_job_status` ×2 → 轮询状态
-10. `insar_get_job_logs` → 读取日志
-11. `insar_list_outputs` → 列出输出
-12. `insar_get_project` → 获取项目信息
+6. `insar_run_workflow` → 启动处理（自动 validate + export）
+7. `insar_get_job` ×2 → 轮询状态
+8. `insar_list_outputs` → 列出输出
+9. `insar_get_project` → 获取项目信息
 
 **产品验证：** 生成 GUNW_20251122_20251204.h5（22MB），包含所有必需 HDF5 数据集（wrapped phase、coherence、unwrapped phase）。
 
@@ -79,17 +74,17 @@
 
 **目标：** 将 MintPy 时序处理流程接入 MCP，让 Agent 在 Stack-InSAR 完成后可以直接调用 MintPy。
 
-**参考脚本（knowledge-base/wangshuai/Scripts/）：**
+**参考脚本（docs/archive/knowledge-base/wangshuai/Scripts/）：**
 - `run_mintpy_nisar_stack.sh` — MintPy 全流程入口（复制到 `engines/isce3/assets/`，DEM 参数化为第 4 个位置参数）
 - `plot_isce3_baseline_network.py` — 时空基线网络可视化（规范化为 `engines/isce3/baseline.py`）
 - `prep_nisar_current_gunw.py` + `apply_common_ifgram_mask.py` — 辅助脚本（复制到 `engines/isce3/scripts/`）
 
-**新增工具：**
+**新增工具（M6 当时）：**
 
 | 工具 | 描述 |
 |------|------|
 | `insar_run_mintpy` | 异步启动 MintPy，返回 job_id + log_path |
-| `insar_get_mintpy_status` | 轮询 MintPy 作业（Path B，无项目注册表，按 mintpy_work_dir 定位） |
+| `insar_get_mintpy_status` | 当时用于轮询 MintPy 作业，后续已并入 `insar_get_job(work_dir=...)` |
 | `insar_plot_baseline` | 生成时空基线网络图（PNG/PDF）+ CSV 基线统计 |
 
 **新增引擎模块：**
@@ -102,7 +97,7 @@
 
 **测试：** `tests/unit/test_m6_mintpy_baseline.py`（~20 个 unit tests）
 
-**测试状态（2026-03-26）：~124 unit tests + 5 integration tests**
+**当时测试状态（2026-03-26）：~124 unit tests + 5 integration tests**
 
 ---
 
@@ -121,22 +116,46 @@
 - `geotiff.py`：`math.pi` 替换魔法数字，`logging.warning` 替换 silent exception
 - `prep_nisar_current_gunw.py`：`NISAR_ALTITUDE_METERS` 常量 + print→logging
 
-**测试状态（2026-03-29）：160 unit tests 全部通过**
+**当时测试状态（2026-03-29）：160 unit tests 全部通过**
 
-### M7 — 参数专家 Subagent 强制机制 ✓
+### M4c — `insar_run_batch` + 批处理可见性 ✓
 
-**目标：** 对 skill-aware 客户端强制要求参数建议必须由 Claude Code 项目级 subagent 生成，避免参数专家占用主对话上下文。
+**目标：** 补齐 Stack/Network 路径的执行能力，消除与 D-InSAR 路径的不一致（D-InSAR 由 MCP 直接启动子进程，Stack/Network 之前只生成脚本要求用户手动执行）；同时通过返回 `log_path` 提升处理过程的可见性。
+
+**变更：**
+- `core/jobs.py`：新增 `BatchJob` dataclass，存储路径 `{batch_dir}/.insar_agent/jobs/{job_id}.json`
+- `mcp/server.py`：新增 `insar_run_batch`（后台执行 `run_parallel.sh`，返回 `job_id` + `log_path`）；`insar_get_job` 新增 `batch_dir` 第三分支
+- `skills/stack-insar-isce3/SKILL.md`：替换手动执行指令为 `insar_run_batch` 调用流程
+- `skills/d-insar-isce3/SKILL.md`：补充 `insar_run_workflow` 返回后展示 `log_path` 的指令
+- 文档：`CLAUDE.md`、`CLAUDE-zh.md`、`memory/feedback_mcp_design.md` 中"≤15 工具"硬性限制改为"小而美"原则
+
+**测试状态（2026-03-30）：171 unit tests 全部通过**
+
+### M7 — 参数专家 Subagent 信息源扩展 ✓
+
+**目标：** 在保留项目级 subagent 的前提下，把参数专家输入从 runconfig/文件名推断扩展为元数据优先（metadata-first）流程，并允许在证据不足时自动补充外部搜索。
 
 **实现范围：**
-- `param-advisor-isce3` 从“直接建议器”调整为“主 agent 编排器”
-- 新增项目级 agent：`.claude/agents/param-advisor-isce3.md`
-- `insar_create_project().guidance` 与 `process_insar_pair/process_insar_batch` 明确写出 subagent requirement
+- `param-advisor-isce3` 保留为统一参数优化入口与薄编排层
+- 项目级 agent：`.claude/agents/param-advisor-isce3.md`
+- agent 同级 reference 资产：`.claude/agents/references/param-advisor-isce3.md`
+- 新增 `insar_describe_rslc`：汇总 RSLC 本地元数据、时间基线、bbox 和当前 processing context
+- `insar_create_project().guidance` 与 `process_insar_pair/process_insar_batch` 明确写出 metadata-first + subagent requirement
 - 权威文档与开发文档统一术语：plugin contract vs MCP contract
+- subagent 输出增加 `advisory_only`、`user_responsibility_notice`、`provenance`、`external_references`
 
 **边界：**
 - 强制机制只面向 skill-aware 客户端（Claude Code / Codex 等）
 - MCP server 不负责协议级验证是否真的 spawn subagent
 - `insar_set_processing_param` 继续只负责白名单和参数校验
+- 外部搜索不由仓库内 MCP 工具直接实现，而依赖宿主已有 web 能力
+
+### 当前总览（2026-03-30）
+
+- 当前活跃 FastMCP 工具数：17
+- 当前主线轮询接口：`insar_get_job`
+- 当前 Path A 主线：`create_project` → `set_runconfig_value` → `insar_describe_rslc`（可选）→ `run_workflow` → `get_job`
+- 当前 Path B 主线：`prepare_stack/network` → `insar_run_batch`（可选）→ `get_job`
 
 ---
 
@@ -203,6 +222,12 @@
    - `asf_search` Python API 下载命令示例
    - 文件命名约定说明（用于 `stack.py` 日期解析）
 
+2. **大气校正 ancillary 准备**
+   - 为 `troposphere_delay` 补齐可执行的数据准备路径：根据参考/辅影像时间和空间范围准备 `reference_troposphere_file` / `secondary_troposphere_file`
+   - 为 `ionosphere_phase_correction` 补齐 TEC ancillary 准备与可用性检查
+   - 在 `data-prep-nisar` skill 中明确：只有当天气模型或 TEC 输入已准备完成时，后续参数建议或主流程才应把对应 correction 视为“可直接执行”的选项
+   - 为参数专家增加 ancillary-aware gating：若当前 project 缺少 weather model / TEC 输入，只能给出“需先准备数据”的建议，不能把 `enabled=true` 当成可立即运行的推荐
+
 2. **DEM 准备引导**（现有 ddem.py 流程已可用，补充说明）
    - `insar_extract_bbox` 获取范围 → `ddem.py` 下载 Copernicus 30m
    - 投影/格式说明（WGS84 GeoTIFF）
@@ -246,7 +271,14 @@
 | `docs/developer-documents/CLAUDE-zh.md` | CLAUDE.md 中文对照版（供领域专家阅读） |
 | `docs/architecture.md` | 系统分层架构，模块边界，里程碑状态 |
 | `docs/mcp-tools.md` | 全部 MCP 工具的输入/输出规格 |
-| `docs/domain-model.md` | Project / Job / WorkflowTemplate / Artifact 字段定义 |
+| `docs/archive/knowledge-base/` | 历史来源材料归档，不作为当前权威入口 |
+
+### 文档/示例占位与归档整理
+
+- `examples/runconfigs/` 当前仅为保留位，不作为近期开发表项
+- `docs/archive/knowledge-base/` 作为历史来源归档保留
+- 已删除 `tests/integration/README.md` 与 `tests/e2e/README.md`
+- 只有在需要公开演示样例或稳定 sanitized baseline 时，才升级 `examples/runconfigs/` 为正式开发项
 
 ---
 

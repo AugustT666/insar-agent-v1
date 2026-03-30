@@ -2,7 +2,7 @@
 
 Use these dotted-key paths with `insar_set_runconfig_value(project_id, key, value)`.
 
-## Required fields (must be set before validation passes)
+## Required fields (must be set before `insar_run_workflow` can launch)
 
 | Field | Dotted key | Example value |
 |-------|-----------|---------------|
@@ -26,5 +26,6 @@ Use these dotted-key paths with `insar_set_runconfig_value(project_id, key, valu
 
 - All other runconfig keys are core processing parameters (multilook, filtering, unwrapping).
   They are locked via `ALLOWED_SET_FIELDS` and return `key_not_allowed` if set via MCP.
-  Edit them manually in the exported YAML after `insar_export_runconfig`.
+  Enter `param-advisor-isce3`, then use `insar_set_processing_param` for
+  whitelist-controlled processing parameters.
 - Use `insar://allowed-fields/insar` MCP resource to get the authoritative current list.

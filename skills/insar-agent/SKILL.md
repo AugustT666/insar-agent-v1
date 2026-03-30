@@ -16,9 +16,10 @@ description: >
 
 - Use `insar_*` MCP tools for all ISCE3 operations. Do not run ISCE3 shell commands directly.
 - Skills define what to do and in what order. MCP tools execute the actions and return factual results.
-- Path-type fields are set via `insar_set_runconfig_value`. Core processing parameters (multilook, filtering, unwrapping) are set via `insar_set_processing_param` (param-advisor-isce3 skill only). Both tools enforce their own allowlists server-side.
-- When the user requests parameter tuning or provides scene/data characteristics that affect multilook, filtering, unwrapping, or atmospheric corrections, route into `param-advisor-isce3` before validation/execution.
-- For skill-aware clients, `param-advisor-isce3` must delegate the recommendation stage to the project-level subagent defined in `.claude/agents/param-advisor-isce3.md`. The main conversation must not generate parameter advice directly.
+- Path-type fields are set via `insar_set_runconfig_value`. Core processing parameters are set via `insar_set_processing_param`. Both tools enforce allowlists server-side.
+- When the user requests parameter tuning or provides scene/data characteristics that affect multilook, filtering, unwrapping, or atmospheric corrections, route into `param-advisor-isce3`.
+- `param-advisor-isce3` is the unified parameter-advisory skill. It owns `insar_describe_rslc`, project-level subagent delegation, diff presentation, and user confirmation.
+- The metadata-first entry point for parameter advice remains `insar_describe_rslc`; automatic external search is allowed only when local evidence is insufficient.
 - Do not invent workflow parameters when reference material is incomplete. Ask the user.
 
 ## Skill routing
@@ -32,7 +33,7 @@ Select the skill that matches the user's task and invoke it:
 | Single RSLC pair → GUNW interferogram product | `d-insar-isce3` |
 | Multiple RSLC scenes → interferogram network (batch) | `stack-insar-isce3` |
 | MintPy time-series, displacement, baseline plot | `mintpy-isce3` |
-| Processing parameter tuning (multilook, unwrapping, corrections) | `param-advisor-isce3` |
+| Any parameter tuning / advisory request | `param-advisor-isce3` |
 
 If the task spans multiple rows (e.g., data is missing AND a single pair needs processing),
 invoke `data-prep-nisar` first, then `D-InSAR-isce3`.

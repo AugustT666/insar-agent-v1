@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
 
-def get_path(data: dict, dotted_path: str):
+
+def get_path(data: dict, dotted_path: str) -> Any:
+    """Return the value at a dotted key path (e.g. 'a.b.c') within a nested dict."""
     current = data
     for part in dotted_path.split("."):
         if not isinstance(current, dict) or part not in current:
@@ -10,7 +13,8 @@ def get_path(data: dict, dotted_path: str):
     return current
 
 
-def set_path(data: dict, dotted_path: str, value) -> None:
+def set_path(data: dict, dotted_path: str, value: Any) -> None:
+    """Set a value at a dotted key path, creating intermediate dicts as needed."""
     current = data
     parts = dotted_path.split(".")
     for part in parts[:-1]:
@@ -21,6 +25,7 @@ def set_path(data: dict, dotted_path: str, value) -> None:
 
 
 def unset_path(data: dict, dotted_path: str) -> None:
+    """Remove the key at a dotted key path from a nested dict."""
     parts = dotted_path.split(".")
     current = data
     for part in parts[:-1]:

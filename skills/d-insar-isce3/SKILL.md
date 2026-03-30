@@ -24,14 +24,13 @@ description: >
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
 - If workflow parameters are unclear, ask the user — do not invent them.
 - Core processing parameters (multilook, filtering, unwrapping, thresholds) cannot be changed
-  via this skill. If the user wants to tune them, invoke `param-advisor-isce3` **between
-  Step 2 and Step 3** (after setting paths, before validation). `param-advisor-isce3` will
-  apply parameters via `insar_set_processing_param` and show the full runconfig for confirmation.
+  through `insar_set_runconfig_value`. If the user wants to tune them, this workflow must
+  invoke `param-advisor-isce3` **between Step 2 and Step 3** (after setting paths,
+  before launch).
 - Always start from the default runconfig template — `insar_create_project` loads it automatically.
-- Never skip validation (`insar_validate_runconfig` must return `valid=true`) before Step 4.
-- Never skip export (`insar_export_runconfig`) before Step 5.
 - If `insar_set_runconfig_value` returns `key_not_allowed`, do NOT attempt workarounds. Tell the
-  user the parameter must be edited manually in the exported YAML.
+  user that only whitelist-controlled processing parameters may be changed through
+  `param-advisor-isce3` + `insar_set_processing_param`.
 
 ## Standard workflow (always follow this order)
 
@@ -51,52 +50,43 @@ description: >
 
    Optional: `worker.gpu_enabled`, `worker.gpu_id`, `logging.path`
 
-2.5. **（可选）参数调优** — 若用户需要调整处理参数（多视数、解缠算法等），在此步骤调用
-   `param-advisor-isce3` skill。该 skill 会收集研究区和数据特征，优先从 runconfig、
-   RSLC 文件名和现有路径中推断证据，再补问缺失信息，并把建议生成阶段委派给
-   `.claude/agents/param-advisor-isce3.md` 定义的 project-level subagent。
-   主对话不得直接产出建议。经用户三选一确认后通过 `insar_set_processing_param`
-   应用参数。
-   完成后继续执行 Step 3。
+2.5. **（可选）参数调优** — 若用户需要调整处理参数：
+   进入 `param-advisor-isce3`。该 skill 负责：
+   - 调 `insar_describe_rslc`
+   - 调 `.claude/agents/param-advisor-isce3.md`
+   - 展示参数 diff 和三选一确认
+   - 如用户接受建议，调用 `insar_set_processing_param`
+   - 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
+   完成后再回到本 workflow 继续 Step 3。
 
-3. **Validate**
-   ```
-   insar_validate_runconfig(project_id)
-   ```
-   If `valid=false`, fix the reported fields with `insar_set_runconfig_value` and re-validate.
-
-4. **Export runconfig to disk**
-   ```
-   insar_export_runconfig(project_id)
-   ```
-
-5. **Run workflow**
+3. **Run workflow**
    ```
    insar_run_workflow(project_id)
    ```
-   Save the returned `job_id` and `log_path`. Tell the user the log path so they can monitor
+   This call already validates and exports the YAML before launch. Save the returned `job_id`
+   and `log_path`. Tell the user the log path so they can monitor
    real-time ISCE3 output if desired:
    ```bash
    tail -f <log_path>
    ```
    The response also includes a `poll` field with the exact call to use.
 
-6. **Poll status** — call `insar_get_job_status(job_id, project_id)` every ~30 s until
+4. **Poll status** — call `insar_get_job(job_id, project_id)` every ~30 s until
    `status` is `done` or `failed`.
 
-7. **If failed — read logs**
+5. **If failed — read logs**
    ```
-   insar_get_job_logs(job_id, project_id, tail=50)
+   insar_get_job(job_id, project_id, include_logs=True)
    ```
-   Summarize the key error lines. Suggest path-only fixes. For core-parameter issues,
-   tell the user to edit the YAML manually.
+   Summarize the key error lines. Suggest path-only fixes. For whitelist-controlled
+   processing issues, re-enter `param-advisor-isce3`.
 
-8. **List outputs**
+6. **List outputs**
    ```
    insar_list_outputs(job_id, project_id)
    ```
 
-9. **Export GeoTIFF (optional)** — if the user wants raster visualization:
+7. **Export GeoTIFF (optional)** — if the user wants raster visualization:
    ```
    insar_export_geotiff(h5_path=<GUNW .h5 path>, output_dir=<workspace>/browse)
    ```

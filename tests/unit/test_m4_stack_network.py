@@ -21,7 +21,8 @@ from insar_agent.engines.isce3.network import (
     resolve_pairs,
     prepare_network,
 )
-from insar_agent.mcp.server import insar_prepare_stack, insar_prepare_network
+from insar_agent.core.jobs import BatchJob
+from insar_agent.mcp.server import insar_prepare_stack, insar_prepare_network, insar_run_batch, insar_get_job
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -480,3 +481,174 @@ def test_mcp_insar_prepare_network_invalid_mode(tmp_path):
         network_mode="bogus",
     )
     assert result["error"] == "invalid_input"
+
+
+# ── BatchJob persistence ───────────────────────────────────────────────────────
+
+def test_batch_job_save_and_load(tmp_path):
+    """BatchJob round-trips through JSON save/load correctly."""
+    import unittest.mock as mock
+    batch_dir = str(tmp_path / "batch")
+    Path(batch_dir).mkdir()
+    job = BatchJob(
+        batch_dir=batch_dir,
+        batch_type="stack",
+        num_pairs=4,
+        run_parallel_sh=str(tmp_path / "batch" / "run_parallel.sh"),
+        max_jobs=4,
+    )
+    job.save()
+    loaded = BatchJob.load(job.job_id, batch_dir)
+    assert loaded.job_id == job.job_id
+    assert loaded.batch_type == "stack"
+    assert loaded.num_pairs == 4
+
+
+# ── insar_run_batch ────────────────────────────────────────────────────────────
+
+def _make_batch_dir(tmp_path: Path, n_pairs: int = 2) -> Path:
+    """Create a minimal prepared batch directory with run_parallel.sh and runconfigs."""
+    batch_dir = tmp_path / "batch"
+    (batch_dir / "runconfigs").mkdir(parents=True)
+    run_parallel_sh = batch_dir / "run_parallel.sh"
+    run_parallel_sh.write_text("#!/usr/bin/env bash\nexit 0\n")
+    for i in range(n_pairs):
+        (batch_dir / "runconfigs" / f"pair_{i}.yaml").write_text("dummy: true\n")
+    return batch_dir
+
+
+def test_insar_run_batch_background_returns_job_id(tmp_path):
+    """run_batch returns job_id, pid, log_path, and poll in background mode."""
+    import unittest.mock as mock
+    batch_dir = _make_batch_dir(tmp_path)
+    mock_proc = mock.MagicMock()
+    mock_proc.pid = 99999
+    with mock.patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc):
+        result = insar_run_batch(batch_dir=str(batch_dir), max_jobs=2)
+    assert "error" not in result
+    assert "job_id" in result
+    assert result["status"] == "running"
+    assert result["pid"] == 99999
+    assert "log_path" in result
+    assert "poll" in result
+    assert "batch_dir" in result["poll"]
+    # Job JSON persisted
+    jobs_dir = batch_dir / ".insar_agent" / "jobs"
+    assert any(jobs_dir.glob("*.json"))
+
+
+def test_insar_run_batch_no_run_parallel_sh(tmp_path):
+    """Returns not_prepared if run_parallel.sh is missing."""
+    batch_dir = tmp_path / "batch"
+    (batch_dir / "runconfigs").mkdir(parents=True)
+    result = insar_run_batch(batch_dir=str(batch_dir))
+    assert result["error"] == "not_prepared"
+
+
+def test_insar_run_batch_no_runconfigs(tmp_path):
+    """Returns no_pairs_to_run if runconfigs/ is empty."""
+    batch_dir = tmp_path / "batch"
+    (batch_dir / "runconfigs").mkdir(parents=True)
+    (batch_dir / "run_parallel.sh").write_text("#!/usr/bin/env bash\n")
+    result = insar_run_batch(batch_dir=str(batch_dir))
+    assert result["warning"] == "no_pairs_to_run"
+
+
+def test_insar_run_batch_launch_failure(tmp_path):
+    """Returns launch_failed if Popen raises."""
+    import unittest.mock as mock
+    batch_dir = _make_batch_dir(tmp_path)
+    with mock.patch("insar_agent.mcp.server.subprocess.Popen", side_effect=OSError("boom")):
+        result = insar_run_batch(batch_dir=str(batch_dir))
+    assert result["error"] == "launch_failed"
+
+
+# ── insar_get_job batch_dir branch ────────────────────────────────────────────
+
+def _make_batch_job(tmp_path: Path, status: str = "running", pid: int = 12345) -> tuple[BatchJob, str]:
+    batch_dir = str(tmp_path / "batch")
+    Path(batch_dir).mkdir(parents=True, exist_ok=True)
+    log_path = str(tmp_path / "batch" / "logs" / "job.log")
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(log_path).write_text("Starting ISCE3 workflow...\n")
+    job = BatchJob(
+        batch_dir=batch_dir,
+        batch_type="stack",
+        num_pairs=3,
+        run_parallel_sh=str(tmp_path / "run_parallel.sh"),
+        max_jobs=4,
+        status=status,
+        pid=pid,
+        log_path=log_path,
+    )
+    job.save()
+    return job, batch_dir
+
+
+def test_insar_get_job_batch_running(tmp_path):
+    """Returns status=running while process is alive."""
+    import unittest.mock as mock
+    import builtins
+    job, batch_dir = _make_batch_job(tmp_path, status="running", pid=12345)
+    # Patch os.kill to not raise (process alive) and proc status to show sleeping state.
+    # Use side_effect on read_text to only intercept /proc paths.
+    original_read_text = Path.read_text
+    def _fake_read_text(self, *args, **kwargs):
+        if str(self).startswith("/proc/"):
+            return "Name: python\nState: S (sleeping)\n"
+        return original_read_text(self, *args, **kwargs)
+    with mock.patch("insar_agent.mcp.server.os.kill"):  # no exception = alive
+        with mock.patch.object(Path, "read_text", _fake_read_text):
+            result = insar_get_job(job_id=job.job_id, batch_dir=batch_dir)
+    assert result["status"] == "running"
+    assert result["batch_type"] == "stack"
+    assert result["num_pairs"] == 3
+
+
+def test_insar_get_job_batch_pid_dead_clean_log(tmp_path):
+    """Transitions to done when PID is dead and log has no errors."""
+    import unittest.mock as mock
+    job, batch_dir = _make_batch_job(tmp_path, status="running", pid=12345)
+    # Write a clean log
+    Path(job.log_path).write_text("Processing complete.\n")
+    with mock.patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
+        result = insar_get_job(job_id=job.job_id, batch_dir=batch_dir)
+    assert result["status"] == "done"
+    assert result["exit_code"] == 0
+
+
+def test_insar_get_job_batch_pid_dead_error_in_log(tmp_path):
+    """Transitions to failed when PID is dead and log contains 'error:'."""
+    import unittest.mock as mock
+    job, batch_dir = _make_batch_job(tmp_path, status="running", pid=12345)
+    Path(job.log_path).write_text("error: something went wrong\n")
+    with mock.patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
+        result = insar_get_job(job_id=job.job_id, batch_dir=batch_dir)
+    assert result["status"] == "failed"
+    assert result["exit_code"] == 1
+
+
+def test_insar_get_job_batch_job_not_found(tmp_path):
+    """Returns job_not_found for unknown job_id."""
+    batch_dir = str(tmp_path / "batch")
+    Path(batch_dir).mkdir()
+    result = insar_get_job(job_id="no-such-job", batch_dir=batch_dir)
+    assert result["error"] == "job_not_found"
+
+
+def test_insar_get_job_batch_include_logs(tmp_path):
+    """Returns log_content when include_logs=True."""
+    import unittest.mock as mock
+    job, batch_dir = _make_batch_job(tmp_path, status="done", pid=None)
+    job.status = "done"
+    job.save()
+    result = insar_get_job(job_id=job.job_id, batch_dir=batch_dir, include_logs=True)
+    assert "log_content" in result
+    assert result["log_content"] is not None
+
+
+def test_insar_get_job_missing_all_params():
+    """Returns missing_param mentioning batch_dir when no context given."""
+    result = insar_get_job(job_id="x")
+    assert result["error"] == "missing_param"
+    assert "batch_dir" in result["message"]

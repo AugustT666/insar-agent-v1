@@ -144,6 +144,13 @@ def test_create_project_loads_runconfig_template(insar_project):
     assert "input_file_group" in rc["runconfig"]["groups"]
 
 
+def test_create_project_backfills_logging_config(insar_project, workspace):
+    result = insar_get_runconfig(insar_project["project_id"])
+    logging_cfg = result["runconfig"]["runconfig"]["groups"]["logging"]
+    assert logging_cfg["path"] == str(Path(workspace) / "logs" / "insar_workflow.log")
+    assert logging_cfg["write_mode"] == "w"
+
+
 # ── get_runconfig ─────────────────────────────────────────────────────────────
 
 def test_get_runconfig_json(insar_project):
@@ -158,6 +165,7 @@ def test_get_runconfig_yaml(insar_project):
     assert "runconfig_yaml" in result
     parsed = yaml.safe_load(result["runconfig_yaml"])
     assert "runconfig" in parsed
+    assert parsed["runconfig"]["groups"]["logging"]["write_mode"] == "w"
 
 
 def test_get_runconfig_unknown_project():
@@ -337,15 +345,10 @@ def test_run_workflow_dry_run(insar_project, tmp_path):
     assert "nisar.workflows.insar" in " ".join(result["command"])
 
 
-def test_run_workflow_no_export_fails(insar_project):
-    result = insar_run_workflow(insar_project["project_id"], dry_run=True)
-    assert result["error"] == "runconfig_not_exported"
-
-
 def test_run_workflow_invalid_runconfig_fails(insar_project):
-    pid = insar_project["project_id"]
-    insar_export_runconfig(pid)
-    result = insar_run_workflow(pid, dry_run=True)
+    # insar_run_workflow now auto-validates before launching; missing required
+    # fields cause runconfig_invalid to be returned immediately.
+    result = insar_run_workflow(insar_project["project_id"], dry_run=True)
     assert result["error"] == "runconfig_invalid"
 
 
@@ -431,6 +434,19 @@ class TestListOutputs:
         assert "hdf5" in paths_by_type
         assert "geotiff" in paths_by_type
         assert "preview" in paths_by_type
+
+    def test_falls_back_to_project_outputs_dir(self, insar_project):
+        pid = insar_project["project_id"]
+        job_id = self._make_done_job(pid)
+
+        from insar_agent.core.project import Project
+        out_dir = Project.load(pid).outputs_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        product = out_dir / "gunw.h5"
+        product.write_text("fake")
+
+        result = insar_list_outputs(job_id, pid)
+        assert any(item["path"] == str(product) for item in result["outputs"])
 
     def test_job_not_done_returns_error(self, insar_project):
         pid = insar_project["project_id"]

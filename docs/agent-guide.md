@@ -1,7 +1,7 @@
 # insar-agent Constraint Reference
 
 For step-by-step workflow guidance, invoke the appropriate skill:
-`insar-agent` → `d-insar-isce3` / `stack-insar-isce3` / `data-prep-nisar` / `env-setup-nisar` / `param-advisor-isce3`
+`insar-agent` → `d-insar-isce3` / `stack-insar-isce3` / `data-prep-nisar` / `env-setup-nisar`
 
 ---
 
@@ -10,12 +10,18 @@ For step-by-step workflow guidance, invoke the appropriate skill:
 1. Only official ISCE3 NISAR workflows. Do not invent custom workflows.
 2. Path fields may be changed through `insar_set_runconfig_value`.
    Core processing parameters remain locked by default, except for the whitelist
-   exposed through `param-advisor-isce3` + `insar_set_processing_param`.
+   exposed through `param-advisor-isce3` +
+   `insar_set_processing_param`.
    Attempting to set a non-whitelisted processing key returns `key_not_allowed`.
 3. For skill-aware clients, parameter advice is a plugin contract: the main agent
-   must delegate advice generation to the project-level subagent defined in
+   must route into `skills/param-advisor-isce3/SKILL.md`, and that skill must
+   delegate advice generation to the project-level subagent defined in
    `.claude/agents/param-advisor-isce3.md`. MCP cannot verify this at protocol
    level; it only enforces the MCP contract (allowlists + validation).
+   The metadata-first entry point for this flow is `insar_describe_rslc`.
+   Every parameter advisory call should perform web search.
+   External search results are advisory only, cannot replace local observational facts,
+   and the user remains responsible for deciding whether to trust or apply them.
 4. Always start from the default runconfig template —
    `insar_create_project` loads it automatically.
 5. Execution command is always:
@@ -40,4 +46,5 @@ For step-by-step workflow guidance, invoke the appropriate skill:
 ## Resources
 
 - `insar://allowed-fields/{workflow}` — authoritative list of settable fields per workflow
-- `insar_create_project(...).guidance` — one-time reminder that skill-aware clients must enter `param-advisor-isce3` and use the project-level subagent before validate/export/run when parameter tuning is needed
+- `insar_create_project(...).guidance` — one-time reminder that skill-aware clients must enter `param-advisor-isce3` before validate/export/run when parameter tuning is needed
+- `insar_describe_rslc(...)` — metadata-first summary for RSLC inputs before parameter advice

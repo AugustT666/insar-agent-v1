@@ -1,11 +1,11 @@
 # DEM Download: ddem.py
 
-Script location: `knowledge-base/wangshuai/Scripts/ddem.py`
+Archived source script: `docs/archive/knowledge-base/wangshuai/Scripts/ddem.py`
 
 ## Usage
 
 ```bash
-python knowledge-base/wangshuai/Scripts/ddem.py \
+python docs/archive/knowledge-base/wangshuai/Scripts/ddem.py \
     --min-lon <min_lon> --max-lon <max_lon> \
     --min-lat <min_lat> --max-lat <max_lat> \
     --source copernicus_30 \

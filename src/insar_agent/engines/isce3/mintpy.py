@@ -1,6 +1,6 @@
 """MintPy time-series processing launcher.
 
-Normalised from knowledge-base/wangshuai/Scripts/run_mintpy_nisar_stack.sh.
+Normalised from docs/archive/knowledge-base/wangshuai/Scripts/run_mintpy_nisar_stack.sh.
 Provides importable library functions used by the MCP tool layer.
 
 The shell script is bundled at assets/run_mintpy_nisar_stack.sh.

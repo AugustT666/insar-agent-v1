@@ -4,12 +4,12 @@ Run after `insar_prepare_network` to visualize the spatiotemporal baseline netwo
 
 ## Script
 
-`knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py`
+`docs/archive/knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py`
 
 ## Usage
 
 ```bash
-python knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py \
+python docs/archive/knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py \
     --pair-list <network_output_dir>/pairs_manifest.txt \
     --output-dir <network_output_dir>
 ```
@@ -25,5 +25,5 @@ python knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py \
 
 ## Future
 
-Full time-series processing (MintPy) will be available via the `mintpy-isce3` skill
-once M6 MCP tools are implemented.
+Full time-series processing is available through `insar_run_mintpy` and the
+`mintpy-isce3` skill.

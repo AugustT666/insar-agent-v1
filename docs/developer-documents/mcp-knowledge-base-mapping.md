@@ -28,6 +28,10 @@ insar-agent 支持两条主要处理路径：
 
 > 来源：tianxiaolong 的 `nisar_bbox_dem.py`
 
+### `insar_describe_rslc` — 提取参数专家所需的本地元数据画像
+
+对单景或一对 RSLC 文件做 metadata-first 摘要，优先从 HDF5 中提取信息，不足时退回文件名推断，并附带当前项目的 processing context。参数专家会先使用这个工具构建证据，再决定是否需要补充外部资料搜索。
+
 ---
 
 ## 路径 A：单对 D-InSAR 处理
@@ -46,7 +50,7 @@ insar-agent 支持两条主要处理路径：
 
 ### `insar_set_processing_param` — 调整处理算法参数
 
-设置影响处理质量的算法参数，例如 multilook 比例、解缠算法（snaphu / icu）、电离层校正开关等。参数范围受白名单约束，避免误改关键配置字段。对 skill-aware 客户端，通常由 `param-advisor-isce3` 先调用 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent 生成结构化建议，再由主 agent 调用此工具应用。
+设置影响处理质量的算法参数，例如 multilook 比例、解缠算法（snaphu / icu）、电离层校正开关等。参数范围受白名单约束，避免误改关键配置字段。对 skill-aware 客户端，通常由 `param-advisor-isce3` 先调用 `insar_describe_rslc` 构造本地证据，再调用 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent 生成带 provenance 的 advisory 建议；subagent 可参考 `.claude/agents/references/param-advisor-isce3.md`，最后由主 agent 调用此工具应用。
 
 ### `insar_run_workflow` — 启动 ISCE3 处理
 
@@ -140,8 +144,8 @@ insar-agent 支持两条主要处理路径：
 
 | 路径 | 内容 |
 |-----|------|
-| `knowledge-base/wangshuai/Scripts/` | wangshuai 提供的 Stack/MintPy 处理脚本 |
-| `knowledge-base/tianxiaolong/original-skill/nisar-processing/scripts/` | tianxiaolong 提供的数据准备脚本 |
+| `docs/archive/knowledge-base/wangshuai/Scripts/` | wangshuai 提供的 Stack/MintPy 处理脚本 |
+| `docs/archive/knowledge-base/tianxiaolong/original-skill/nisar-processing/scripts/` | tianxiaolong 提供的数据准备脚本 |
 | `src/insar_agent/engines/isce3/` | 改造后的引擎层模块（保留知识库脚本核心逻辑） |
 | `src/insar_agent/mcp/server.py` | 全部 MCP 工具定义 |
 | `docs/mcp-tools.md` | 每个工具的完整参数和返回值规范 |

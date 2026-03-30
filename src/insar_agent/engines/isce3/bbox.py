@@ -1,6 +1,6 @@
 """NISAR RSLC bounding box extraction.
 
-Normalised from knowledge-base/tianxiaolong/.../nisar_bbox_dem.py.
+Normalised from docs/archive/knowledge-base/tianxiaolong/.../nisar_bbox_dem.py.
 Provides importable library functions used by the MCP tool layer.
 """
 from __future__ import annotations
