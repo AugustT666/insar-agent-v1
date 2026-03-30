@@ -125,11 +125,11 @@
 
 ### M7 — 参数专家 Subagent 强制机制 ✓
 
-**目标：** 对 skill-aware 客户端强制要求参数建议必须由独立 subagent 生成，避免参数专家占用主对话上下文。
+**目标：** 对 skill-aware 客户端强制要求参数建议必须由 Claude Code 项目级 subagent 生成，避免参数专家占用主对话上下文。
 
 **实现范围：**
 - `param-advisor-isce3` 从“直接建议器”调整为“主 agent 编排器”
-- 新增内部 worker 契约：`param-advisor-worker-isce3`
+- 新增项目级 agent：`.claude/agents/param-advisor-isce3.md`
 - `insar_create_project().guidance` 与 `process_insar_pair/process_insar_batch` 明确写出 subagent requirement
 - 权威文档与开发文档统一术语：plugin contract vs MCP contract
 

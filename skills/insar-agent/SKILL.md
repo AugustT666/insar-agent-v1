@@ -18,7 +18,7 @@ description: >
 - Skills define what to do and in what order. MCP tools execute the actions and return factual results.
 - Path-type fields are set via `insar_set_runconfig_value`. Core processing parameters (multilook, filtering, unwrapping) are set via `insar_set_processing_param` (param-advisor-isce3 skill only). Both tools enforce their own allowlists server-side.
 - When the user requests parameter tuning or provides scene/data characteristics that affect multilook, filtering, unwrapping, or atmospheric corrections, route into `param-advisor-isce3` before validation/execution.
-- For skill-aware clients, param-advisor-isce3 must delegate the recommendation stage to a subagent. The main conversation must not generate parameter advice directly.
+- For skill-aware clients, `param-advisor-isce3` must delegate the recommendation stage to the project-level subagent defined in `.claude/agents/param-advisor-isce3.md`. The main conversation must not generate parameter advice directly.
 - Do not invent workflow parameters when reference material is incomplete. Ask the user.
 
 ## Skill routing

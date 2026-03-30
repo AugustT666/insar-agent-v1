@@ -96,6 +96,7 @@ def test_process_insar_pair_contains_constraint_reminder():
     prompt = process_insar_pair()
     assert "core processing parameters" in prompt.lower() or "Constraints reminder" in prompt
     assert "param-advisor-isce3" in prompt
+    assert "project-level subagent" in prompt.lower()
 
 
 def test_process_insar_pair_step_order():
@@ -129,6 +130,7 @@ def test_process_insar_batch_mentions_run_parallel():
     prompt = process_insar_batch()
     assert "run_parallel.sh" in prompt
     assert "param-advisor-isce3" in prompt
+    assert "project-level subagent" in prompt.lower()
 
 
 def test_process_insar_batch_step_order():
@@ -163,6 +165,7 @@ def test_create_project_returns_required_fields(insar_project):
     assert "runconfig.groups.input_file_group.reference_rslc_file" in insar_project["required_fields"]
     assert "guidance" in insar_project
     assert "param-advisor-isce3" in insar_project["guidance"]
+    assert "project-level subagent" in insar_project["guidance"].lower()
     assert "next_step" not in insar_project
 
 

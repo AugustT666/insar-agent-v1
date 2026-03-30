@@ -46,7 +46,7 @@ insar-agent 支持两条主要处理路径：
 
 ### `insar_set_processing_param` — 调整处理算法参数
 
-设置影响处理质量的算法参数，例如 multilook 比例、解缠算法（snaphu / icu）、电离层校正开关等。参数范围受白名单约束，避免误改关键配置字段。对 skill-aware 客户端，通常由 `param-advisor-isce3` 先委派参数专家 subagent 生成结构化建议，再由主 agent 调用此工具应用。
+设置影响处理质量的算法参数，例如 multilook 比例、解缠算法（snaphu / icu）、电离层校正开关等。参数范围受白名单约束，避免误改关键配置字段。对 skill-aware 客户端，通常由 `param-advisor-isce3` 先调用 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent 生成结构化建议，再由主 agent 调用此工具应用。
 
 ### `insar_run_workflow` — 启动 ISCE3 处理
 

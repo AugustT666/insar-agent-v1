@@ -33,7 +33,8 @@ Each step generates shell scripts that the user runs manually to launch parallel
   a modified base runconfig YAML, then pass that as the `base_runconfig` argument.
   The advisor should infer as much evidence as possible from the temporary project,
   RSLC naming, and DEM/workspace context before asking the user for missing facts.
-  For skill-aware clients, the recommendation stage must be delegated to a subagent;
+  For skill-aware clients, the recommendation stage must be delegated to the
+  project-level subagent defined in `.claude/agents/param-advisor-isce3.md`;
   the main conversation must not generate parameter advice directly.
 - Run Step 1 and Step 2 separately. Wait for the user to confirm the shell script completed
   between steps.

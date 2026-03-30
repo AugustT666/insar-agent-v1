@@ -14,26 +14,34 @@ description: >
 
 ## 角色定位
 
-本 skill 是参数调优的**主 agent 编排器**，不直接在主对话中生成参数建议。
-主 agent 只负责收集最小上下文、读取 project/runconfig、构造 evidence profile，
-然后必须把“参数建议生成”委派给 `param-advisor-worker-isce3` subagent。
+本 skill 是参数调优的唯一入口，但它本身只是**主 agent 编排器**。
+主 agent 不直接在主对话中生成参数建议；它只负责收集最小上下文、
+读取 project/runconfig、构造 evidence profile 摘要，然后必须调用
+Claude Code 的 **project-level subagent**
+`/home/august/insar-agent/.claude/agents/param-advisor-isce3.md`
+来完成参数建议生成。
 
-参数修改建议由 subagent 返回，主 agent 负责向用户展示、执行三选一确认、
-在用户确认后调用 `insar_set_processing_param` 应用并继续后续流程。
+参数修改建议由 project-level subagent 返回，主 agent 负责：
 
-参数建议来自本文档内的专家推理规则和 `assets/param_advisor_rules_insar.yaml`
-中的结构化证据要求，由 AI 基于 evidence profile 执行推理逻辑。
+- 向用户展示建议 diff
+- 执行三选一确认
+- 在用户确认后调用 `insar_set_processing_param`
+- 展示完整 runconfig YAML 并等待继续
+
+参数建议来自本文档内的专家推理规则和
+`assets/param_advisor_rules_insar.yaml` 中的结构化证据要求，由 subagent
+基于 evidence profile 执行推理逻辑。主会话不应重复携带完整规则文本和长推理链。
 
 ---
 
 ## Hard Constraints（必须遵守，不得绕过）
 
-- **强制 subagent**：参数建议阶段必须调用 `param-advisor-worker-isce3` subagent；
+- **强制 project-level subagent**：参数建议阶段必须调用
+  `.claude/agents/param-advisor-isce3.md` 对应的 project-level subagent；
   主 agent 不得直接根据规则输出建议
 - **模型下限**：参数专家 subagent 不得使用明显偏弱的小模型。优先使用
-  `gpt-5.3-codex`（GPT-5.3-Codex）或 `claude-sonnet-4-6`（Claude Sonnet 4.6）
-  或同等级模型；
-  若客户端允许显式选模，禁止使用 mini/haiku 级模型做参数建议
+  `claude-sonnet-4-6`（Claude Sonnet 4.6）或同等级模型；若客户端支持其他前沿模型，
+  可接受 `gpt-5.3-codex`（GPT-5.3-Codex）同等级能力；禁止 mini/haiku 级模型
 - **三选一确认**：必须向用户呈现三个明确选项（见 Phase 3），不得代替用户做决定
 - **风险提示**：每次输出建议时必须附带免责声明（见 Phase 3）
 - **justification 非空**：调用 `insar_set_processing_param` 时，justification 必须具体
@@ -52,18 +60,40 @@ description: >
 ### 主 agent 负责
 
 - 收集或推断证据
-- 构造 evidence profile
-- 调用 `param-advisor-worker-isce3` subagent
+- 构造 evidence profile 摘要
+- 调用 project-level subagent
 - 接收并核查结构化建议
 - 向用户展示三选一
 - 在确认后调用 MCP 工具应用参数
 
-### subagent 负责
+### project-level subagent 负责
 
 - 读取 evidence profile、runconfig 摘要、参数 registry 摘要
 - 输出结构化建议：默认值、建议值、证据、风险、置信度、保持默认理由、缺失信息
-- 使用足够强的模型生成建议：推荐 `gpt-5.3-codex`（GPT-5.3-Codex）或
-  `claude-sonnet-4-6`（Claude Sonnet 4.6）
+- 使用足够强的模型生成建议：推荐 `claude-sonnet-4-6`（Claude Sonnet 4.6）或
+  同等级模型；如宿主允许，也可接受 `gpt-5.3-codex`（GPT-5.3-Codex）
+- 不与用户对话
+- 不直接调用 `insar_set_processing_param`
+
+### 上下文最小化要求
+
+主 agent 传给 subagent 的内容只允许包含：
+
+- `project_id`
+- workflow / 当前处理目标摘要
+- runconfig 摘要
+- evidence profile
+- missing information
+- 参数白名单摘要
+
+主 agent **禁止**把以下内容整体传给 subagent：
+
+- 完整长对话
+- 完整知识库
+- 完整 YAML
+- 冗长 reasoning 历史
+
+subagent 返回后，主会话只保留建议摘要、风险摘要和用户最终选择，不回灌完整推理过程。
 
 如果 subagent 失败，主 agent 不得直接补做建议；只能停在证据收集阶段，或退回默认参数路径。
 

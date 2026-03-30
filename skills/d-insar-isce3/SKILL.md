@@ -52,10 +52,11 @@ description: >
    Optional: `worker.gpu_enabled`, `worker.gpu_id`, `logging.path`
 
 2.5. **（可选）参数调优** — 若用户需要调整处理参数（多视数、解缠算法等），在此步骤调用
-   `param-advisor-isce3` skill。该 skill 会收集研究区和数据特征，给出参数建议，
-   优先从 runconfig、RSLC 文件名和现有路径中推断证据，再补问缺失信息。
-   对 skill-aware 客户端，建议生成阶段必须委派给参数专家 subagent，主对话不得直接产出建议。
-   经用户三选一确认后通过 `insar_set_processing_param` 应用参数。
+   `param-advisor-isce3` skill。该 skill 会收集研究区和数据特征，优先从 runconfig、
+   RSLC 文件名和现有路径中推断证据，再补问缺失信息，并把建议生成阶段委派给
+   `.claude/agents/param-advisor-isce3.md` 定义的 project-level subagent。
+   主对话不得直接产出建议。经用户三选一确认后通过 `insar_set_processing_param`
+   应用参数。
    完成后继续执行 Step 3。
 
 3. **Validate**

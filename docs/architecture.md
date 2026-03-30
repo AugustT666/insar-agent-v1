@@ -78,7 +78,7 @@ The long-term asset is not any client-specific wrapper. It is the accumulated op
 
 **`poll` guidance:** `insar_run_workflow` and `insar_run_mintpy` return a `poll` field containing the exact `insar_get_job(...)` call needed for status polling.
 
-**Plugin contract vs MCP contract:** For skill-aware clients, parameter advice is a plugin contract and must be delegated to a dedicated subagent. MCP tools do not and cannot verify whether a subagent was actually used; the MCP contract is limited to allowlists, validation, and factual execution.
+**Plugin contract vs MCP contract:** For skill-aware clients, parameter advice is a plugin contract and must be delegated to the project-level subagent defined in `.claude/agents/param-advisor-isce3.md`. MCP tools do not and cannot verify whether a subagent was actually used; the MCP contract is limited to allowlists, validation, and factual execution.
 
 ### `insar_agent.core`
 
@@ -191,7 +191,7 @@ See [mcp-tools.md](mcp-tools.md) for full input/output specs.
     OR invoke prompt process_insar_pair(...)       (get pre-filled step-by-step instructions)
 1.  insar_create_project(...)                      → project_id
 2.  insar_set_runconfig_value(...)  ×6             (only allowed path fields; value=None to remove)
-2.5 param-advisor-isce3 (optional)                 → main agent builds evidence profile, subagent returns parameter advice, then adjust whitelist-controlled processing params
+2.5 param-advisor-isce3 (optional)                 → main agent builds a compressed evidence profile, project-level subagent returns parameter advice, then adjust whitelist-controlled processing params
 3.  insar_run_workflow(...)                        → job_id + poll hint (auto validates + exports)
 4.  insar_get_job(job_id, project_id)  [poll]      (include_logs=True if failed)
 5.  insar_list_outputs(job_id)                     → artifact list
@@ -202,7 +202,7 @@ See [mcp-tools.md](mcp-tools.md) for full input/output specs.
 ```
 0.  Read resource insar://workflow-guide
     OR invoke prompt process_insar_batch(...)
-0.5 param-advisor-isce3 (optional)                 → tune temporary insar project via subagent-generated advice, export base runconfig
+0.5 param-advisor-isce3 (optional)                 → tune temporary insar project via project-level subagent advice, export base runconfig
 1.  insar_prepare_stack(data_dir, runconfig, dem, output_dir)
     → USER runs: bash run_parallel.sh <output_dir> <N>
 2.  insar_prepare_network(data_dir, runconfig, dem, output_dir, network_mode)

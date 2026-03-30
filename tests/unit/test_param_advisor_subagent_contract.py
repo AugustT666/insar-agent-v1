@@ -35,25 +35,28 @@ def test_param_advisor_skill_requires_subagent():
     lowered = skill.lower()
     assert "subagent" in lowered
     assert "主 agent 不得直接" in skill
-    assert "param-advisor-worker-isce3" in skill
+    assert "project-level subagent" in lowered or ".claude/agents/param-advisor-isce3.md" in skill
+    assert "完整长对话" in skill
+    assert "完整 yaml" in lowered or "完整 YAML" in skill
     assert "gpt codex5.3" in lowered or "gpt-5.3-codex" in lowered
     assert "claude sonnet4.6" in lowered or "claude sonnet 4.6" in lowered
 
 
-def test_param_advisor_worker_skill_exists_and_declares_contract():
-    worker_path = REPO_ROOT / "skills" / "param-advisor-worker-isce3" / "SKILL.md"
-    assert worker_path.exists()
-    worker = worker_path.read_text(encoding="utf-8")
-    lowered = worker.lower()
+def test_project_level_param_advisor_agent_exists_and_declares_contract():
+    agent_path = REPO_ROOT / ".claude" / "agents" / "param-advisor-isce3.md"
+    assert agent_path.exists()
+    agent = agent_path.read_text(encoding="utf-8")
+    lowered = agent.lower()
     assert "evidence profile" in lowered
     assert "runconfig" in lowered
-    assert "默认值" in worker
-    assert "建议值" in worker
-    assert "风险" in worker
-    assert "置信度" in worker
-    assert "不调用 mcp 工具" in worker
-    assert "gpt-5.3-codex" in worker or "gpt codex5.3" in worker.lower()
-    assert "claude sonnet 4.6" in worker.lower() or "claude sonnet4.6" in worker.lower()
+    assert "默认值" in agent
+    assert "建议值" in agent
+    assert "风险" in agent
+    assert "置信度" in agent
+    assert "不与用户对话" in agent
+    assert "不直接调用 `insar_set_processing_param`" in agent
+    assert "gpt-5.3-codex" in agent or "gpt codex5.3" in lowered
+    assert "claude sonnet 4.6" in lowered or "claude sonnet4.6" in lowered
 
 
 def test_core_docs_describe_skill_aware_subagent_boundary():

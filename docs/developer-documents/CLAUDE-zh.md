@@ -66,7 +66,7 @@ claude plugin marketplace add /home/august/insar-agent --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
-对 skill-aware 客户端，参数专家属于插件层约束：主会话必须把“参数建议生成”委派给独立 subagent/worker，而不是在主对话中直接给出建议。MCP 工具无法协议级验证这一点；它们只负责白名单和参数校验。
+对 skill-aware 客户端，参数专家属于插件层约束：主会话必须把“参数建议生成”委派给 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent，而不是在主对话中直接给出建议。MCP 工具无法协议级验证这一点；它们只负责白名单和参数校验。
 
 ---
 

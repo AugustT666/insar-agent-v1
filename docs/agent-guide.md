@@ -13,8 +13,9 @@ For step-by-step workflow guidance, invoke the appropriate skill:
    exposed through `param-advisor-isce3` + `insar_set_processing_param`.
    Attempting to set a non-whitelisted processing key returns `key_not_allowed`.
 3. For skill-aware clients, parameter advice is a plugin contract: the main agent
-   must delegate advice generation to a dedicated subagent. MCP cannot verify this
-   at protocol level; it only enforces the MCP contract (allowlists + validation).
+   must delegate advice generation to the project-level subagent defined in
+   `.claude/agents/param-advisor-isce3.md`. MCP cannot verify this at protocol
+   level; it only enforces the MCP contract (allowlists + validation).
 4. Always start from the default runconfig template —
    `insar_create_project` loads it automatically.
 5. Execution command is always:
@@ -39,4 +40,4 @@ For step-by-step workflow guidance, invoke the appropriate skill:
 ## Resources
 
 - `insar://allowed-fields/{workflow}` — authoritative list of settable fields per workflow
-- `insar_create_project(...).guidance` — one-time reminder that skill-aware clients must enter `param-advisor-isce3` and use a subagent before validate/export/run when parameter tuning is needed
+- `insar_create_project(...).guidance` — one-time reminder that skill-aware clients must enter `param-advisor-isce3` and use the project-level subagent before validate/export/run when parameter tuning is needed

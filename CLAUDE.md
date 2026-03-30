@@ -61,7 +61,7 @@ claude plugin marketplace add /home/august/insar-agent --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
-For skill-aware clients, the parameter advisor is a plugin contract: the main session must delegate recommendation generation to a dedicated subagent/worker instead of producing parameter advice directly in the main conversation. MCP tools cannot enforce that delegation; they only enforce white-listed parameter updates and validation. If the client supports model selection for subagents, use a frontier-capable model such as `gpt-5.3-codex` (GPT-5.3-Codex) or `claude-sonnet-4-6` (Claude Sonnet 4.6), not a weak mini-tier model.
+For skill-aware clients, the parameter advisor is a plugin contract: the main session must delegate recommendation generation to the project-level subagent defined in `.claude/agents/param-advisor-isce3.md` instead of producing parameter advice directly in the main conversation. MCP tools cannot enforce that delegation; they only enforce white-listed parameter updates and validation. The point of this split is to keep parameter reasoning out of the main session context. Use a frontier-capable model such as `claude-sonnet-4-6` (Claude Sonnet 4.6) or an equivalent model with capability comparable to `gpt-5.3-codex` (GPT-5.3-Codex), not a weak mini-tier model.
 
 ## Key Rules
 

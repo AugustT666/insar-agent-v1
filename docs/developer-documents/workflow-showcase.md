@@ -1,6 +1,6 @@
 # insar-agent 交互工作流展示
 
-本文展示用户、Claude Code（AI）、参数专家 subagent 和 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
+本文展示用户、Claude Code（AI）、`param-advisor-isce3` project-level subagent 和 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
 
 ---
 
