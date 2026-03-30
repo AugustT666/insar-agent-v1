@@ -191,6 +191,17 @@ def test_set_processing_param_invalid_valid_values(insar_project):
     assert result["error"] == "value_not_allowed"
 
 
+def test_set_processing_param_invalid_filter_type(insar_project):
+    pid = insar_project["project_id"]
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.filter_interferogram.filter_type",
+        value="median",
+        justification="农业区希望做更强滤波",
+    )
+    assert result["error"] == "value_not_allowed"
+
+
 def test_set_processing_param_out_of_range(insar_project):
     pid = insar_project["project_id"]
     result = insar_set_processing_param(
@@ -200,6 +211,59 @@ def test_set_processing_param_out_of_range(insar_project):
         justification="测试超出范围的多视数",
     )
     assert result["error"] == "value_out_of_range"
+
+
+def test_set_processing_param_invalid_type(insar_project):
+    pid = insar_project["project_id"]
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.crossmul.range_looks",
+        value="5",
+        justification="城市区希望减小多视数",
+    )
+    assert result["error"] == "invalid_type"
+
+
+def test_set_processing_param_invalid_list_shape(insar_project):
+    pid = insar_project["project_id"]
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.phase_unwrap.snaphu.ntiles",
+        value=[4],
+        justification="大形变场景，希望分块解缠",
+    )
+    assert result["error"] == "invalid_input"
+
+
+def test_set_processing_param_rejects_vague_justification(insar_project):
+    pid = insar_project["project_id"]
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.crossmul.range_looks",
+        value=5,
+        justification="better performance",
+    )
+    assert result["error"] == "justification_required"
+
+
+def test_set_processing_param_accepts_new_filter_window_param(insar_project):
+    pid = insar_project["project_id"]
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.filter_interferogram.filter_type",
+        value="boxcar",
+        justification="农业长时间基线场景，先启用 boxcar 滤波",
+    )
+    assert result.get("error") is None, result
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.filter_interferogram.boxcar.filter_size_range",
+        value=11,
+        justification="农业长时间基线场景，增大滤波窗口以稳定相位噪声",
+    )
+    assert result.get("error") is None, result
+    assert result["new_value"] == 11
+    assert result["validated_against"].startswith("processing_params_insar.yaml")
 
 
 def test_set_processing_param_unknown_project():

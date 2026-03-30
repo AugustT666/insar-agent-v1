@@ -14,16 +14,26 @@ description: >
 
 ## 角色定位
 
-本 skill 综合**遥感数据特征**和**研究区特征**，在默认 runconfig 模板的基础上推理出
-参数修改建议，输出每处改动的理由，经用户三选一确认后应用并启动处理。
+本 skill 是参数调优的**主 agent 编排器**，不直接在主对话中生成参数建议。
+主 agent 只负责收集最小上下文、读取 project/runconfig、构造 evidence profile，
+然后必须把“参数建议生成”委派给 `param-advisor-worker-isce3` subagent。
 
-参数建议来自本文档内的专家推理规则（下方），由 AI 执行推理逻辑，
-**不依赖任何预填的 profile 配置**。
+参数修改建议由 subagent 返回，主 agent 负责向用户展示、执行三选一确认、
+在用户确认后调用 `insar_set_processing_param` 应用并继续后续流程。
+
+参数建议来自本文档内的专家推理规则和 `assets/param_advisor_rules_insar.yaml`
+中的结构化证据要求，由 AI 基于 evidence profile 执行推理逻辑。
 
 ---
 
 ## Hard Constraints（必须遵守，不得绕过）
 
+- **强制 subagent**：参数建议阶段必须调用 `param-advisor-worker-isce3` subagent；
+  主 agent 不得直接根据规则输出建议
+- **模型下限**：参数专家 subagent 不得使用明显偏弱的小模型。优先使用
+  `gpt-5.3-codex`（GPT-5.3-Codex）或 `claude-sonnet-4-6`（Claude Sonnet 4.6）
+  或同等级模型；
+  若客户端允许显式选模，禁止使用 mini/haiku 级模型做参数建议
 - **三选一确认**：必须向用户呈现三个明确选项（见 Phase 3），不得代替用户做决定
 - **风险提示**：每次输出建议时必须附带免责声明（见 Phase 3）
 - **justification 非空**：调用 `insar_set_processing_param` 时，justification 必须具体
@@ -37,10 +47,35 @@ description: >
 
 ---
 
+## 执行分工
+
+### 主 agent 负责
+
+- 收集或推断证据
+- 构造 evidence profile
+- 调用 `param-advisor-worker-isce3` subagent
+- 接收并核查结构化建议
+- 向用户展示三选一
+- 在确认后调用 MCP 工具应用参数
+
+### subagent 负责
+
+- 读取 evidence profile、runconfig 摘要、参数 registry 摘要
+- 输出结构化建议：默认值、建议值、证据、风险、置信度、保持默认理由、缺失信息
+- 使用足够强的模型生成建议：推荐 `gpt-5.3-codex`（GPT-5.3-Codex）或
+  `claude-sonnet-4-6`（Claude Sonnet 4.6）
+
+如果 subagent 失败，主 agent 不得直接补做建议；只能停在证据收集阶段，或退回默认参数路径。
+
+---
+
 ## 输入收集清单（Phase 1）
 
-收集以下信息，逐项询问缺失部分。可从用户已有的项目信息推断（如从 runconfig 路径
-猜测数据来源）。
+收集以下信息，逐项询问缺失部分。必须先尝试从 runconfig、RSLC 文件名、DEM/工作区
+上下文中自动推断，再只询问高影响缺失项。
+
+每条证据都要标注来源：`user_provided` / `runconfig_inferred` / `metadata_inferred` /
+`external_lookup`。如果只是推断，必须明确说明。
 
 ### 遥感数据特征（对参数影响最大）
 

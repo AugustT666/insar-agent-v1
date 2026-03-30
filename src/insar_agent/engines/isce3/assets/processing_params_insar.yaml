@@ -23,6 +23,7 @@ parameters:
       值越大，相干性越高，空间分辨率越低。
     default: 11
     type: int
+    allow_null: false
     valid_range: [1, 50]
     risk_level: medium
 
@@ -32,6 +33,7 @@ parameters:
       方位向多视窗口大小，通常与 range_looks 配合调整。
     default: 11
     type: int
+    allow_null: false
     valid_range: [1, 50]
     risk_level: medium
 
@@ -43,7 +45,34 @@ parameters:
       其他值（如 boxcar）可平滑相位噪声但会降低分辨率。
     default: no_filter
     type: str
+    allow_null: false
+    valid_values: [no_filter, boxcar]
     risk_level: low
+
+  - key: runconfig.groups.processing.filter_interferogram.boxcar.filter_size_range
+    label: Boxcar 距离向滤波窗口
+    description: >
+      boxcar 滤波在距离向的窗口大小。窗口增大会更强地平滑噪声，但会损失细节。
+      仅在 filter_type=boxcar 时有意义。
+    default: 9
+    type: int
+    allow_null: false
+    valid_range: [3, 51]
+    depends_on:
+      runconfig.groups.processing.filter_interferogram.filter_type: boxcar
+    risk_level: medium
+
+  - key: runconfig.groups.processing.filter_interferogram.boxcar.filter_size_azimuth
+    label: Boxcar 方位向滤波窗口
+    description: >
+      boxcar 滤波在方位向的窗口大小。通常与距离向窗口联合调整。
+    default: 9
+    type: int
+    allow_null: false
+    valid_range: [3, 51]
+    depends_on:
+      runconfig.groups.processing.filter_interferogram.filter_type: boxcar
+    risk_level: medium
 
   # ── 相位解缠（Phase Unwrapping）──────────────────────────────────────────
   - key: runconfig.groups.processing.phase_unwrap.algorithm
@@ -53,6 +82,7 @@ parameters:
       icu / phass — 速度较快，适合较低噪声场景。
     default: snaphu
     type: str
+    allow_null: false
     valid_values: [snaphu, icu, phass]
     risk_level: medium
 
@@ -64,6 +94,7 @@ parameters:
       topo   — 适用于地形相位为主的场景。
     default: smooth
     type: str
+    allow_null: false
     valid_values: [smooth, defo, topo]
     risk_level: medium
 
@@ -74,6 +105,7 @@ parameters:
       若为 null，Snaphu 自动估计。大形变场景可适当调大。
     default: null
     type: float
+    allow_null: true
     valid_range: [1.0, 100.0]
     risk_level: low
 
@@ -84,6 +116,11 @@ parameters:
       null 表示不分块（单片解缠）。示例：[4, 4]。
     default: null
     type: list
+    allow_null: true
+    list_shape:
+      length: 2
+      item_type: int
+      valid_range: [1, 16]
     risk_level: medium
 
   - key: runconfig.groups.processing.phase_unwrap.range_looks
@@ -93,6 +130,7 @@ parameters:
       通常设为 1（不额外多视）。
     default: 1
     type: int
+    allow_null: false
     valid_range: [1, 20]
     risk_level: medium
 
@@ -102,6 +140,7 @@ parameters:
       方位向额外多视，与 phase_unwrap.range_looks 配合使用。
     default: 1
     type: int
+    allow_null: false
     valid_range: [1, 20]
     risk_level: medium
 
@@ -114,6 +153,7 @@ parameters:
       开启后会增加处理时间，并依赖辅助电离层数据。
     default: false
     type: bool
+    allow_null: false
     risk_level: high
 
   # ── 对流层延迟（Troposphere）─────────────────────────────────────────────
@@ -126,18 +166,32 @@ parameters:
       开启后需要外部气象/再分析数据。
     default: false
     type: bool
+    allow_null: false
     risk_level: high
+
+  - key: runconfig.groups.processing.geocode.output_posting.A.x_posting
+    label: 地理编码输出分辨率 X 向
+    description: >
+      控制 A 频段地理编码输出的 X 向 spacing。较小值保留更多细节但会增加文件体积和处理成本。
+    default: null
+    type: float
+    allow_null: true
+    valid_range: [1.0, 1000.0]
+    risk_level: medium
+
+  - key: runconfig.groups.processing.geocode.output_posting.A.y_posting
+    label: 地理编码输出分辨率 Y 向
+    description: >
+      控制 A 频段地理编码输出的 Y 向 spacing。建议与 x_posting 联动调整。
+    default: null
+    type: float
+    allow_null: true
+    valid_range: [1.0, 1000.0]
+    risk_level: medium
 
 # ── 候选扩展参数（暂未开放，等待充分专家规则支撑）──────────────────────────
 #
 # 若未来参数专家具备足够推理能力，可将以下注释取消并补充推理规则：
-#
-#  - key: runconfig.groups.processing.geocode.output_posting.A
-#    label: 地理编码输出分辨率（方位向，度）
-#    description: 控制输出 GUNW 产品的地面分辨率，影响文件大小和精度。
-#    default: null
-#    type: float
-#    risk_level: high
 #
 #  - key: runconfig.groups.processing.dense_offsets.enabled
 #    label: 密集偏移量估计

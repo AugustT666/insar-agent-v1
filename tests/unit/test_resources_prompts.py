@@ -35,13 +35,14 @@ def test_workflow_guide_mentions_skills():
     guide = get_workflow_guide()
     # Guide should point to skills as the guidance source
     assert "skill" in guide.lower()
+    assert "param-advisor-isce3" in guide
 
 
 def test_workflow_guide_has_error_codes():
     guide = get_workflow_guide()
     assert "key_not_allowed" in guide
-    assert "runconfig_not_exported" in guide
     assert "path_not_found" in guide
+    assert "runconfig_invalid" in guide
 
 
 def test_workflow_guide_has_allowed_fields_resource():
@@ -94,6 +95,7 @@ def test_process_insar_pair_interpolates_paths():
 def test_process_insar_pair_contains_constraint_reminder():
     prompt = process_insar_pair()
     assert "core processing parameters" in prompt.lower() or "Constraints reminder" in prompt
+    assert "param-advisor-isce3" in prompt
 
 
 def test_process_insar_pair_step_order():
@@ -126,6 +128,7 @@ def test_process_insar_batch_interpolates_params():
 def test_process_insar_batch_mentions_run_parallel():
     prompt = process_insar_batch()
     assert "run_parallel.sh" in prompt
+    assert "param-advisor-isce3" in prompt
 
 
 def test_process_insar_batch_step_order():
@@ -158,6 +161,8 @@ def test_create_project_returns_required_fields(insar_project):
     # Skills drive workflow — create_project returns required_fields data, not narrative guidance
     assert "required_fields" in insar_project
     assert "runconfig.groups.input_file_group.reference_rslc_file" in insar_project["required_fields"]
+    assert "guidance" in insar_project
+    assert "param-advisor-isce3" in insar_project["guidance"]
     assert "next_step" not in insar_project
 
 

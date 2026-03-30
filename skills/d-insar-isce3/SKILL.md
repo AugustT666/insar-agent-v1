@@ -53,6 +53,8 @@ description: >
 
 2.5. **（可选）参数调优** — 若用户需要调整处理参数（多视数、解缠算法等），在此步骤调用
    `param-advisor-isce3` skill。该 skill 会收集研究区和数据特征，给出参数建议，
+   优先从 runconfig、RSLC 文件名和现有路径中推断证据，再补问缺失信息。
+   对 skill-aware 客户端，建议生成阶段必须委派给参数专家 subagent，主对话不得直接产出建议。
    经用户三选一确认后通过 `insar_set_processing_param` 应用参数。
    完成后继续执行 Step 3。
 
@@ -71,7 +73,12 @@ description: >
    ```
    insar_run_workflow(project_id)
    ```
-   Save the returned `job_id`. The response includes a `poll` field with the exact call to use.
+   Save the returned `job_id` and `log_path`. Tell the user the log path so they can monitor
+   real-time ISCE3 output if desired:
+   ```bash
+   tail -f <log_path>
+   ```
+   The response also includes a `poll` field with the exact call to use.
 
 6. **Poll status** — call `insar_get_job_status(job_id, project_id)` every ~30 s until
    `status` is `done` or `failed`.

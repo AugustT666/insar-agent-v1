@@ -1,0 +1,79 @@
+version: "1"
+workflow: insar
+
+parameters:
+  - key: runconfig.groups.processing.crossmul.range_looks
+    evidence_fields:
+      - landcover
+      - band
+      - temporal_baseline_days
+      - task_type
+    inferable_fields:
+      - band
+      - temporal_baseline_days
+    required_fields:
+      - landcover
+    recommendation_modes: [conservative, recommended, aggressive]
+
+  - key: runconfig.groups.processing.crossmul.azimuth_looks
+    evidence_fields:
+      - landcover
+      - band
+      - temporal_baseline_days
+      - task_type
+    inferable_fields:
+      - band
+      - temporal_baseline_days
+    required_fields:
+      - landcover
+    recommendation_modes: [conservative, recommended, aggressive]
+
+  - key: runconfig.groups.processing.filter_interferogram.filter_type
+    evidence_fields:
+      - landcover
+      - temporal_baseline_days
+    inferable_fields:
+      - temporal_baseline_days
+    required_fields:
+      - landcover
+    recommendation_modes: [conservative, recommended]
+
+  - key: runconfig.groups.processing.phase_unwrap.snaphu.cost_mode
+    evidence_fields:
+      - deformation_magnitude
+      - deformation_scale
+      - topographic_relief_m
+    inferable_fields: []
+    required_fields:
+      - deformation_magnitude
+    recommendation_modes: [recommended]
+
+  - key: runconfig.groups.processing.phase_unwrap.snaphu.ntiles
+    evidence_fields:
+      - deformation_magnitude
+      - coverage_scale_km
+    inferable_fields: []
+    required_fields:
+      - deformation_magnitude
+      - coverage_scale_km
+    recommendation_modes: [recommended]
+
+  - key: runconfig.groups.processing.ionosphere_phase_correction.enabled
+    evidence_fields:
+      - band
+      - latitude_deg
+    inferable_fields:
+      - band
+    required_fields:
+      - latitude_deg
+    recommendation_modes: [recommended]
+
+  - key: runconfig.groups.processing.troposphere_delay.enabled
+    evidence_fields:
+      - climate
+      - topographic_relief_m
+      - coverage_scale_km
+    inferable_fields: []
+    required_fields:
+      - coverage_scale_km
+    recommendation_modes: [recommended]

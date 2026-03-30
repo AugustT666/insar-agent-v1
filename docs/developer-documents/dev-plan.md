@@ -51,6 +51,11 @@
 **目标：** 验证 opencode + gpt-5.3-codex 等外部 MCP 客户端能否端到端调用 insar-agent 工具完成真实 InSAR 处理。
 
 **验证清单（9/9 已完成）：**
+> 注：以下工具名为测试时（Refinement前）的旧名称。Refinement后对应关系：
+> `insar_list_engines/list_workflows` → `insar_discover`；
+> `insar_validate_runconfig` + `insar_export_runconfig` + `insar_run_workflow` → `insar_run_workflow`（单步）；
+> `insar_get_job_status` + `insar_get_job_logs` → `insar_get_job`
+
 1. `insar_list_engines` → 列出引擎
 2. `insar_list_workflows` → 列出工作流
 3. `insar_create_project` → 创建项目
@@ -70,7 +75,7 @@
 
 **测试状态（2026-03-28）：155 total tests 全部通过（144 unit + 11 integration）**
 
-### M6 — MintPy 时序分析集成（下一阶段）
+### M6 — MintPy 时序分析集成 ✓
 
 **目标：** 将 MintPy 时序处理流程接入 MCP，让 Agent 在 Stack-InSAR 完成后可以直接调用 MintPy。
 
@@ -101,17 +106,131 @@
 
 ---
 
+### Refinement — MCP API 精简 ✓（2026-03-29）
+
+**目标：** MCP 工具数量直接影响 AI agent 决策链深度，工具越少越语义化，agent 出错概率越低。
+
+**变更（21→15 工具）：**
+- `insar_list_engines` + `insar_list_workflows` → `insar_discover(engine="")`
+- `insar_set_runconfig_value` 吸收 `insar_unset_runconfig_value`（value=None 即删除）
+- `insar_run_workflow` 内部自动执行 validate→export（废弃两个独立工具）
+- `insar_get_job` 统一 ISCE3 + MintPy 状态查询（废弃 get_job_status/get_job_logs/get_mintpy_status）
+
+**代码质量改进：**
+- `core/config.py`：类型注解 + docstring
+- `geotiff.py`：`math.pi` 替换魔法数字，`logging.warning` 替换 silent exception
+- `prep_nisar_current_gunw.py`：`NISAR_ALTITUDE_METERS` 常量 + print→logging
+
+**测试状态（2026-03-29）：160 unit tests 全部通过**
+
+### M7 — 参数专家 Subagent 强制机制 ✓
+
+**目标：** 对 skill-aware 客户端强制要求参数建议必须由独立 subagent 生成，避免参数专家占用主对话上下文。
+
+**实现范围：**
+- `param-advisor-isce3` 从“直接建议器”调整为“主 agent 编排器”
+- 新增内部 worker 契约：`param-advisor-worker-isce3`
+- `insar_create_project().guidance` 与 `process_insar_pair/process_insar_batch` 明确写出 subagent requirement
+- 权威文档与开发文档统一术语：plugin contract vs MCP contract
+
+**边界：**
+- 强制机制只面向 skill-aware 客户端（Claude Code / Codex 等）
+- MCP server 不负责协议级验证是否真的 spawn subagent
+- `insar_set_processing_param` 继续只负责白名单和参数校验
+
+---
+
 ## 下一里程碑
 
 ---
 
-### M6 — MintPy 时序分析集成（待讨论）
+### M7a — 时序 InSAR Skill 重构（待开始）
 
-时间安排：待内部优先级评估。参考脚本已预备在 knowledge-base/wangshuai/Scripts/ 中。
+**背景：** 当前 `mintpy-isce3` skill 是 M6 快速实现版本，缺乏完整的用户引导流程。需要与 `stack-insar-isce3` skill 联动，形成从数据准备到时序产品的端到端引导体验。
 
-### M7 — 远期规划（待讨论）
+**目标：** 重构 `mintpy-isce3` skill，使其能够独立引导用户完成 MintPy 全流程，并在需要时与数据处理 skill 无缝衔接。
 
-- ASF 数据下载自动化（目前 data-prep-nisar skill 为手动引导）
+**计划内容：**
+
+1. **重构 `mintpy-isce3/SKILL.md`**
+   - 明确前提条件：已有完整干涉图网络（`insar_prepare_network` 输出）
+   - 步骤 0：先调用 `insar_plot_baseline` 检查网络质量（时空基线合理性）
+   - 步骤 1：引导用户准备 MintPy 配置文件（`.cfg`），解释关键参数含义
+   - 步骤 2：调用 `insar_run_mintpy` 启动，记录 `job_id` 和 `work_dir`
+   - 步骤 3：定期调用 `insar_get_job(job_id, work_dir=...)` 轮询状态
+   - 步骤 4：处理常见错误（相干性不足、DEM 覆盖问题、内存溢出）
+   - 步骤 5：结果说明（时序位移图、时间序列文件位置）
+
+2. **完善 `stack-insar-isce3/SKILL.md`**
+   - 在 Path B 完成后明确提示：可继续调用 `mintpy-isce3` skill 进行时序分析
+   - 提供 `gunw_glob` 模式说明（网络输出目录 → MintPy 输入）
+
+3. **更新 `insar-agent/SKILL.md` 路由表**
+   - 新增场景：用户提到"时序"、"形变"、"时间序列"时路由到 `mintpy-isce3`
+
+**验收标准：** AI 能够在无手动干预下完成从网络图检查到 MintPy 启动的完整引导，包括合理的错误提示。
+
+---
+
+### M7b — 人工引导下的真实数据端到端测试（待开始）
+
+**背景：** M5b 验证了 Path A 单对 DInSAR 的自动化能力，但 Path B（时序 InSAR）和数据下载流程尚未进行真实数据端到端验证。
+
+**目标：** 以 NAS 中的 wangshuai NISAR 数据为测试集，在人工监督下完成完整的时序 InSAR 处理链路验证，同时完善相关 skill。
+
+**测试链路：**
+
+```
+数据下载（data-prep-nisar skill）
+  ↓ 检查 RSLC 文件 + DEM 覆盖范围
+  ↓
+堆叠准备（stack-insar-isce3 skill）
+  → insar_extract_bbox → 确认 DEM 覆盖
+  → insar_prepare_network（tbase 模式）
+  → 用户执行 run_parallel.sh
+  ↓
+时序分析（mintpy-isce3 skill）
+  → insar_plot_baseline → 检查网络质量
+  → insar_run_mintpy → 启动处理
+  → insar_get_job 轮询（可能需数小时）
+  → 结果检查
+```
+
+**data-prep-nisar skill 完善内容：**
+
+1. **RSLC 下载引导**（当前为占位符，需完善）
+   - ASF Vertex 搜索步骤（按轨道/日期/范围筛选 NISAR L1 RSLC）
+   - `asf_search` Python API 下载命令示例
+   - 文件命名约定说明（用于 `stack.py` 日期解析）
+
+2. **DEM 准备引导**（现有 ddem.py 流程已可用，补充说明）
+   - `insar_extract_bbox` 获取范围 → `ddem.py` 下载 Copernicus 30m
+   - 投影/格式说明（WGS84 GeoTIFF）
+   - 建议外扩余量（0.1° 以避免边缘效应）
+
+3. **环境验证步骤**
+   - 检查 isce3 conda 环境是否可用（`conda run -n isce3 python -c "import isce3"`）
+   - 检查 MintPy 环境（`conda run -n mintpy python -c "import mintpy"`）
+
+**数据处理 skill（新增：`data-processing-nisar/SKILL.md`）：**
+
+一个轻量级的整体流程路由 skill，当用户说"我有 RSLC 数据，要做时序 InSAR"时提供从头到尾的步骤概览，然后依次调用 `stack-insar-isce3` 和 `mintpy-isce3` skill。
+
+**验收标准：**
+- 使用 NAS wangshuai 数据完成完整链路（至少 3 景以上 RSLC）
+- MintPy 产品正常输出（`timeseries.h5` 存在，无崩溃）
+- 所有 skill 文字描述与实际工具行为一致
+
+**测试时所需真实数据：**
+- RSLC 文件：`/home/august/NAS/NISAR_wangshuai_data/`（已有）
+- DEM：`dem.wgs84`（已有）
+
+---
+
+### 远期规划（待讨论）
+
+- 长时间处理的定时状态监测：后台守护进程定期 poll `insar_get_job`，错误时主动通知 AI 介入修复（当前完全依赖 AI 被动轮询）
+- ASF 数据下载 MCP 工具化（当前为 skill 手动引导）
 - 多引擎支持（ISCE2 / HyP3 适配器）
 - Web UI / 任务队列（可选）
 
@@ -124,6 +243,7 @@
 | `docs/agent-guide.md` | AI 使用约束，硬规则，MCP error codes；同时作为 `insar://workflow-guide` 资源 |
 | `docs/developer-documents/dev-plan.md` | 本文档：已完成进度 + 未来计划 |
 | `docs/developer-documents/workflow-showcase.md` | 三方交互流程展示，序列图，错误处理示例 |
+| `docs/developer-documents/CLAUDE-zh.md` | CLAUDE.md 中文对照版（供领域专家阅读） |
 | `docs/architecture.md` | 系统分层架构，模块边界，里程碑状态 |
 | `docs/mcp-tools.md` | 全部 MCP 工具的输入/输出规格 |
 | `docs/domain-model.md` | Project / Job / WorkflowTemplate / Artifact 字段定义 |

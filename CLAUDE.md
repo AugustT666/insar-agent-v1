@@ -61,16 +61,28 @@ claude plugin marketplace add /home/august/insar-agent --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
-## Key Rules from AGENTS.md
+For skill-aware clients, the parameter advisor is a plugin contract: the main session must delegate recommendation generation to a dedicated subagent/worker instead of producing parameter advice directly in the main conversation. MCP tools cannot enforce that delegation; they only enforce white-listed parameter updates and validation. If the client supports model selection for subagents, use a frontier-capable model such as `gpt-5.3-codex` (GPT-5.3-Codex) or `claude-sonnet-4-6` (Claude Sonnet 4.6), not a weak mini-tier model.
+
+## Key Rules
 
 - Domain knowledge (ISCE3 runconfigs, scripts, workflow notes) arrives as reference input and must be normalized into code/prompts/validations. Do not invent workflow parameters when source material is incomplete.
 - Protocol-agnostic logic belongs in `core`. MCP wiring belongs in `mcp`. Engine behavior belongs in `engines/<engine>`.
 - No runtime dependency on `cli-anything` or its package layout.
 - When a dependency (e.g. MCP SDK) is not yet installed, preserve a clean scaffold and document the missing dep — do not guess around it.
 
+## MCP Tool Design Principles
+
+MCP tool count directly affects AI agent decision depth — fewer, more semantic tools mean faster decisions and shorter task chains.
+
+1. **数量优先**：每个新能力首先问"能否扩展现有工具"，不能才增加新工具。
+2. **合并同概念操作**：同一概念的读/写/删不超过 2 个工具，能合并参数就不拆工具。
+3. **顺序必然的步骤合并**：如 validate → export → run 必然顺序执行，合并为一个工具，内部串联。
+4. **统一 Job 模型**：任何新 workflow 类型必须复用标准 `Job` dataclass 和 `project_id` 索引，禁止创建平行的状态追踪机制。
+5. **小而美**：工具语义清晰、职责单一；优先精简，非必要不新增；必要时可新增（有明确职责边界即合理）。
+
 ## Current Status
 
-**M0–M6 complete, agent behavior test (opencode + gpt-5.3-codex) verified 9/9. 155 total tests passing (2026-03-28).**
+**M0–M6 complete + MCP API consolidated (21→15 tools). Agent behavior test (opencode + gpt-5.3-codex) verified 9/9. 160 unit tests passing (2026-03-29).**
 
 Before making non-trivial changes, read:
 
@@ -95,14 +107,15 @@ Knowledge base:
 
 **Milestone status:**
 - M0: scaffold ✓
-- M1: runconfig management ✓ — `insar_create_project`, `get/set/unset/validate/export runconfig`, project registry
-- M2: job execution ✓ — `insar_run_workflow`, `insar_get_job_status`, `insar_get_job_logs`
+- M1: runconfig management ✓ — `insar_create_project`, `insar_get/set_runconfig`, project registry
+- M2: job execution ✓ — `insar_run_workflow` (auto validate+export+launch), `insar_get_job`
 - M3: output handling ✓ — `insar_list_outputs`
 - M4: stack/network ✓ — `insar_prepare_stack`, `insar_prepare_network` (wangshuai two-layer architecture)
-- M4b: agent onboarding ✓ — MCP Resources, Prompts, `next_step` guidance in tool returns
-- M5: utilities ✓ — `insar_extract_bbox`, `insar_export_geotiff`; skill-first architecture (skills = single guidance source, MCP tools = pure execution)
-- M5b: MintPy ✓ — `insar_run_mintpy`, `insar_plot_baseline`, `insar_get_mintpy_status`
-- M6 (in progress): param advisor — `insar_set_processing_param` + `param-advisor-isce3` skill (processing_params_insar.yaml whitelist)
+- M4b: agent onboarding ✓ — MCP Resources, Prompts, skill-first architecture
+- M5: utilities ✓ — `insar_extract_bbox`, `insar_export_geotiff`
+- M6: MintPy ✓ — `insar_run_mintpy`, `insar_plot_baseline`
+- Refinement (2026-03-29): MCP API consolidated 21→15 tools; `insar_discover`, `insar_get_job` (unified ISCE3+MintPy), `insar_set_runconfig_value` (value=None unsets), `insar_run_workflow` absorbs validate+export
+- M7: TBD
 
 **engines/isce3/ modules:**
 - `adapter.py` — ISCE3Adapter (list_workflows)
@@ -122,9 +135,9 @@ Knowledge base:
 - Resource `insar://allowed-fields/{workflow}` — dynamic list of settable fields per workflow
 - Prompt `process_insar_pair(ref, sec, dem, output_dir, conda_env)` — single-pair guided template
 - Prompt `process_insar_batch(data_dir, dem, output_dir, network_mode, ...)` — batch stack/network template
-- `poll` field in `insar_run_workflow` return (contains exact job_id for polling)
+- `poll` field in `insar_run_workflow` and `insar_run_mintpy` returns (exact `insar_get_job(...)` call for polling)
 - `run_command` + `gunw_pattern` fields in `insar_prepare_stack` / `insar_prepare_network` returns
-- All narrative `next_step` fields removed — workflow guidance is owned by skills, not MCP tools
+- All narrative `next_step` fields removed — workflow guidance owned by skills, not MCP tools
 
 **Test data:**
 - NAS RSLC files: `/home/august/NAS/NISAR_wangshuai_data/` (referenced directly by integration tests)

@@ -1,6 +1,6 @@
 # insar-agent 交互工作流展示
 
-本文展示用户、Claude Code（AI）和 insar-agent MCP 服务三方协作完成 NISAR InSAR 处理的完整交互过程。
+本文展示用户、Claude Code（AI）、参数专家 subagent 和 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
 
 ---
 
@@ -23,9 +23,10 @@
                        ▼
 ┌─────────────────────────────────────────────────────────┐
 │              insar-agent MCP Server                      │
-│  工具：insar_create_project / set / validate / export /  │
-│        run_workflow / get_job_status / get_job_logs /    │
-│        list_outputs / prepare_stack / prepare_network /  │
+│  工具：insar_discover / insar_create_project / set /     │
+│        run_workflow / get_job / list_outputs /           │
+│        prepare_stack / prepare_network /                 │
+│        run_mintpy / plot_baseline /                      │
 │        extract_bbox / export_geotiff                     │
 │  资源：insar://workflow-guide                             │
 │         insar://allowed-fields/{workflow}                │
@@ -69,9 +70,11 @@ AI 发出调用
 server.py: insar_run_workflow()
   1. Project.load("proj-abc")
      → 从 ~/.local/share/insar_agent/registry.json 查找
-     → 加载 workspace_root、conda_env、runconfig_exported_path
-  2. 检查 runconfig_exported_path 文件是否存在于磁盘
-  3. validate_runconfig() — 再次校验必填路径字段
+     → 加载 workspace_root、conda_env、runconfig
+  2. validate_runconfig() — 校验必填路径字段
+     → 若有错误：立即返回 {"error": "runconfig_invalid", "errors": [...]}
+  3. yaml.dump(project.runconfig) → <workspace>/configs/runconfig.yaml
+     → project.runconfig_exported_path saved
   4. build_workflow_command()
      → 构造：conda run -n <env> python -m nisar.workflows.insar /workspace/runconfig.yaml
   5. subprocess.Popen(command, stdout=log_file, stderr=STDOUT, cwd=workspace_root)
@@ -80,15 +83,15 @@ server.py: insar_run_workflow()
   ↓
 返回给 AI：
   {"job_id": "job-xyz", "status": "running",
-   "poll": "insar_get_job_status(job_id='job-xyz', project_id='proj-abc')"}
+   "poll": "insar_get_job(job_id='job-xyz', project_id='proj-abc')"}
 ```
 
-### 3.2 `insar_get_job_status` 轮询链
+### 3.2 `insar_get_job` 轮询链
 
 ```
-AI 发出调用：{"tool": "insar_get_job_status", "args": {"job_id": "job-xyz", ...}}
+AI 发出调用：{"tool": "insar_get_job", "args": {"job_id": "job-xyz", "project_id": "proj-abc"}}
   ↓
-server.py: insar_get_job_status()
+server.py: insar_get_job()
   1. Job.load("job-xyz", project.jobs_dir())
      → 从 <workspace>/jobs/job-xyz.json 读取 Job 对象
   2. 检查关联进程（job.exit_code / job.status）
@@ -147,18 +150,13 @@ sequenceDiagram
     AI->>MCP: insar_set_runconfig_value(project_id, "...sas_output_file", "GUNW_product.h5")
     MCP-->>AI: {status: "ok"} × 6
 
-    AI->>MCP: insar_validate_runconfig(project_id)
-    MCP-->>AI: {valid: true, next_step: "export runconfig"}
-
-    AI->>MCP: insar_export_runconfig(project_id)
-    MCP-->>AI: {path: "/workspace/runconfig.yaml", next_step: "run workflow"}
-
     AI->>MCP: insar_run_workflow(project_id)
+    Note over MCP: 内部自动执行：validate → export YAML → launch
     MCP->>ISCE3: conda run -n isce3_env python -m nisar.workflows.insar /workspace/runconfig.yaml
-    MCP-->>AI: {job_id: "job-xyz", status: "running"}
+    MCP-->>AI: {job_id: "job-xyz", status: "running",<br/>poll: "insar_get_job(job_id='job-xyz', project_id='proj-abc')"}
 
     loop 每 30 秒轮询
-        AI->>MCP: insar_get_job_status(job_id, project_id)
+        AI->>MCP: insar_get_job(job_id, project_id)
         MCP-->>AI: {status: "running", elapsed: "2m30s"}
     end
 
@@ -313,9 +311,10 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 | 组件 | 路径 | 作用 |
 |------|------|------|
-| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，JSON-RPC 入口 |
+| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，JSON-RPC 入口（15 工具） |
 | ISCE3 适配器 | `src/insar_agent/engines/isce3/` | runconfig 验证、conda run 命令构造 |
 | 工具扩展（M5） | `src/insar_agent/engines/isce3/bbox.py` + `geotiff.py` | 包围盒提取、GeoTIFF 导出 |
+| MintPy 集成（M6） | `src/insar_agent/engines/isce3/mintpy.py` + `baseline.py` | 异步 MintPy 启动、基线网络图 |
 | 约束文档 | `docs/agent-guide.md` | 硬规则文档 = `insar://workflow-guide` 资源内容（server.py 直接读取） |
 | Skill 路由 | `skills/insar-agent/SKILL.md` | 任务 → skill 映射表 |
 | Path A Skill | `skills/d-insar-isce3/SKILL.md` | 单对流程步骤约束 |
@@ -326,6 +325,10 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 ---
 
 ## 九、Agent 行为测试（M5b）— opencode + gpt-5.3-codex 客户端验证
+
+> **注：** 本次测试在 Refinement 精简前进行，工具调用序列使用旧 API 名称。当前等效调用：
+> `insar_list_engines/list_workflows` → `insar_discover`；步骤 11-12 合并为 `insar_run_workflow`（自动 validate+export）；
+> `insar_get_job_status` + `insar_get_job_logs` → `insar_get_job(include_logs=True)`
 
 **背景：** 为验证 insar-agent MCP 服务是否足够稳定、完整，能够被真实的外部 AI 客户端（如 opencode、gpt-5.3-codex）调用，我们进行了一次完整的端到端测试。
 

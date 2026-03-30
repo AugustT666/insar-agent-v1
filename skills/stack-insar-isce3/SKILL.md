@@ -31,6 +31,10 @@ Each step generates shell scripts that the user runs manually to launch parallel
   inherited by all pairs in the stack. If the user wants to tune them, invoke
   `param-advisor-isce3` **before Step 1**, using a temporary project to adjust and export
   a modified base runconfig YAML, then pass that as the `base_runconfig` argument.
+  The advisor should infer as much evidence as possible from the temporary project,
+  RSLC naming, and DEM/workspace context before asking the user for missing facts.
+  For skill-aware clients, the recommendation stage must be delegated to a subagent;
+  the main conversation must not generate parameter advice directly.
 - Run Step 1 and Step 2 separately. Wait for the user to confirm the shell script completed
   between steps.
 - Reference scene defaults to the earliest date; only override if the user explicitly specifies.
@@ -51,12 +55,22 @@ insar_prepare_stack(
 ```
 
 The response includes `run_command` with the exact shell command to run.
-Tell the user to execute it:
+Present `run_command` to the user and ask how they want to proceed:
 
+**Option A — AI 代为执行（推荐）：**
+```
+insar_run_batch(batch_dir=<stack_output_dir>, max_jobs=<N>)
+```
+Returns `job_id` and `log_path`. Tell the user they can monitor real-time output with:
+```bash
+tail -f <log_path>
+```
+Poll `insar_get_job(job_id=<job_id>, batch_dir=<stack_output_dir>)` every ~30s until `status` is `done` or `failed`.
+
+**Option B — 用户自行执行：**
 ```bash
 bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>
 ```
-
 Wait for the user to confirm completion before proceeding to Step 2.
 
 ### Step 2 — Generate interferogram network
@@ -77,8 +91,15 @@ insar_prepare_network(
 See `references/network-modes.md` for network strategy options.
 
 The response includes `run_command` and `gunw_pattern`.
-Tell the user to execute:
+Present `run_command` to the user and ask how they want to proceed (same two options as Step 1):
 
+**Option A:**
+```
+insar_run_batch(batch_dir=<network_output_dir>, max_jobs=<N>)
+```
+Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(batch_dir=...)` until done.
+
+**Option B:**
 ```bash
 bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>
 ```

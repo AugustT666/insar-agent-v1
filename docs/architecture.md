@@ -76,7 +76,9 @@ The long-term asset is not any client-specific wrapper. It is the accumulated op
 - `process_insar_pair` — guided single-pair workflow with path interpolation
 - `process_insar_batch` — guided batch stack + network workflow
 
-**next_step guidance:** key tool returns include a `next_step` field so the AI always knows what to call next without needing to consult external documentation.
+**`poll` guidance:** `insar_run_workflow` and `insar_run_mintpy` return a `poll` field containing the exact `insar_get_job(...)` call needed for status polling.
+
+**Plugin contract vs MCP contract:** For skill-aware clients, parameter advice is a plugin contract and must be delegated to a dedicated subagent. MCP tools do not and cannot verify whether a subagent was actually used; the MCP contract is limited to allowlists, validation, and factual execution.
 
 ### `insar_agent.core`
 
@@ -99,6 +101,8 @@ The long-term asset is not any client-specific wrapper. It is the accumulated op
 - `isce3/network.py` — `prepare_network()`: interferogram network tbase/conn (from wangshuai)
 - `isce3/bbox.py` — `union_bbox()`: extract union bounding box from RSLC HDF5 files
 - `isce3/geotiff.py` — `export_geotiff()`: convert GUNW HDF5 to GeoTIFF + PNG browse images
+- `isce3/mintpy.py` — `run_mintpy()` + `get_mintpy_status()`: async MintPy launcher with PID-based polling
+- `isce3/baseline.py` — `plot_baseline_network()`: spatiotemporal baseline plot + CSV
 - Key files: `src/insar_agent/engines/`
 
 ### `insar_agent.runtime`
@@ -147,33 +151,30 @@ See [mcp-tools.md](mcp-tools.md) for full input/output specs.
 | `process_insar_pair` | ref, sec, dem, output_dir, conda_env | Guided single-pair RSLC → GUNW workflow |
 | `process_insar_batch` | data_dir, dem, output_dir, network_mode, ... | Guided batch stack + interferogram network |
 
-### Tools
+### Tools (15 total)
 
 **Discovery**
-- `insar_list_engines` — list available InSAR engines
-- `insar_list_workflows` — list workflows for a given engine
-- `insar_get_project` — get project metadata and current status
+- `insar_discover` — list engines (no args) or workflows for a given engine
+- `insar_get_project` — project metadata and latest job status
 
 **Config management** (M1)
-- `insar_create_project` — create project, bind engine/workflow/workspace
+- `insar_create_project` — create project, bind engine/workflow/workspace, and return one-time tuning guidance
 - `insar_get_runconfig` — read current runconfig (JSON or YAML view)
-- `insar_set_runconfig_value` — set an allowed dotted-key path (path fields + GPU flags only)
-- `insar_set_processing_param` — set a core processing parameter with mandatory justification (M7)
-- `insar_unset_runconfig_value` — remove a dotted-key path
-- `insar_validate_runconfig` — required-field checks
-- `insar_export_runconfig` — render YAML to disk
+- `insar_set_runconfig_value` — set or remove dotted-key path (value=None removes)
+- `insar_set_processing_param` — set whitelist-controlled algorithm parameter with justification
 
 **Execution** (M2)
-- `insar_run_workflow` — launch workflow; supports `dry_run`
-- `insar_get_job_status` — job state, exit code, timing
-- `insar_get_job_logs` — full log or tail
-
-**Outputs** (M3)
-- `insar_list_outputs` — list output files with type and recommended viewer
+- `insar_run_workflow` — validate + export + launch (all-in-one); supports `dry_run`
+- `insar_get_job` — job state ± logs for ISCE3 and MintPy jobs (unified)
+- `insar_list_outputs` — output files with type and recommended viewer
 
 **Stack / Network** (M4)
 - `insar_prepare_stack` — batch single-reference runconfig generation
 - `insar_prepare_network` — batch interferogram network runconfig generation
+
+**MintPy** (M6)
+- `insar_run_mintpy` — async MintPy time-series processing
+- `insar_plot_baseline` — baseline network plot + CSV
 
 **Utilities** (M5)
 - `insar_extract_bbox` — extract union bounding box from RSLC files (for DEM download)
@@ -188,14 +189,12 @@ See [mcp-tools.md](mcp-tools.md) for full input/output specs.
 ```
 0.  Read resource insar://workflow-guide           (onboarding — learn constraints first)
     OR invoke prompt process_insar_pair(...)       (get pre-filled step-by-step instructions)
-1.  insar_create_project(...)                      → project_id + next_step hint
-2.  insar_set_runconfig_value(...)  ×6             (only allowed path fields)
-3.  insar_validate_runconfig(...)                  → next_step hint
-4.  insar_export_runconfig(...)                    → next_step hint
-5.  insar_run_workflow(...)                        → job_id + next_step hint
-6.  insar_get_job_status(...)  [poll]
-7.  insar_get_job_logs(...)    [if failed]
-8.  insar_list_outputs(...)                        → next_step hint
+1.  insar_create_project(...)                      → project_id
+2.  insar_set_runconfig_value(...)  ×6             (only allowed path fields; value=None to remove)
+2.5 param-advisor-isce3 (optional)                 → main agent builds evidence profile, subagent returns parameter advice, then adjust whitelist-controlled processing params
+3.  insar_run_workflow(...)                        → job_id + poll hint (auto validates + exports)
+4.  insar_get_job(job_id, project_id)  [poll]      (include_logs=True if failed)
+5.  insar_list_outputs(job_id)                     → artifact list
 ```
 
 ### Path B — Batch stack / network
@@ -203,6 +202,7 @@ See [mcp-tools.md](mcp-tools.md) for full input/output specs.
 ```
 0.  Read resource insar://workflow-guide
     OR invoke prompt process_insar_batch(...)
+0.5 param-advisor-isce3 (optional)                 → tune temporary insar project via subagent-generated advice, export base runconfig
 1.  insar_prepare_stack(data_dir, runconfig, dem, output_dir)
     → USER runs: bash run_parallel.sh <output_dir> <N>
 2.  insar_prepare_network(data_dir, runconfig, dem, output_dir, network_mode)
@@ -249,7 +249,7 @@ insar_run_workflow(project_id)
 
 **Status polling:**
 ```
-insar_get_job_status(job_id, project_id)
+insar_get_job(job_id, project_id)
   → load Job from jobs/<job_id>.json
   → os.kill(pid, 0)         — check if process alive
   → /proc/<pid>/status      — detect zombie
@@ -267,20 +267,19 @@ insar_get_job_status(job_id, project_id)
       → ALLOWED_SET_FIELDS check (path fields + worker flags only)
       → config.set_path(project.runconfig, "runconfig.groups.input_file_group.reference_rslc_file", value)
       → project.json updated
+      (value=None → unset_path, restore to template default)
 
-3. insar_validate_runconfig(project_id)
-      → validator.validate_runconfig(project.runconfig, workflow)
-      → checks REQUIRED_PATH_FIELDS all non-null
+3. insar_run_workflow(project_id)
+      [internal] validator.validate_runconfig() → errors returned if invalid
+      [internal] yaml.dump(project.runconfig) → <workspace>/configs/runconfig.yaml
+      [internal] subprocess.Popen(command, stdout=log_file, cwd=workspace_root)
+      → Job saved (job_id, pid, log_path, status=running)
+      → returns {job_id, poll: "insar_get_job(job_id='...', project_id='...')"}
 
-4. insar_export_runconfig(project_id, output_dir)
-      → yaml.dump(project.runconfig)  →  <workspace>/configs/runconfig.yaml
-      → project.runconfig_exported_path saved
+4. insar_get_job(job_id, project_id)   [poll until done/failed]
+   insar_get_job(job_id, project_id, include_logs=True)   [if failed — get log inline]
 
-5. insar_run_workflow(project_id)     [Mode A above]
-
-6. insar_get_job_status(job_id)       [poll until done/failed]
-
-7. insar_list_outputs(job_id, project_id)
+5. insar_list_outputs(job_id)
       → scan <workspace>/outputs/<job_id>/
       → map extensions (.h5, .tif, .png) to artifact types
 ```
@@ -342,7 +341,7 @@ insar_run_mintpy(mintpy_work_dir, gunw_glob, mintpy_config, dem_path, conda_env)
 
 **Status polling (Mode C):**
 ```
-insar_get_mintpy_status(job_id, mintpy_work_dir)
+insar_get_job(job_id, work_dir=mintpy_work_dir)
   → load job from <mintpy_work_dir>/.jobs/<job_id>.json
   → os.kill(pid, 0)           — liveness check
   → on exit: inspect log tail for completion markers
@@ -393,17 +392,18 @@ Never invent workflow parameters or undocumented operational steps when source m
 | Milestone | Status | Scope |
 |---|---|---|
 | M0: Server skeleton | **Done** | Package layout, scaffold server, smoke tests |
-| M1: Config management | **Done** | FastMCP server, `create_project`, `get/set/unset/validate/export runconfig`, project registry, conda env support |
-| M2: Job execution | **Done** | `run_workflow` (async Popen), `get_job_status`, `get_job_logs` |
+| M1: Config management | **Done** | FastMCP server, `create_project`, `get/set runconfig`, project registry, conda env support |
+| M2: Job execution | **Done** | `run_workflow` (async Popen), `get_job` (status + logs) |
 | M3: Output handling | **Done** | `list_outputs` with artifact type inference |
 | M4: Stack / network | **Done** | `prepare_stack`, `prepare_network` (wangshuai two-layer architecture) |
-| M4b: Agent onboarding | **Done** | Resources, Prompts, skill-first architecture; 155 unit + integration tests |
-| M5: Utilities | **Done** | `insar_extract_bbox`, `insar_export_geotiff`; skill-first arch (skills = guidance, MCP = execution) |
+| M4b: Agent onboarding | **Done** | Resources, Prompts, skill-first architecture |
+| M5: Utilities | **Done** | `insar_extract_bbox`, `insar_export_geotiff`, `insar_set_processing_param` |
 | M5b: Agent behavior test | **Done** | opencode + gpt-5.3-codex MCP client: 9/9 checklist items passed; 22MB GUNW product generated |
 | M6: MintPy integration | **Done** | `insar_run_mintpy`, `insar_plot_baseline`; `mintpy-isce3` skill |
-| M7: Parameter Expert | **Done** | `insar_set_processing_param`; `param-advisor-isce3` skill; YAML-based extensible parameter registry (`assets/processing_params_insar.yaml`) |
+| Refinement | **Done** | MCP API consolidated 21→15 tools; `insar_discover`, `insar_get_job` (unified), auto validate+export in `run_workflow`; 160 unit tests |
+| M7 | **Planned** | Remote / automation (TBD) |
 
-### Implementation notes (2026-03-28)
+### Implementation notes (2026-03-29)
 
 - **MCP SDK**: `mcp>=1.0` (FastMCP) installed; Resources and Prompts use `@mcp.resource` / `@mcp.prompt` decorators
 - **Runconfig templates**: copied from `/home/august/isce3/share/nisar/defaults/` into `engines/isce3/assets/`
