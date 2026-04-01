@@ -76,8 +76,9 @@ See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for ful
 - Execution: `insar_run_workflow`, `insar_get_job`, `insar_list_outputs`
 - Stack/network: `insar_prepare_stack`, `insar_prepare_network`,
   `insar_run_batch`
+- Data prep: `insar_download_rslc`, `insar_download_dem`
 - MintPy: `insar_run_mintpy`, `insar_plot_baseline`
-- Utilities: `insar_extract_bbox`, `insar_export_geotiff`
+- Utilities: `insar_export_geotiff`
 
 ## Execution Modes
 
@@ -116,6 +117,12 @@ Parameter optimization is intentionally split:
 This keeps detailed reasoning out of the main conversation while preserving a
 visible diff-and-confirmation step for the user.
 
+For skill-aware clients, this split is part of the plugin contract: skills own
+the advisory workflow and subagent boundary, while MCP tools stay focused on
+validated execution. The MCP contract remains narrower: the server exposes
+resources, prompts, and tools, but does not enforce whether the host client
+actually spawns a subagent before applying parameter changes.
+
 ## Core Data Model
 
 All domain objects are defined in `src/insar_agent/core/`.
@@ -153,4 +160,3 @@ batch_dir/.insar_agent/jobs/{job_id}.json
 mintpy_work_dir/.jobs/{job_id}.json
 mintpy_work_dir/logs/{job_id}.log
 ```
-

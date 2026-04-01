@@ -64,7 +64,7 @@ class TestUnionBbox:
         assert result["max_lat"] == pytest.approx(37.0)
 
 
-# ── insar_extract_bbox MCP tool tests ────────────────────────────────────────
+# ── legacy bbox helper tests ─────────────────────────────────────────────────
 
 class TestInsarExtractBbox:
     def test_empty_list_returns_error(self):

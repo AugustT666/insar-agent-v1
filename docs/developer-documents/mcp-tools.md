@@ -65,7 +65,7 @@ Guided template for batch stack + interferogram network preparation (Path B work
 
 ---
 
-## Tool Summary (17 tools)
+## Tool Summary (18 tools)
 
 | Group | Tool | Purpose |
 |---|---|---|
@@ -82,9 +82,10 @@ Guided template for batch stack + interferogram network preparation (Path B work
 | Stack/Network | `insar_prepare_stack` | Prepare single-reference RSLC stack |
 | Stack/Network | `insar_prepare_network` | Generate interferogram network |
 | Stack/Network | `insar_run_batch` | Execute a prepared stack or network batch |
+| Data Prep | `insar_download_rslc` | AOI/bbox-driven RSLC crop download from URL list |
+| Data Prep | `insar_download_dem` | AOI/bbox-driven Copernicus 30m DEM download |
 | MintPy | `insar_run_mintpy` | Launch MintPy time-series processing |
 | MintPy | `insar_plot_baseline` | Render baseline network plot |
-| Utilities | `insar_extract_bbox` | Union bounding box from RSLC list |
 | Utilities | `insar_export_geotiff` | HDF5 GUNW → GeoTIFF + PNG |
 
 ---
@@ -731,33 +732,76 @@ Summarize one RSLC or a reference/secondary RSLC pair for metadata-first paramet
 
 ---
 
-### `insar_extract_bbox`
+### `insar_download_rslc`
 
-Extract the union bounding box from one or more NISAR RSLC HDF5 files. Use before downloading a DEM to ensure full coverage.
+Download and bbox-crop NISAR RSLC files from a user-provided URL list.
+The crop region can be supplied either as an explicit bbox or an AOI file.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `rslc_paths` | list[string] | yes | Absolute paths to NISAR RSLC `.h5` files |
+| `urls` | list[string] | yes | Remote NISAR RSLC `.h5` URLs |
+| `output_dir` | string | yes | Directory where cropped RSLC files will be written |
+| `bbox` | list[number] | no | `[min_lon, min_lat, max_lon, max_lat]`; mutually exclusive with `aoi_path` |
+| `aoi_path` | string | no | AOI file path; mutually exclusive with `bbox` |
+| `freq` | string | no | Frequency band (`A` or `B`) |
+| `margin` | integer | no | Extra pixel margin around the crop |
+| `n_workers` | integer | no | Parallel worker count |
+| `chunk_rows` | integer | no | Per-worker azimuth chunk size |
+| `proxy` | string | no | Optional HTTP proxy URL |
 
 **Returns:**
 ```json
 {
-  "min_lon": 120.5,
-  "min_lat": 35.2,
-  "max_lon": 121.3,
-  "max_lat": 36.0,
-  "n_files": 2
+  "ok": [{"url": "...", "path": "/data/rslc/file_cropped.h5", "size_mb": 320}],
+  "failed": [],
+  "output_dir": "/data/rslc",
+  "log": ["[download] ..."]
 }
 ```
 
 **Errors:**
-- `invalid_input` — empty list
-- `path_not_found` — one or more files do not exist
-- `bbox_failed` — could not read bounding polygon from HDF5
+- `invalid_input` — invalid URL list or invalid bbox/aoi_path combination
+- `path_not_found` — AOI path does not exist
+- `bbox_failed` — AOI could not be resolved to bbox
 
-**Implementation:** `engines/isce3/bbox.py::union_bbox`
+**Implementation:** `engines/isce3/download.py::download_rslc_stack`
+
+---
+
+### `insar_download_dem`
+
+Download a Copernicus 30m DEM for a user-provided bbox or AOI file.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `output_path` | string | yes | Output GeoTIFF path |
+| `bbox` | list[number] | no | `[min_lon, min_lat, max_lon, max_lat]`; mutually exclusive with `aoi_path` |
+| `aoi_path` | string | no | AOI file path; mutually exclusive with `bbox` |
+| `source` | string | no | DEM source, currently `copernicus_30` |
+| `margin_deg` | number | no | Margin added around bbox before download |
+
+**Returns:**
+```json
+{
+  "output_path": "/data/dem/dem.tif",
+  "source": "copernicus_30",
+  "bbox": [120.4, 35.1, 121.4, 36.1],
+  "tile_urls": ["https://..."],
+  "log": ["[dem] ..."]
+}
+```
+
+**Errors:**
+- `invalid_input` — invalid bbox/aoi_path combination or unsupported source
+- `path_not_found` — AOI path does not exist
+- `bbox_failed` — AOI could not be resolved to bbox
+- `download_failed` — DEM download or GDAL mosaic/crop failed
+
+**Implementation:** `engines/isce3/dem.py::download_dem`
 
 ---
 

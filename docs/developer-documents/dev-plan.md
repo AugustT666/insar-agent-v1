@@ -40,9 +40,15 @@
 - Claude Code Skills 插件化：`insar-agent-skills@insar-agent`
 
 ### M5 — 工具扩展 ✓
-- `insar_extract_bbox`：从 RSLC HDF5 提取联合包围盒（用于 DEM 下载前确认覆盖范围）
+- `insar_extract_bbox`：早期公开过的 bbox 提取工具，现已退回内部 helper，不再作为公开 MCP 工具
 - `insar_export_geotiff`：GUNW HDF5 → GeoTIFF + PNG browse 图（依赖 h5py/GDAL）
 - engines/isce3/bbox.py + geotiff.py
+
+### M5c — 数据准备 V1 稳定化 ✓
+- `insar_download_rslc`：保留低层 URL 列表 + AOI/bbox 裁剪下载
+- `insar_download_dem`：新增 AOI/bbox 驱动的 Copernicus 30m DEM 下载
+- AOI 解析：本地优先，ASF `files_to_wkt` 回退
+- `data-prep-nisar` skill：改为围绕 AOI/bbox + DEM 下载确认的公开工作流
 
 ### M5b — Agent 行为测试 ✓
 
@@ -201,10 +207,10 @@
 
 ```
 数据下载（data-prep-nisar skill）
-  ↓ 检查 RSLC 文件 + DEM 覆盖范围
+  ↓ 用户提供 URL 列表 + AOI/bbox
+  ↓ 若缺 DEM，确认是否下载 Copernicus 30m DEM
   ↓
 堆叠准备（stack-insar-isce3 skill）
-  → insar_extract_bbox → 确认 DEM 覆盖
   → insar_prepare_network（tbase 模式）
   → 用户执行 run_parallel.sh
   ↓
@@ -215,12 +221,12 @@
   → 结果检查
 ```
 
-**data-prep-nisar skill 完善内容：**
+**data-prep-nisar skill 当前范围：**
 
-1. **RSLC 下载引导**（当前为占位符，需完善）
-   - ASF Vertex 搜索步骤（按轨道/日期/范围筛选 NISAR L1 RSLC）
-   - `asf_search` Python API 下载命令示例
-   - 文件命名约定说明（用于 `stack.py` 日期解析）
+1. **RSLC 下载**
+   - 用户提供 URL 列表
+   - `insar_download_rslc` 负责按 AOI / bbox 远程裁剪下载
+   - 不包含 ASF 自动搜索和 preview / quick-look
 
 2. **大气校正 ancillary 准备**
    - 为 `troposphere_delay` 补齐可执行的数据准备路径：根据参考/辅影像时间和空间范围准备 `reference_troposphere_file` / `secondary_troposphere_file`
@@ -228,10 +234,10 @@
    - 在 `data-prep-nisar` skill 中明确：只有当天气模型或 TEC 输入已准备完成时，后续参数建议或主流程才应把对应 correction 视为“可直接执行”的选项
    - 为参数专家增加 ancillary-aware gating：若当前 project 缺少 weather model / TEC 输入，只能给出“需先准备数据”的建议，不能把 `enabled=true` 当成可立即运行的推荐
 
-2. **DEM 准备引导**（现有 ddem.py 流程已可用，补充说明）
-   - `insar_extract_bbox` 获取范围 → `ddem.py` 下载 Copernicus 30m
-   - 投影/格式说明（WGS84 GeoTIFF）
-   - 建议外扩余量（0.1° 以避免边缘效应）
+3. **DEM 准备**
+   - `insar_download_dem` 直接按 AOI / bbox 下载 Copernicus 30m
+   - DEM 外扩余量默认 0.1°
+   - 不再依赖 `ddem.py`
 
 3. **环境验证步骤**
    - 检查 isce3 conda 环境是否可用（`conda run -n isce3 python -c "import isce3"`）

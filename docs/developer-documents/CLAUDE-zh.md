@@ -53,7 +53,7 @@ AI 客户端（Codex / Claude Code / OpenCode 等）
 **`insar_agent.runtime`** — 工作空间布局、conda 环境检测、结构化日志辅助工具。
 
 **`skills/`** — Claude Code 技能文件，以本地插件形式打包（`insar-agent-skills@insar-agent`）并安装到 Claude Code。通过 Skill 工具调用：
-- `data-prep-nisar` — 下载 NISAR RSLC 数据（ASF）和 DEM（哥白尼 30m）
+- `data-prep-nisar` — 用用户提供的 URL 列表和 AOI / bbox 下载 NISAR RSLC 与 Copernicus 30m DEM
 - `d-insar-isce3` — 单对 RSLC → GUNW 产品（Path A，M1-M3 工具）
 - `stack-insar-isce3` — 多景批量堆叠 + 干涉图网络（Path B，M4 工具）
 - `mintpy-isce3` — MintPy 时序分析（M6 工具）
@@ -93,7 +93,7 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 ## 当前状态
 
-**当前 FastMCP 面为 17 个活跃工具。2026-03-31 fresh 验证结果：`pytest -q` → 205 passed, 1 warning。**
+**当前 FastMCP 面为 18 个活跃工具。数据准备面已更新为 `insar_download_rslc` + `insar_download_dem`，`insar_extract_bbox` 保留为内部 helper，不再作为公开 MCP 工具。**
 
 进行非简单改动前，请先阅读：
 
@@ -125,12 +125,13 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 - M3：输出处理 ✓ — `insar_list_outputs`
 - M4：堆叠/网络 ✓ — `insar_prepare_stack`、`insar_prepare_network`（wangshuai 两层架构）
 - M4b：Agent 引导 ✓ — MCP 资源、提示、技能优先架构
-- M5：工具扩展 ✓ — `insar_extract_bbox`、`insar_export_geotiff`
+- M5：工具扩展 ✓ — `insar_export_geotiff`，以及后续退回内部 helper 的 `insar_extract_bbox`
+- M5c：数据准备 V1 稳定化 ✓ — `insar_download_rslc`（URL 列表 + AOI/bbox 裁剪下载）、`insar_download_dem`（AOI/bbox 驱动的 Copernicus 30m DEM 下载）
 - M7 metadata-first 参数顾问更新 ✓ — `insar_describe_rslc`、metadata-first 参数建议流程、带 provenance 的 subagent 合约
 - M6：MintPy ✓ — `insar_run_mintpy`、`insar_plot_baseline`
 - 精简（2026-03-29 检查点）：MCP API 精简 21→15 工具；`insar_discover`、`insar_get_job`（ISCE3+MintPy 统一）、`insar_set_runconfig_value`（value=None 删除）、`insar_run_workflow` 吸收 validate+export
 - M4c（2026-03-30）：新增 `insar_run_batch`；`insar_get_job` 通过 `batch_dir` 覆盖批处理作业；171 个单元测试
-- 当前活跃 MCP 工具总数：17
+- 当前活跃 MCP 工具总数：18
 
 ---
 

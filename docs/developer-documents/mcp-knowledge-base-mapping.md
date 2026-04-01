@@ -22,11 +22,15 @@ insar-agent 支持两条主要处理路径：
 
 ## 数据准备（两条路径共用）
 
-### `insar_extract_bbox` — 提取数据覆盖范围
+### `insar_download_rslc` — 按研究区范围裁剪下载 RSLC
 
-拿到 RSLC 文件后，读取文件中记录的地理范围，计算所有场景的联合外接矩形，返回四角坐标。这个坐标范围用于后续下载匹配的 DEM。
+用户提供 RSLC URL 列表，以及研究区 AOI 文件或显式 bbox。工具先解析 AOI/bbox，再用远程 HDF5 按研究区范围只下载所需像元，输出裁剪后的 RSLC 文件。
 
-> 来源：tianxiaolong 的 `nisar_bbox_dem.py`
+> 来源：wangshuai 的 `nisar-test-download_v2.py`
+
+### `insar_download_dem` — 按研究区范围下载 Copernicus 30m DEM
+
+用户提供 AOI 文件或显式 bbox，工具解析范围后为该区域下载 Copernicus 30m DEM，并输出可直接给后续流程使用的 GeoTIFF。
 
 ### `insar_describe_rslc` — 提取参数专家所需的本地元数据画像
 

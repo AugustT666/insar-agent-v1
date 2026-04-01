@@ -26,8 +26,9 @@
 │  工具：insar_discover / insar_create_project / set /     │
 │        run_workflow / get_job / list_outputs /           │
 │        prepare_stack / prepare_network /                 │
+│        download_rslc / download_dem /                    │
 │        run_mintpy / plot_baseline /                      │
-│        extract_bbox / export_geotiff                     │
+│        export_geotiff                                    │
 │  资源：insar://workflow-guide                             │
 │         insar://allowed-fields/{workflow}                │
 │  引擎：ISCE3 Adapter → conda run nisar.workflows.*       │
@@ -272,19 +273,25 @@ Claude → 用户：
 
 Claude → Skill("insar-agent-skills:data-prep-nisar")
 
-Claude → MCP: insar_extract_bbox(rslc_paths=["/data/rslc/ref.h5", "/data/rslc/sec.h5"])
-         ← 返回：{min_lon: 120.5, min_lat: 35.2, max_lon: 121.3, max_lat: 36.0}
+Claude → 用户：
+  "请提供研究区 AOI 文件或明确 bbox，以及 RSLC URL 列表。"
+
+用户：AOI 在 `/data/study_area.shp`，URL 列表已准备好。
 
 Claude → 用户：
-  "Step B2：下载 Copernicus 30m DEM"
-  请执行：
-  python docs/archive/knowledge-base/wangshuai/Scripts/ddem.py \
-      --min-lon 120.5 --max-lon 121.3 \
-      --min-lat 35.2  --max-lat 36.0 \
-      --source copernicus_30 \
-      -o /data/dem.tif
+  "未检测到已有 DEM。是否现在下载 Copernicus 30m DEM？"
 
-用户 → 确认文件已生成
+Claude → MCP: insar_download_dem(
+  output_path="/data/dem/dem.tif",
+  aoi_path="/data/study_area.shp",
+  source="copernicus_30"
+)
+
+Claude → MCP: insar_download_rslc(
+  urls=[...],
+  output_dir="/data/rslc",
+  aoi_path="/data/study_area.shp"
+)
 
 Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 ```
@@ -313,7 +320,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 | 组件 | 路径 | 作用 |
 |------|------|------|
-| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，FastMCP stdio 入口（17 个活跃工具） |
+| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，FastMCP stdio 入口（18 个活跃工具） |
 | ISCE3 适配器 | `src/insar_agent/engines/isce3/` | runconfig 验证、conda run 命令构造 |
 | 工具扩展（M5/M7） | `src/insar_agent/engines/isce3/bbox.py` + `geotiff.py` + `rslc_metadata.py` | 包围盒提取、GeoTIFF 导出、RSLC 元数据画像 |
 | MintPy 集成（M6） | `src/insar_agent/engines/isce3/mintpy.py` + `baseline.py` | 异步 MintPy 启动、基线网络图 |

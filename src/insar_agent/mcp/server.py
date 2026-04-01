@@ -24,6 +24,8 @@ from insar_agent.engines.isce3.defaults import (
 )
 from insar_agent.engines.isce3.baseline import plot_baseline_network
 from insar_agent.engines.isce3.bbox import union_bbox
+from insar_agent.engines.isce3.aoi import resolve_aoi_bbox
+from insar_agent.engines.isce3.dem import download_dem
 from insar_agent.engines.isce3.geotiff import export_geotiff
 from insar_agent.engines.isce3.mintpy import get_mintpy_status, run_mintpy
 from insar_agent.engines.isce3.network import prepare_network
@@ -1564,7 +1566,6 @@ def insar_describe_rslc(
     return result
 
 
-@mcp.tool()
 def insar_extract_bbox(rslc_paths: list[str]) -> dict:
     """
     Extract the union bounding box from one or more NISAR RSLC HDF5 files.
@@ -1594,6 +1595,32 @@ def insar_extract_bbox(rslc_paths: list[str]) -> dict:
         "max_lat": bbox["max_lat"],
         "n_files": len(rslc_paths),
     }
+
+
+def _resolve_bbox_input(
+    *,
+    bbox: list[float] | None,
+    aoi_path: str,
+) -> tuple[float, float, float, float]:
+    has_bbox = bbox is not None
+    has_aoi = bool(aoi_path.strip())
+
+    if has_bbox == has_aoi:
+        raise ValueError("Provide exactly one of bbox or aoi_path")
+
+    if has_bbox:
+        assert bbox is not None
+        if len(bbox) != 4:
+            raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat]")
+        values = tuple(float(value) for value in bbox)
+        if values[0] >= values[2] or values[1] >= values[3]:
+            raise ValueError("bbox must satisfy min_lon < max_lon and min_lat < max_lat")
+        return values
+
+    path = Path(aoi_path)
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+    return resolve_aoi_bbox(path)
 
 
 @mcp.tool()
@@ -1746,8 +1773,9 @@ def insar_plot_baseline(
 @mcp.tool()
 def insar_download_rslc(
     urls: list[str],
-    bbox: list[float],
     output_dir: str,
+    bbox: list[float] | None = None,
+    aoi_path: str = "",
     freq: str = "A",
     margin: int = 20,
     n_workers: int = 8,
@@ -1763,8 +1791,9 @@ def insar_download_rslc(
 
     Args:
         urls:       List of remote .h5 RSLC URLs from ASF EarthData.
-        bbox:       [min_lon, min_lat, max_lon, max_lat] in decimal degrees.
         output_dir: Local directory to write cropped files.
+        bbox:       Optional [min_lon, min_lat, max_lon, max_lat] in decimal degrees.
+        aoi_path:   Optional path to an AOI file; mutually exclusive with bbox.
         freq:       NISAR frequency band: 'A' (L-band) or 'B'.
         margin:     Extra pixel margin around the bbox crop window (default 20).
         n_workers:  Parallel download threads per file (default 8).
@@ -1779,8 +1808,14 @@ def insar_download_rslc(
             "output_dir": str,
         }
     """
-    if len(bbox) != 4:
-        return {"error": "invalid_input", "message": "bbox must be [min_lon, min_lat, max_lon, max_lat]"}
+    try:
+        resolved_bbox = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "bbox_failed", "message": str(exc)}
 
     h5_urls = [u for u in urls if u.endswith(".h5") and "RSLC" in u]
     if not h5_urls:
@@ -1789,7 +1824,7 @@ def insar_download_rslc(
     messages: list[str] = []
     result = download_rslc_stack(
         urls=h5_urls,
-        bbox=(bbox[0], bbox[1], bbox[2], bbox[3]),
+        bbox=resolved_bbox,
         output_dir=output_dir,
         freq=freq,
         margin=margin,
@@ -1798,6 +1833,46 @@ def insar_download_rslc(
         on_progress=lambda msg: messages.append(msg),
         proxy=proxy,
     )
+    result["log"] = messages
+    return result
+
+
+@mcp.tool()
+def insar_download_dem(
+    output_path: str,
+    bbox: list[float] | None = None,
+    aoi_path: str = "",
+    source: str = "copernicus_30",
+    margin_deg: float = 0.1,
+) -> dict:
+    """Download a DEM covering the given bbox or AOI file."""
+    try:
+        resolved_bbox = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "bbox_failed", "message": str(exc)}
+
+    messages: list[str] = []
+    try:
+        result = download_dem(
+            output_path=output_path,
+            bbox=resolved_bbox,
+            source=source,
+            margin_deg=margin_deg,
+            on_progress=lambda msg: messages.append(msg),
+        )
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+    except RuntimeError as exc:
+        return {"error": "download_failed", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "download_failed", "message": str(exc)}
+
     result["log"] = messages
     return result
 
@@ -1825,7 +1900,8 @@ def build_server_description() -> dict:
             "insar_prepare_stack",
             "insar_prepare_network",
             "insar_run_batch",
-            "insar_extract_bbox",
+            "insar_download_rslc",
+            "insar_download_dem",
             "insar_export_geotiff",
             "insar_run_mintpy",
             "insar_plot_baseline",

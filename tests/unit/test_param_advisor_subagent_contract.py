@@ -5,7 +5,7 @@ from pathlib import Path
 from insar_agent.mcp.server import insar_create_project, process_insar_batch, process_insar_pair
 
 
-REPO_ROOT = Path("/home/august/insar-agent")
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_create_project_guidance_mentions_subagent_requirement(tmp_path, monkeypatch):

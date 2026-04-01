@@ -45,6 +45,14 @@ claude plugin marketplace add /home/august/insar-agent --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
+For skill-aware clients, parameter advisory follows a plugin contract rather
+than an MCP contract. The `param-advisor-isce3` skill must call
+`insar_describe_rslc`, then delegate recommendation generation to the project
+subagent defined in `.claude/agents/param-advisor-isce3.md`. That subagent is
+advisory-only, cites evidence, and may use models such as `gpt-5.3-codex`
+depending on the host client. MCP tools do not enforce whether the subagent was
+spawned; they only validate and apply the requested changes.
+
 ## Key Rules
 
 - Domain knowledge (ISCE3 runconfigs, scripts, workflow notes) arrives as reference input and must be normalized into code/prompts/validations. Do not invent workflow parameters when source material is incomplete.
