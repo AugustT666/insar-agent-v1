@@ -27,14 +27,39 @@ description: >
 
 ### Part A — Download NISAR RSLC data (ASF)
 
-> A programmatic ASF download tool is not yet available. Guide the user through the
-> manual steps below.
+Use the MCP tool `insar_download_rslc` for programmatic remote-crop download.
+See `references/rslc-download.md` for full details, pitfalls, and proxy setup.
 
-1. Direct the user to ASF Vertex: https://search.asf.alaska.edu
-2. Search for NISAR L1 RSLC products covering the target area and time range.
-3. Submit a bulk download order; download `.h5` files to a local directory.
+#### Step A1 — Assemble URL list
 
-Expected filename pattern: `NISAR_L1_PR_RSLC_<track>_<date>_…_cropped.h5`
+Use ASF Vertex (https://search.asf.alaska.edu) to search NISAR L1 RSLC products
+covering the target area and time range, then export the download URL list.
+
+- Pass only `.h5` file URLs to the tool; non-RSLC URLs (`_QA_`, `.png`, `.pdf`, `.xml`, `.kml`) are filtered out but including them adds noise.
+
+#### Step A2 — Confirm bbox
+
+**Critical:** do NOT derive the download bbox from `identification/boundingPolygon`
+inside the HDF5 — that field stores the **full-frame** extent and is wrong for
+already-cropped files. Use the known target study area coordinates instead.
+See `references/rslc-download.md` for details.
+
+#### Step A3 — Run download
+
+```python
+insar_download_rslc(
+    urls=[...],                          # .h5 RSLC URLs from ASF
+    bbox=[min_lon, min_lat, max_lon, max_lat],
+    output_dir="/path/to/output",
+    freq="A",                            # L-band
+    proxy=None,                          # default: direct; set if direct is slow
+)
+```
+
+Prerequisites (install once): `pip install fsspec`
+Auth: `~/.netrc` must contain `machine urs.earthdata.nasa.gov login <user> password <pass>`
+
+Expected output filename: `NISAR_L1_PR_RSLC_<cycle>_<track>_…_cropped.h5`
 
 ### Part B — Prepare DEM
 
@@ -47,6 +72,11 @@ insar_extract_bbox(rslc_paths=["/path/to/rslc1.h5", "/path/to/rslc2.h5", ...])
 ```
 
 Returns: `{min_lon, min_lat, max_lon, max_lat}` — the union bounding box across all scenes.
+
+> **Warning:** `nisar_bbox_dem.py` reads `identification/boundingPolygon`, which
+> reflects the **full-frame** source extent copied during download — not the actual
+> cropped SLC pixel extent. Use `insar_extract_bbox` (MCP tool) or the known study
+> area coordinates instead.
 
 #### Step B2 — Download Copernicus 30m DEM
 

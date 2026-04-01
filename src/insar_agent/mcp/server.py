@@ -29,6 +29,7 @@ from insar_agent.engines.isce3.mintpy import get_mintpy_status, run_mintpy
 from insar_agent.engines.isce3.network import prepare_network
 from insar_agent.engines.isce3.rslc_metadata import describe_rslc_pair
 from insar_agent.engines.isce3.runner import build_workflow_command
+from insar_agent.engines.isce3.download import download_rslc_stack
 from insar_agent.engines.isce3.stack import prepare_stack
 from insar_agent.engines.isce3.validator import validate_runconfig
 
@@ -1740,6 +1741,65 @@ def insar_plot_baseline(
         "scene_csv": result["scene_csv"],
         "n_pairs": result["n_pairs"],
     }
+
+
+@mcp.tool()
+def insar_download_rslc(
+    urls: list[str],
+    bbox: list[float],
+    output_dir: str,
+    freq: str = "A",
+    margin: int = 20,
+    n_workers: int = 8,
+    chunk_rows: int = 256,
+    proxy: str | None = None,
+) -> dict:
+    """Download and bbox-crop NISAR RSLC files from NASA Earthdata (ASF).
+
+    Performs remote cropping via HDF5 byte-range requests — only the pixels
+    inside the bbox are downloaded, saving bandwidth and disk space.
+    By default downloads direct (no proxy). Pass proxy when direct access
+    is slow or blocked. Authentication uses ~/.netrc (urs.earthdata.nasa.gov).
+
+    Args:
+        urls:       List of remote .h5 RSLC URLs from ASF EarthData.
+        bbox:       [min_lon, min_lat, max_lon, max_lat] in decimal degrees.
+        output_dir: Local directory to write cropped files.
+        freq:       NISAR frequency band: 'A' (L-band) or 'B'.
+        margin:     Extra pixel margin around the bbox crop window (default 20).
+        n_workers:  Parallel download threads per file (default 8).
+        chunk_rows: Azimuth chunk size per thread (default 256).
+        proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
+                    If omitted, downloads direct without any proxy.
+
+    Returns:
+        {
+            "ok": [{"url": ..., "path": ..., "size_mb": ...}, ...],
+            "failed": [{"url": ..., "error": ...}, ...],
+            "output_dir": str,
+        }
+    """
+    if len(bbox) != 4:
+        return {"error": "invalid_input", "message": "bbox must be [min_lon, min_lat, max_lon, max_lat]"}
+
+    h5_urls = [u for u in urls if u.endswith(".h5") and "RSLC" in u]
+    if not h5_urls:
+        return {"error": "invalid_input", "message": "No RSLC .h5 URLs found in the provided list"}
+
+    messages: list[str] = []
+    result = download_rslc_stack(
+        urls=h5_urls,
+        bbox=(bbox[0], bbox[1], bbox[2], bbox[3]),
+        output_dir=output_dir,
+        freq=freq,
+        margin=margin,
+        n_workers=n_workers,
+        chunk_rows=chunk_rows,
+        on_progress=lambda msg: messages.append(msg),
+        proxy=proxy,
+    )
+    result["log"] = messages
+    return result
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────

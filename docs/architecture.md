@@ -22,14 +22,6 @@ Agent Client
 - Delegates all domain logic to `core` and `engines`
 - Carries no workflow-specific business logic beyond orchestration wiring
 
-For skill-aware clients, parameter optimization is a plugin contract, not an MCP
-contract. Workflow code routes into `skills/param-advisor-isce3/SKILL.md`, that
-skill collects local evidence with `insar_describe_rslc`, and then delegates
-recommendation generation to `.claude/agents/param-advisor-isce3.md`. The
-subagent may consult `.claude/agents/references/param-advisor-isce3.md` for
-advisory heuristics. MCP only enforces allowlists, validation, and factual
-execution.
-
 ### `insar_agent.core`
 
 - Protocol-agnostic project, config, session, and job persistence
@@ -51,9 +43,19 @@ execution.
 - Conda environment detection
 - Logging helpers
 
+## MCP Tool Design Principles
+
+MCP tool count directly affects agent decision depth — fewer, more semantic tools mean faster decisions and shorter task chains.
+
+1. **数量优先**：每个新能力首先问"能否扩展现有工具"，不能才增加新工具。
+2. **合并同概念操作**：同一概念的读/写/删不超过 2 个工具，能合并参数就不拆工具。
+3. **顺序必然的步骤合并**：如 validate → export → run 必然顺序执行，合并为一个工具，内部串联。
+4. **统一 Job 模型**：任何新 workflow 类型必须复用标准 `Job` dataclass 和 `project_id` 索引，禁止创建平行的状态追踪机制。
+5. **小而美**：工具语义清晰、职责单一；优先精简，非必要不新增；必要时可新增（有明确职责边界即合理）。
+
 ## MCP Surface
 
-See [mcp-tools.md](mcp-tools.md) for full signatures and payloads.
+See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for full signatures and payloads.
 
 ### Resources
 
@@ -66,8 +68,6 @@ See [mcp-tools.md](mcp-tools.md) for full signatures and payloads.
 - `process_insar_batch`
 
 ### Tools
-
-The active surface is 17 tools:
 
 - Discovery: `insar_discover`, `insar_get_project`
 - Config: `insar_create_project`, `insar_get_runconfig`,
@@ -118,87 +118,13 @@ visible diff-and-confirmation step for the user.
 
 ## Core Data Model
 
-### Project
+All domain objects are defined in `src/insar_agent/core/`.
 
-Represents one processing workspace and its current runconfig state.
-
-Persisted as:
-- `{workspace_root}/.insar_agent/project.json`
-
-Key fields:
-- `project_id`
-- `name`
-- `engine`
-- `workflow`
-- `runconfig`
-- `runconfig_template`
-- `workspace_root`
-- `conda_env`
-- `created_at`
-- `updated_at`
-
-### Job
-
-Represents one `insar_run_workflow` execution.
-
-Persisted as:
-- `{workspace_root}/.insar_agent/jobs/{job_id}.json`
-
-Key fields:
-- `job_id`
-- `project_id`
-- `engine`
-- `workflow`
-- `status`
-- `command`
-- `runconfig_path`
-- `log_path`
-- `exit_code_path`
-- `exit_code`
-- `output_paths`
-
-`insar_get_job` prefers the persisted exit-code sidecar when finalizing a job
-and only falls back to log heuristics when that sidecar is unavailable.
-
-### BatchJob
-
-Represents one asynchronous execution of a generated `run_parallel.sh` batch.
-
-Persisted as:
-- `{batch_dir}/.insar_agent/jobs/{job_id}.json`
-
-Key fields:
-- `job_id`
-- `batch_dir`
-- `batch_type`
-- `num_pairs`
-- `run_parallel_sh`
-- `max_jobs`
-- `status`
-- `pid`
-- `log_path`
-- `command`
-
-### WorkflowTemplate
-
-In-memory description of a supported engine workflow from
-`engines/isce3/defaults.py`.
-
-Key fields:
-- `engine`
-- `workflow`
-- `supports_gpu`
-- `description`
-
-### Artifact
-
-Derived output metadata returned by `insar_list_outputs`.
-
-Key fields:
-- `path`
-- `artifact_type`
-- `description`
-- `recommended_viewer`
+- **Project** — one processing workspace + runconfig state. Persisted at `{workspace_root}/.insar_agent/project.json`.
+- **Job** — one `insar_run_workflow` execution. Persisted at `{workspace_root}/.insar_agent/jobs/{job_id}.json`. `insar_get_job` uses an exit-code sidecar for finalization; falls back to log heuristics if unavailable.
+- **BatchJob** — one async `run_parallel.sh` execution. Persisted at `{batch_dir}/.insar_agent/jobs/{job_id}.json`.
+- **WorkflowTemplate** — in-memory description of a supported engine workflow (from `engines/isce3/defaults.py`).
+- **Artifact** — output metadata returned by `insar_list_outputs`.
 
 ## Workspace Layout
 
@@ -228,17 +154,3 @@ mintpy_work_dir/.jobs/{job_id}.json
 mintpy_work_dir/logs/{job_id}.log
 ```
 
-## Historical Sources
-
-Raw source materials that informed the current implementation are archived under
-`docs/archive/knowledge-base/`. They are useful for traceability, but the
-current source of truth is the live code in `src/`, the MCP contract in
-`docs/mcp-tools.md`, the workflow constraints in `docs/agent-guide.md`, and the
-active skill/agent assets in `skills/` and `.claude/agents/`.
-
-## Current Status
-
-- M0-M6 complete
-- M4c batch execution added through `insar_run_batch`
-- metadata-first parameter optimization flow is active
-- the current FastMCP surface has 17 active tools
