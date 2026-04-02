@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from insar_agent.engines.isce3.defaults import get_default_runconfig_template_path
 from insar_agent.engines.isce3.stack import (
     discover_scenes,
     extract_date,
@@ -241,6 +242,7 @@ def test_prepare_stack_generates_runconfigs(tmp_path):
     assert Path(result["manifest_csv"]).exists()
     assert len(result["runconfigs"]) == 1
     assert Path(result["runconfigs"][0]).exists()
+    assert result["base_runconfig_source"] == "user_provided"
 
 
 def test_prepare_stack_runconfig_contains_paths(tmp_path):
@@ -295,6 +297,24 @@ def test_prepare_stack_negative_baseline_error(tmp_path):
     with pytest.raises(ValueError, match="negative temporal baselines"):
         prepare_stack(data_dir=data_dir, base_runconfig=runconfig, dem=dem,
                       output_dir=tmp_path / "out", reference="20251204")
+
+
+def test_prepare_stack_uses_default_template_when_base_runconfig_omitted(tmp_path):
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    dem = make_dem(tmp_path)
+
+    result = prepare_stack(
+        data_dir=data_dir,
+        base_runconfig=None,
+        dem=dem,
+        output_dir=tmp_path / "stack",
+    )
+
+    assert result["base_runconfig_source"] == "default_template"
+    assert result["base_runconfig"] == str(get_default_runconfig_template_path("insar"))
 
 
 # ── prepare_network (library function) ────────────────────────────────────────
@@ -388,6 +408,24 @@ def test_prepare_network_custom_pair_list(tmp_path):
     assert result["network_label"] == "my_pairs"
 
 
+def test_prepare_network_uses_default_template_when_base_runconfig_omitted(tmp_path):
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    dem = make_dem(tmp_path)
+
+    result = prepare_network(
+        data_dir=data_dir,
+        base_runconfig=None,
+        dem=dem,
+        output_dir=tmp_path / "network",
+    )
+
+    assert result["base_runconfig_source"] == "default_template"
+    assert result["base_runconfig"] == str(get_default_runconfig_template_path("insar"))
+
+
 # ── MCP tool wrappers ─────────────────────────────────────────────────────────
 
 def test_mcp_insar_prepare_stack_success(tmp_path):
@@ -407,6 +445,13 @@ def test_mcp_insar_prepare_stack_success(tmp_path):
     assert "error" not in result
     assert result["num_pairs"] == 1
     assert result["reference_date"] == "20251122"
+    assert result["base_runconfig"] == str(runconfig.resolve())
+    assert result["base_runconfig_source"] == "user_provided"
+    assert result["interaction_mode"] == "interactive"
+    assert result["handoff_required"] is True
+    assert "reference" in result["handoff_reason"].lower()
+    assert any("stack_manifest.csv" in path for path in result["review_artifacts"])
+    assert "insar_run_batch" in result["next_recommended_action"]
 
 
 def test_mcp_insar_prepare_stack_bad_dem(tmp_path):
@@ -442,6 +487,88 @@ def test_mcp_insar_prepare_network_success(tmp_path):
     assert "error" not in result
     assert result["num_pairs"] == 1
     assert result["network_label"] == "pairs_tbase36d"
+    assert result["base_runconfig"] == str(runconfig.resolve())
+    assert result["base_runconfig_source"] == "user_provided"
+    assert result["interaction_mode"] == "interactive"
+    assert result["handoff_required"] is True
+    assert any("pairs_selected.txt" in path for path in result["review_artifacts"])
+    assert "insar_run_batch" in result["next_recommended_action"]
+
+
+def test_mcp_insar_prepare_stack_auto_mode_skips_handoff(tmp_path):
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    runconfig = make_fixture_runconfig(tmp_path)
+    dem = make_dem(tmp_path)
+
+    result = insar_prepare_stack(
+        data_dir=str(data_dir),
+        base_runconfig=str(runconfig),
+        dem=str(dem),
+        output_dir=str(tmp_path / "stack"),
+        interaction_mode="auto",
+    )
+
+    assert result["interaction_mode"] == "auto"
+    assert result["handoff_required"] is False
+
+
+def test_mcp_insar_prepare_stack_uses_default_template_when_omitted(tmp_path):
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    dem = make_dem(tmp_path)
+
+    result = insar_prepare_stack(
+        data_dir=str(data_dir),
+        dem=str(dem),
+        output_dir=str(tmp_path / "stack"),
+    )
+
+    assert "error" not in result
+    assert result["base_runconfig_source"] == "default_template"
+    assert result["base_runconfig"] == str(get_default_runconfig_template_path("insar"))
+
+
+def test_mcp_insar_prepare_network_auto_mode_skips_handoff(tmp_path):
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    runconfig = make_fixture_runconfig(tmp_path)
+    dem = make_dem(tmp_path)
+
+    result = insar_prepare_network(
+        data_dir=str(data_dir),
+        base_runconfig=str(runconfig),
+        dem=str(dem),
+        output_dir=str(tmp_path / "network"),
+        interaction_mode="auto",
+    )
+
+    assert result["interaction_mode"] == "auto"
+    assert result["handoff_required"] is False
+
+
+def test_mcp_insar_prepare_network_uses_default_template_when_omitted(tmp_path):
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    dem = make_dem(tmp_path)
+
+    result = insar_prepare_network(
+        data_dir=str(data_dir),
+        dem=str(dem),
+        output_dir=str(tmp_path / "network"),
+    )
+
+    assert "error" not in result
+    assert result["base_runconfig_source"] == "default_template"
+    assert result["base_runconfig"] == str(get_default_runconfig_template_path("insar"))
 
 
 def test_mcp_insar_prepare_network_conn_mode(tmp_path):
@@ -512,6 +639,8 @@ def _make_batch_dir(tmp_path: Path, n_pairs: int = 2) -> Path:
     (batch_dir / "runconfigs").mkdir(parents=True)
     run_parallel_sh = batch_dir / "run_parallel.sh"
     run_parallel_sh.write_text("#!/usr/bin/env bash\nexit 0\n")
+    run_all_sh = batch_dir / "run_all.sh"
+    run_all_sh.write_text("#!/usr/bin/env bash\nexit 0\n")
     for i in range(n_pairs):
         (batch_dir / "runconfigs" / f"pair_{i}.yaml").write_text("dummy: true\n")
     return batch_dir
@@ -529,12 +658,45 @@ def test_insar_run_batch_background_returns_job_id(tmp_path):
     assert "job_id" in result
     assert result["status"] == "running"
     assert result["pid"] == 99999
+    assert result["interaction_mode"] == "interactive"
+    assert result["execution_mode"] == "parallel"
     assert "log_path" in result
     assert "poll" in result
+    assert "command" in result
+    assert "progress_hint" in result
     assert "batch_dir" in result["poll"]
     # Job JSON persisted
     jobs_dir = batch_dir / ".insar_agent" / "jobs"
     assert any(jobs_dir.glob("*.json"))
+
+
+def test_insar_run_batch_serial_mode_uses_run_all_and_python_override(tmp_path):
+    import unittest.mock as mock
+
+    batch_dir = _make_batch_dir(tmp_path)
+    mock_proc = mock.MagicMock()
+    mock_proc.pid = 123
+
+    with mock.patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        result = insar_run_batch(
+            batch_dir=str(batch_dir),
+            execution_mode="serial",
+            python_bin="/opt/conda/bin/python",
+            interaction_mode="auto",
+        )
+
+    args, kwargs = mock_popen.call_args
+    assert args[0] == ["bash", str(batch_dir / "run_all.sh")]
+    assert kwargs["env"]["PYTHON_BIN"] == "/opt/conda/bin/python"
+    assert result["execution_mode"] == "serial"
+    assert result["interaction_mode"] == "auto"
+    assert result["command"] == f"bash {batch_dir / 'run_all.sh'}"
+
+
+def test_insar_run_batch_invalid_execution_mode(tmp_path):
+    batch_dir = _make_batch_dir(tmp_path)
+    result = insar_run_batch(batch_dir=str(batch_dir), execution_mode="bogus")
+    assert result["error"] == "invalid_input"
 
 
 def test_insar_run_batch_no_run_parallel_sh(tmp_path):

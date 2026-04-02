@@ -64,12 +64,18 @@ description: >
 3. 补齐高影响缺失信息
 4. 组最小 evidence profile，只保留：
    - `project_id`（若有）
+   - processing path / task type（例如单对 InSAR、Path B stack/network、MintPy 前置调参）
    - workflow / 当前目标摘要
    - runconfig 摘要
    - local metadata summary
    - evidence profile
    - missing information
    - whitelist-controlled parameter registry summary
+   - 若是时序任务，再补：
+     - `base_runconfig` 是否将传播到整条 stack/network
+     - stack 场景数 / 时间跨度 / 参考景策略
+     - network 模式（`tbase` / `conn` / 自定义 pair list）
+     - 用户当前更偏向“稳定 coherence”还是“单对分辨率/锐利度”
 
 ### Phase 2 — 调 subagent
 

@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from insar_agent.engines.isce3.defaults import get_default_runconfig_template_path
+
 
 DATE_RE = re.compile(r"_(\d{8})T\d{6}_")
 
@@ -51,6 +53,23 @@ def replace_scalar(text: str, key: str, value: str) -> str:
     if not pattern.search(text):
         raise ValueError(f"Key '{key}' not found in template runconfig")
     return pattern.sub(rf"\g<prefix>{value}", text, count=1)
+
+
+def ensure_logging_group(text: str) -> str:
+    """Inject a minimal logging group when the template omits one."""
+    if re.search(r"(?m)^\s*logging:\s*$", text):
+        return text
+    return re.sub(
+        r"(?m)^(?P<indent>\s*)groups:\s*$",
+        (
+            r"\g<indent>groups:\n"
+            r"\g<indent>    logging:\n"
+            r"\g<indent>        path:\n"
+            r"\g<indent>        write_mode: w"
+        ),
+        text,
+        count=1,
+    )
 
 
 def resolve_reference(reference_arg: str, scenes: list[Scene]) -> Scene:
@@ -103,7 +122,7 @@ def render_runconfig(
     qa_dir = pair_dir / "qa"
     log_path = pair_dir / "logs" / "insar_process.log"
 
-    rendered = template_text
+    rendered = ensure_logging_group(template_text)
     replacements = {
         "path": str(log_path.resolve()),
         "reference_rslc_file": str(reference_scene.path),
@@ -204,7 +223,8 @@ def write_parallel_runner(output_dir: Path) -> None:
 
 def prepare_stack(
     data_dir: str | Path,
-    base_runconfig: str | Path,
+    base_runconfig: str | Path | None = None,
+    *,
     dem: str | Path,
     output_dir: str | Path,
     reference: str = "auto",
@@ -213,7 +233,8 @@ def prepare_stack(
 
     Args:
         data_dir: Directory containing RSLC .h5 files.
-        base_runconfig: Template ISCE3 runconfig YAML path.
+        base_runconfig: Template ISCE3 runconfig YAML path. If omitted, use the
+            built-in default `insar` template.
         dem: DEM file path to inject into each runconfig.
         output_dir: Directory where runconfigs and runner scripts are written.
         reference: 'auto' (earliest date), a YYYYMMDD string, or an RSLC path.
@@ -227,7 +248,12 @@ def prepare_stack(
         ValueError: If reference selection or scene discovery fails.
     """
     data_dir = Path(data_dir)
-    base_runconfig = Path(base_runconfig)
+    base_runconfig_source = "default_template" if base_runconfig in (None, "") else "user_provided"
+    base_runconfig = (
+        get_default_runconfig_template_path("insar")
+        if base_runconfig_source == "default_template"
+        else Path(base_runconfig)
+    )
     dem_path = Path(dem)
     output_dir = Path(output_dir)
 
@@ -297,6 +323,8 @@ def prepare_stack(
     return {
         "reference_date": reference_scene.date,
         "num_pairs": len(generated_runconfigs),
+        "base_runconfig": str(base_runconfig.resolve()),
+        "base_runconfig_source": base_runconfig_source,
         "output_dir": str(output_dir.resolve()),
         "runconfigs": [str(p) for p in generated_runconfigs],
         "run_all_sh": str(output_dir / "run_all.sh"),

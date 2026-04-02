@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,7 @@ def download_dem(
     source: str = COPERNICUS_30,
     margin_deg: float = DEFAULT_DEM_MARGIN_DEG,
     on_progress: Any = None,
+    proxy: str | None = None,
 ) -> dict:
     if source != COPERNICUS_30:
         raise ValueError(f"Unsupported DEM source: {source!r}")
@@ -62,26 +64,42 @@ def download_dem(
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    proxy_keys = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")
+    old_proxy_env = {k: os.environ.get(k) for k in proxy_keys}
+    if proxy is not None:
+        for k in proxy_keys:
+            os.environ[k] = proxy
+        proxy_info = f"proxy override: {proxy}"
+    else:
+        proxy_info = "proxy: system settings"
+
     if on_progress:
         on_progress(
-            f"[dem] source={source} tiles={len(tile_urls)} bbox={expanded_bbox}"
+            f"[dem] source={source} tiles={len(tile_urls)} bbox={expanded_bbox} | {proxy_info}"
         )
 
-    gdal.UseExceptions()
-    dataset = gdal.Warp(
-        str(output),
-        gdal_sources,
-        options=gdal.WarpOptions(
-            format="GTiff",
-            outputBounds=expanded_bbox,
-            dstSRS="EPSG:4326",
-            creationOptions=["TILED=YES", "COMPRESS=LZW"],
-            multithread=True,
-        ),
-    )
-    if dataset is None:
-        raise RuntimeError(f"GDAL Warp returned no dataset for {output}")
-    dataset = None
+    try:
+        gdal.UseExceptions()
+        dataset = gdal.Warp(
+            str(output),
+            gdal_sources,
+            options=gdal.WarpOptions(
+                format="GTiff",
+                outputBounds=expanded_bbox,
+                dstSRS="EPSG:4326",
+                creationOptions=["TILED=YES", "COMPRESS=LZW"],
+                multithread=True,
+            ),
+        )
+        if dataset is None:
+            raise RuntimeError(f"GDAL Warp returned no dataset for {output}")
+        dataset = None
+    finally:
+        for k, v in old_proxy_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
     return {
         "output_path": str(output),

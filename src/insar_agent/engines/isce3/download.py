@@ -1,8 +1,8 @@
 """
 NISAR RSLC remote crop-download engine.
 
-Ported from nisar-test-download_v2.py (Shuai Wang, CUMT).
-Adds proxy bypass and structured return values for MCP integration.
+With thanks to Dr. Shuai Wang for the original contribution.
+Adds MCP-oriented structured return values and proxy override support.
 """
 from __future__ import annotations
 
@@ -471,9 +471,34 @@ def download_cropped_rslc(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+def _full_frame_info(h5f: h5py.File, freq: str) -> dict:
+    """Build a window-info dict that covers the full RSLC frame (no crop)."""
+    sw = SWATHS_PATH
+    geo = h5f["science/LSAR/RSLC/metadata/geolocationGrid"]
+    grid_zt = geo["zeroDopplerTime"][:]
+    grid_sr = geo["slantRange"][:]
+    lon_grid = geo["coordinateX"][1]
+    lat_grid = geo["coordinateY"][1]
+
+    for pol in POL_NAMES:
+        if f"{sw}/frequency{freq}/{pol}" in h5f:
+            n_az, n_rg = h5f[f"{sw}/frequency{freq}/{pol}"].shape
+            break
+    else:
+        raise RuntimeError(f"No polarization data found under frequency{freq}")
+
+    return {
+        "az_start": 0, "az_end": n_az,
+        "rg_start": 0, "rg_end": n_rg,
+        "n_az_orig": n_az, "n_rg_orig": n_rg,
+        "grid_zt": grid_zt, "grid_sr": grid_sr,
+        "lon_grid": lon_grid, "lat_grid": lat_grid,
+    }
+
+
 def download_rslc_stack(
     urls: list[str],
-    bbox: tuple[float, float, float, float],
+    bbox: tuple[float, float, float, float] | None,
     output_dir: str,
     freq: str = "A",
     margin: int = 20,
@@ -487,17 +512,18 @@ def download_rslc_stack(
 
     Args:
         urls:       List of remote .h5 URLs.
-        bbox:       (min_lon, min_lat, max_lon, max_lat) in degrees.
+        bbox:       (min_lon, min_lat, max_lon, max_lat) in degrees, or None
+                    to download the full frame without cropping.
         output_dir: Local directory to write cropped files.
         freq:       NISAR frequency band, 'A' or 'B'.
         margin:     Extra pixel margin around bbox crop window.
         n_workers:  Parallel download threads per file.
         chunk_rows: Row chunk size for parallel SLC download.
         on_progress: Optional callable(str) for progress messages.
-        proxy:      HTTP proxy URL, e.g. "http://10.0.0.1:7890". If None
-                    (default), any system proxy env vars are cleared so the
-                    download goes direct. Pass an explicit URL to route through
-                    a proxy when direct access is slow or blocked.
+        proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
+                    If None (default), the current system proxy env vars are
+                    left unchanged. Pass an explicit URL to apply a temporary
+                    proxy override for this download session only.
 
     Returns:
         {"ok": [...], "failed": [...], "output_dir": str}
@@ -511,12 +537,9 @@ def download_rslc_stack(
     if proxy is not None:
         for k in _proxy_keys:
             os.environ[k] = proxy
-        proxy_info = f"proxy: {proxy}"
+        proxy_info = f"proxy override: {proxy}"
     else:
-        # Default: clear system proxy so download goes direct
-        for k in _proxy_keys:
-            os.environ.pop(k, None)
-        proxy_info = "proxy: none (direct)"
+        proxy_info = "proxy: system settings"
     msg = f"[download] {len(urls)} files → {output_dir}  |  {proxy_info}  |  workers={n_workers}"
     print(msg, flush=True)
     if on_progress:
@@ -530,7 +553,10 @@ def download_rslc_stack(
         f_obj = h5f = None
         try:
             f_obj, h5f = _open_remote(url)
-            info = bbox_to_radar_window(h5f, bbox, freq=freq, margin=margin)
+            if bbox is None:
+                info = _full_frame_info(h5f, freq)
+            else:
+                info = bbox_to_radar_window(h5f, bbox, freq=freq, margin=margin)
 
             n_az_c = info["az_end"] - info["az_start"]
             n_rg_c = info["rg_end"] - info["rg_start"]

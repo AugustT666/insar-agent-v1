@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from insar_agent.engines.isce3.defaults import get_default_runconfig_template_path
 from insar_agent.engines.isce3.stack import (
     Scene,
     discover_scenes,
@@ -164,7 +165,8 @@ def write_network_metadata(
 
 def prepare_network(
     data_dir: str | Path,
-    base_runconfig: str | Path,
+    base_runconfig: str | Path | None = None,
+    *,
     dem: str | Path,
     output_dir: str | Path,
     network_mode: str = DEFAULT_NETWORK_MODE,
@@ -176,7 +178,8 @@ def prepare_network(
 
     Args:
         data_dir: Directory containing RSLC .h5 files.
-        base_runconfig: Template ISCE3 runconfig YAML path.
+        base_runconfig: Template ISCE3 runconfig YAML path. If omitted, use the
+            built-in default `insar` template.
         dem: DEM file path to inject into each runconfig.
         output_dir: Directory where runconfigs and runner scripts are written.
         network_mode: 'tbase' (temporal baseline threshold) or 'conn' (fixed neighbors).
@@ -194,7 +197,12 @@ def prepare_network(
         ValueError: If network configuration or pair resolution fails.
     """
     data_dir = Path(data_dir)
-    base_runconfig = Path(base_runconfig)
+    base_runconfig_source = "default_template" if base_runconfig in (None, "") else "user_provided"
+    base_runconfig = (
+        get_default_runconfig_template_path("insar")
+        if base_runconfig_source == "default_template"
+        else Path(base_runconfig)
+    )
     dem_path = Path(dem)
     output_dir = Path(output_dir)
     pair_list_path = Path(pair_list) if pair_list else None
@@ -280,6 +288,8 @@ def prepare_network(
 
     return {
         "num_pairs": len(generated_runconfigs),
+        "base_runconfig": str(base_runconfig.resolve()),
+        "base_runconfig_source": base_runconfig_source,
         "output_dir": str(output_dir.resolve()),
         "runconfigs": [str(p) for p in generated_runconfigs],
         "run_all_sh": str(output_dir / "run_all.sh"),

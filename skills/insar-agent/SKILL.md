@@ -22,6 +22,19 @@ description: >
 - The metadata-first entry point for parameter advice remains `insar_describe_rslc`; automatic external search is allowed only when local evidence is insufficient.
 - Do not invent workflow parameters when reference material is incomplete. Ask the user.
 
+## Session bootstrap
+
+Before routing into any execution skill, confirm the cross-cutting runtime facts once per session:
+
+- Which conda env should be used for ISCE3 execution (`isce3` / `isce3gpu` / project-specific name)
+- Whether the chosen ISCE3 env can actually run `nisar.workflows.insar`
+- Which conda env should be used for MintPy, and whether it is the same env as ISCE3
+- Whether the user already has an approved base runconfig template path for this session
+
+If the user only wants documentation or workflow review, you can defer these questions.
+If the user wants to actually process data, ask them here before routing into `d-insar-isce3`,
+`stack-insar-isce3`, or `mintpy-isce3`.
+
 ## Skill routing
 
 Select the skill that matches the user's task and invoke it:
@@ -37,6 +50,11 @@ Select the skill that matches the user's task and invoke it:
 
 If the task spans multiple rows (e.g., data is missing AND a single pair needs processing),
 invoke `data-prep-nisar` first, then `D-InSAR-isce3`.
+
+Routing rule for runtime context:
+
+- `insar-agent` owns session-level execution context such as conda env choice
+- Workflow skills own workflow-local inputs such as DEM path, output dir, pair strategy, and MintPy config
 
 ## Constraint hierarchy
 

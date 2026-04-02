@@ -47,6 +47,16 @@ Defaults: `11 / 11`
 - Desert / dry bare land: defaults often remain acceptable
 - Time-series / MintPy-oriented processing: prefer coherence-preserving defaults or slightly larger looks
 
+## Time-series / Path B Guidance
+
+When a single tuned `base_runconfig` will be propagated to many stack or network pairs:
+
+- Prefer conservative changes over aggressive single-pair optimization
+- Prioritize stable coherence and unwrap robustness across the stack
+- Treat weak-evidence tuning as a reason to keep defaults
+- Ask the main agent to preserve user control if pair/network design may still change
+- Only recommend sharper / lower-look settings when the evidence strongly supports that tradeoff
+
 ### Interferogram Filtering: `filter_interferogram.filter_type`
 
 Default: `no_filter`

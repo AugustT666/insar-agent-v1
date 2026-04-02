@@ -5,6 +5,8 @@ import json
 import os
 import shlex
 import subprocess
+import sys
+import uuid
 from datetime import datetime, UTC
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS,
     REQUIRED_PATH_FIELDS,
+    get_default_runconfig_template_path,
     get_processing_param_keys,
     load_default_runconfig,
     load_processing_params,
@@ -31,7 +34,6 @@ from insar_agent.engines.isce3.mintpy import get_mintpy_status, run_mintpy
 from insar_agent.engines.isce3.network import prepare_network
 from insar_agent.engines.isce3.rslc_metadata import describe_rslc_pair
 from insar_agent.engines.isce3.runner import build_workflow_command
-from insar_agent.engines.isce3.download import download_rslc_stack
 from insar_agent.engines.isce3.stack import prepare_stack
 from insar_agent.engines.isce3.validator import validate_runconfig
 
@@ -187,7 +189,7 @@ def process_insar_batch(
     Covers insar_prepare_stack and insar_prepare_network (wangshuai two-layer workflow).
     """
     dd = data_dir or "/path/to/rslc_dir"
-    rc = base_runconfig or "/path/to/insar_nisar.yaml"
+    rc = base_runconfig or str(get_default_runconfig_template_path("insar"))
     dm = dem or "/path/to/dem.tif"
     out = output_dir or "/path/to/work"
 
@@ -196,10 +198,13 @@ Prepare a batch ISCE3 interferogram network for MintPy time-series analysis.
 This is a two-layer workflow; the MCP tools generate runconfigs and runner scripts.
 Execution can either be started through insar_run_batch or by running the generated
 shell script manually from the terminal.
+Default to interaction_mode="interactive" and tell advanced users they can switch
+to interaction_mode="auto" for minimal interruptions.
 
 ## Inputs
 - RSLC directory  : {dd}
 - Template config : {rc}
+  Omit base_runconfig to use the built-in default `insar` template.
 - DEM             : {dm}
 - Work directory  : {out}
 - Network mode    : {network_mode}  (tbase = temporal baseline threshold, conn = fixed neighbors)
@@ -225,11 +230,13 @@ Call:
       base_runconfig="{rc}",
       dem="{dm}",
       output_dir="{out}/isce3_stack",
-      reference="auto"   # uses earliest acquisition date
+      reference="auto",   # uses earliest acquisition date
+      interaction_mode="interactive"
   )
 
 Then either:
-  insar_run_batch(batch_dir="{out}/isce3_stack", max_jobs=<num_parallel_jobs>)
+  insar_run_batch(batch_dir="{out}/isce3_stack", max_jobs=<num_parallel_jobs>,
+                  execution_mode="parallel", interaction_mode="interactive")
 
 Or execute in terminal:
   bash {out}/isce3_stack/run_parallel.sh {out}/isce3_stack <num_parallel_jobs>
@@ -246,11 +253,13 @@ Call:
       dem="{dm}",
       output_dir="{out}/isce3_network",
       network_mode="{network_mode}",
-      max_temporal_baseline_days={max_temporal_baseline_days}
+      max_temporal_baseline_days={max_temporal_baseline_days},
+      interaction_mode="interactive"
   )
 
 Then either:
-  insar_run_batch(batch_dir="{out}/isce3_network", max_jobs=<num_parallel_jobs>)
+  insar_run_batch(batch_dir="{out}/isce3_network", max_jobs=<num_parallel_jobs>,
+                  execution_mode="parallel", interaction_mode="interactive")
 
 Or execute in terminal:
   bash {out}/isce3_network/run_parallel.sh {out}/isce3_network <num_parallel_jobs>
@@ -263,12 +272,14 @@ When using insar_run_batch, poll with:
 insar_prepare_stack →
   {out}/isce3_stack/runconfigs/         one YAML per secondary scene
   {out}/isce3_stack/run_parallel.sh     parallel batch runner
+  {out}/isce3_stack/run_all.sh          serial batch runner
   {out}/isce3_stack/stack_manifest.csv  reference/secondary/runconfig index
   {out}/isce3_stack/reference_date.txt  selected reference date
 
 insar_prepare_network →
   {out}/isce3_network/runconfigs/                    one YAML per pair
   {out}/isce3_network/run_parallel.sh               parallel batch runner
+  {out}/isce3_network/run_all.sh                    serial batch runner
   {out}/isce3_network/pair_lists/pairs_selected.txt  pair list
   {out}/isce3_network/stack_manifest.csv
 
@@ -277,6 +288,8 @@ The GUNW products land in:
   {out}/isce3_network/runs/<date1>_<date2>/products/*.h5
 
 These are the inputs for MintPy time-series analysis via insar_run_mintpy.
+In interactive mode, stop at prepare/baseline checkpoints whenever the tool
+returns handoff_required=true so the user can review intermediate products.
 
 ## Constraints reminder
 - reference="auto" selects the earliest acquisition to avoid negative temporal baselines
@@ -311,6 +324,31 @@ def _read_exit_code(exit_code_path: str | None) -> int | None:
         return int(Path(exit_code_path).read_text().strip())
     except Exception:
         return None
+
+
+def _normalize_interaction_mode(interaction_mode: str) -> str:
+    mode = (interaction_mode or "interactive").strip().lower()
+    if mode not in {"interactive", "auto"}:
+        raise ValueError(
+            f"Unsupported interaction_mode: {interaction_mode!r}. Use 'interactive' or 'auto'."
+        )
+    return mode
+
+
+def _prepare_handoff(
+    *,
+    interaction_mode: str,
+    handoff_reason: str,
+    review_artifacts: list[str],
+    next_recommended_action: str,
+) -> dict[str, object]:
+    return {
+        "interaction_mode": interaction_mode,
+        "handoff_required": interaction_mode == "interactive",
+        "handoff_reason": handoff_reason,
+        "review_artifacts": review_artifacts,
+        "next_recommended_action": next_recommended_action,
+    }
 
 
 def _finalize_job_status_from_artifacts(job: Job, jobs_dir: Path) -> None:
@@ -1332,10 +1370,12 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
 @mcp.tool()
 def insar_prepare_stack(
     data_dir: str,
-    base_runconfig: str,
+    base_runconfig: str = "",
+    *,
     dem: str,
     output_dir: str,
     reference: str = "auto",
+    interaction_mode: str = "interactive",
 ) -> dict:
     """
     Generate single-reference ISCE3 stack runconfigs from a directory of RSLC files.
@@ -1346,21 +1386,41 @@ def insar_prepare_stack(
 
     Args:
         data_dir: Directory containing RSLC .h5 files (all are used).
-        base_runconfig: Path to a template ISCE3 runconfig YAML (e.g. tests/fixtures/insar_nisar.yaml).
+        base_runconfig: Optional path to a template ISCE3 runconfig YAML.
+            When omitted, use the built-in default `insar` template.
         dem: Path to the DEM file to inject into each runconfig.
         output_dir: Directory where runconfigs and runner scripts will be written.
         reference: Reference scene selector — 'auto' (earliest date), a YYYYMMDD
                    string, or an absolute RSLC file path.
     """
     try:
+        interaction_mode = _normalize_interaction_mode(interaction_mode)
         result = prepare_stack(
             data_dir=data_dir,
-            base_runconfig=base_runconfig,
+            base_runconfig=base_runconfig or None,
             dem=dem,
             output_dir=output_dir,
             reference=reference,
         )
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
+        result.update(
+            _prepare_handoff(
+                interaction_mode=interaction_mode,
+                handoff_reason=(
+                    "Review the selected reference scene and generated stack manifest before "
+                    "launching stack execution."
+                ),
+                review_artifacts=[
+                    result["manifest_csv"],
+                    result["run_parallel_sh"],
+                    str(Path(result["output_dir"]) / "reference_date.txt"),
+                ],
+                next_recommended_action=(
+                    f"insar_run_batch(batch_dir='{result['output_dir']}', max_jobs=<N>, "
+                    f"interaction_mode='{interaction_mode}')"
+                ),
+            )
+        )
         return result
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
@@ -1371,13 +1431,15 @@ def insar_prepare_stack(
 @mcp.tool()
 def insar_prepare_network(
     data_dir: str,
-    base_runconfig: str,
+    base_runconfig: str = "",
+    *,
     dem: str,
     output_dir: str,
     network_mode: str = "tbase",
     max_temporal_baseline_days: int = 36,
     connection_span: int = 3,
     pair_list: str = "",
+    interaction_mode: str = "interactive",
 ) -> dict:
     """
     Generate ISCE3 runconfigs for an interferogram network from a directory of RSLC files.
@@ -1389,7 +1451,8 @@ def insar_prepare_network(
 
     Args:
         data_dir: Directory containing RSLC .h5 files.
-        base_runconfig: Path to a template ISCE3 runconfig YAML.
+        base_runconfig: Optional path to a template ISCE3 runconfig YAML.
+            When omitted, use the built-in default `insar` template.
         dem: Path to the DEM file.
         output_dir: Directory where runconfigs and runner scripts will be written.
         network_mode: 'tbase' — connect pairs within a temporal baseline threshold
@@ -1401,9 +1464,10 @@ def insar_prepare_network(
                    line. When provided, network_mode/span/threshold are ignored.
     """
     try:
+        interaction_mode = _normalize_interaction_mode(interaction_mode)
         result = prepare_network(
             data_dir=data_dir,
-            base_runconfig=base_runconfig,
+            base_runconfig=base_runconfig or None,
             dem=dem,
             output_dir=output_dir,
             network_mode=network_mode,
@@ -1413,6 +1477,24 @@ def insar_prepare_network(
         )
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         result["gunw_pattern"] = f"{result['output_dir']}/runs/*/products/*.h5"
+        result.update(
+            _prepare_handoff(
+                interaction_mode=interaction_mode,
+                handoff_reason=(
+                    "Review the selected interferogram network and pair list before launching "
+                    "network execution."
+                ),
+                review_artifacts=[
+                    result["pairs_selected_txt"],
+                    result["manifest_csv"],
+                    result["run_parallel_sh"],
+                ],
+                next_recommended_action=(
+                    f"insar_run_batch(batch_dir='{result['output_dir']}', max_jobs=<N>, "
+                    f"interaction_mode='{interaction_mode}')"
+                ),
+            )
+        )
         return result
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
@@ -1424,6 +1506,9 @@ def insar_prepare_network(
 def insar_run_batch(
     batch_dir: str,
     max_jobs: int = 4,
+    execution_mode: str = "parallel",
+    python_bin: str | None = None,
+    interaction_mode: str = "interactive",
 ) -> dict:
     """
     Execute a prepared stack or network batch by running its run_parallel.sh script.
@@ -1445,11 +1530,24 @@ def insar_run_batch(
     import glob as _glob
     import subprocess
 
-    run_parallel_sh = Path(batch_dir) / "run_parallel.sh"
-    if not run_parallel_sh.exists():
+    try:
+        interaction_mode = _normalize_interaction_mode(interaction_mode)
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+
+    execution_mode = (execution_mode or "parallel").strip().lower()
+    if execution_mode not in {"parallel", "serial"}:
+        return {
+            "error": "invalid_input",
+            "message": f"Unsupported execution_mode: {execution_mode!r}. Use 'parallel' or 'serial'.",
+        }
+
+    runner_name = "run_parallel.sh" if execution_mode == "parallel" else "run_all.sh"
+    runner_path = Path(batch_dir) / runner_name
+    if not runner_path.exists():
         return {
             "error": "not_prepared",
-            "message": f"run_parallel.sh not found in {batch_dir!r}. "
+            "message": f"{runner_name} not found in {batch_dir!r}. "
                        "Call insar_prepare_stack or insar_prepare_network first.",
         }
 
@@ -1467,7 +1565,10 @@ def insar_run_batch(
     else:
         batch_type = "stack"
 
-    command = ["bash", str(run_parallel_sh), batch_dir, str(max_jobs)]
+    if execution_mode == "parallel":
+        command = ["bash", str(runner_path), batch_dir, str(max_jobs)]
+    else:
+        command = ["bash", str(runner_path)]
 
     logs_dir = Path(batch_dir) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -1476,7 +1577,7 @@ def insar_run_batch(
         batch_dir=batch_dir,
         batch_type=batch_type,
         num_pairs=num_pairs,
-        run_parallel_sh=str(run_parallel_sh),
+        run_parallel_sh=str(runner_path),
         max_jobs=max_jobs,
         command=command,
     )
@@ -1486,11 +1587,15 @@ def insar_run_batch(
     batch_job.status = "running"
 
     try:
+        env = os.environ.copy()
+        if python_bin:
+            env["PYTHON_BIN"] = python_bin
         with open(log_path, "w") as log_file:
             proc = subprocess.Popen(
                 command,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                env=env,
             )
         batch_job.pid = proc.pid
         batch_job.save()
@@ -1508,7 +1613,14 @@ def insar_run_batch(
         "num_pairs": num_pairs,
         "pid": proc.pid,
         "status": "running",
+        "interaction_mode": interaction_mode,
+        "execution_mode": execution_mode,
         "log_path": log_path,
+        "command": shlex.join(command),
+        "progress_hint": (
+            f"Monitor with tail -f {log_path} and poll via "
+            f'insar_get_job(job_id="{batch_job.job_id}", batch_dir="{batch_dir}")'
+        ),
         "poll": f'insar_get_job(job_id="{batch_job.job_id}", batch_dir="{batch_dir}")',
     }
 
@@ -1664,6 +1776,9 @@ def insar_run_mintpy(
     mintpy_config: str,
     dem_path: str,
     conda_env: str,
+    python_bin: str | None = None,
+    smallbaseline_bin: str | None = None,
+    interaction_mode: str = "interactive",
 ) -> dict:
     """Launch MintPy time-series processing asynchronously.
 
@@ -1678,6 +1793,11 @@ def insar_run_mintpy(
         dem_path:        Path to the DEM GeoTIFF used during preprocessing.
         conda_env:       Conda environment that contains MintPy and GDAL.
     """
+    try:
+        interaction_mode = _normalize_interaction_mode(interaction_mode)
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+
     if not gunw_glob.strip():
         return {"error": "invalid_input", "message": "gunw_glob must not be empty"}
 
@@ -1695,6 +1815,8 @@ def insar_run_mintpy(
             mintpy_config=mintpy_config,
             dem_path=dem_path,
             conda_env=conda_env,
+            python_bin=python_bin,
+            smallbaseline_bin=smallbaseline_bin,
         )
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
@@ -1706,8 +1828,14 @@ def insar_run_mintpy(
         "job_id": job_id,
         "pid": result["pid"],
         "status": result["status"],
+        "interaction_mode": interaction_mode,
         "log_path": result["log_path"],
         "submitted_at": result["submitted_at"],
+        "command": shlex.join(result.get("command", [])) if result.get("command") else "",
+        "progress_hint": (
+            f"Monitor with tail -f {result['log_path']} and poll via "
+            f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')"
+        ),
         "poll": f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')",
         "work_dir": mintpy_work_dir,
     }
@@ -1723,6 +1851,7 @@ def insar_plot_baseline(
     network_dir: str,
     pair_list: str = "",
     title: str = "ISCE3 Spatiotemporal Baseline Network",
+    interaction_mode: str = "interactive",
 ) -> dict:
     """Generate a spatiotemporal baseline network plot and CSV files.
 
@@ -1735,6 +1864,11 @@ def insar_plot_baseline(
                      Leave empty to use pair_lists/pairs_selected.txt.
         title:       Figure title.
     """
+    try:
+        interaction_mode = _normalize_interaction_mode(interaction_mode)
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+
     if not Path(network_dir).exists():
         return {
             "error": "path_not_found",
@@ -1761,13 +1895,32 @@ def insar_plot_baseline(
     except Exception as exc:
         return {"error": "plot_failed", "message": str(exc)}
 
-    return {
+    response = {
         "png_path": result["png_path"],
         "pdf_path": result["pdf_path"],
         "pair_csv": result["pair_csv"],
         "scene_csv": result["scene_csv"],
         "n_pairs": result["n_pairs"],
     }
+    response.update(
+        _prepare_handoff(
+            interaction_mode=interaction_mode,
+            handoff_reason=(
+                "Review the baseline plot and CSV summaries before proceeding to MintPy. "
+                "If pair selection needs adjustment, return to network preparation."
+            ),
+            review_artifacts=[
+                result["png_path"],
+                result["pdf_path"],
+                result["pair_csv"],
+                result["scene_csv"],
+            ],
+            next_recommended_action=(
+                "If accepted, call insar_run_mintpy(...) with the same interaction_mode."
+            ),
+        )
+    )
+    return response
 
 
 @mcp.tool()
@@ -1781,13 +1934,15 @@ def insar_download_rslc(
     n_workers: int = 8,
     chunk_rows: int = 256,
     proxy: str | None = None,
+    confirm: bool = False,
 ) -> dict:
     """Download and bbox-crop NISAR RSLC files from NASA Earthdata (ASF).
 
     Performs remote cropping via HDF5 byte-range requests — only the pixels
     inside the bbox are downloaded, saving bandwidth and disk space.
-    By default downloads direct (no proxy). Pass proxy when direct access
-    is slow or blocked. Authentication uses ~/.netrc (urs.earthdata.nasa.gov).
+    By default the download process inherits the current system proxy settings.
+    Pass proxy when you want a temporary override for the download process only.
+    Authentication uses ~/.netrc (urs.earthdata.nasa.gov).
 
     Args:
         urls:       List of remote .h5 RSLC URLs from ASF EarthData.
@@ -1799,7 +1954,11 @@ def insar_download_rslc(
         n_workers:  Parallel download threads per file (default 8).
         chunk_rows: Azimuth chunk size per thread (default 256).
         proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
-                    If omitted, downloads direct without any proxy.
+                    If omitted, the download process inherits current system
+                    proxy settings. If provided, it is applied only to this
+                    download process.
+        confirm:    Set to True to proceed with a full-frame download when
+                    neither bbox nor aoi_path is provided. Default False.
 
     Returns:
         {
@@ -1808,33 +1967,95 @@ def insar_download_rslc(
             "output_dir": str,
         }
     """
-    try:
-        resolved_bbox = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
-    except FileNotFoundError as exc:
-        return {"error": "path_not_found", "message": str(exc)}
-    except ValueError as exc:
-        return {"error": "invalid_input", "message": str(exc)}
-    except Exception as exc:
-        return {"error": "bbox_failed", "message": str(exc)}
+    full_frame = bbox is None and not aoi_path.strip()
+    if full_frame and not confirm:
+        return {
+            "status": "confirmation_required",
+            "message": (
+                "No AOI or bbox provided — this will download the full frame "
+                "for each scene (potentially 10+ GB per file). "
+                "Pass confirm=True to proceed."
+            ),
+            "hint": "insar_download_rslc(..., confirm=True)",
+        }
+
+    resolved_bbox: tuple[float, float, float, float] | None
+    if full_frame:
+        resolved_bbox = None
+    else:
+        try:
+            resolved_bbox = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
+        except FileNotFoundError as exc:
+            return {"error": "path_not_found", "message": str(exc)}
+        except ValueError as exc:
+            return {"error": "invalid_input", "message": str(exc)}
+        except Exception as exc:
+            return {"error": "bbox_failed", "message": str(exc)}
 
     h5_urls = [u for u in urls if u.endswith(".h5") and "RSLC" in u]
     if not h5_urls:
         return {"error": "invalid_input", "message": "No RSLC .h5 URLs found in the provided list"}
 
-    messages: list[str] = []
-    result = download_rslc_stack(
-        urls=h5_urls,
-        bbox=resolved_bbox,
-        output_dir=output_dir,
-        freq=freq,
-        margin=margin,
-        n_workers=n_workers,
-        chunk_rows=chunk_rows,
-        on_progress=lambda msg: messages.append(msg),
-        proxy=proxy,
-    )
-    result["log"] = messages
-    return result
+    job_id = uuid.uuid4().hex[:12]
+    log_dir = Path(output_dir) / ".insar_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = str(log_dir / f"download_{job_id}.log")
+    params_file = str(log_dir / f"download_{job_id}_params.json")
+    runner_file = str(log_dir / f"download_{job_id}_run.py")
+
+    params = {
+        "urls": h5_urls,
+        "bbox": list(resolved_bbox) if resolved_bbox is not None else None,
+        "output_dir": output_dir,
+        "freq": freq,
+        "margin": margin,
+        "n_workers": n_workers,
+        "chunk_rows": chunk_rows,
+        "proxy": proxy,
+    }
+    with open(params_file, "w") as f:
+        json.dump(params, f)
+
+    src_dir = str(Path(__file__).resolve().parent.parent.parent)
+    runner_script = f"""\
+import sys, json, traceback
+sys.path.insert(0, {repr(src_dir)})
+from insar_agent.engines.isce3.download import download_rslc_stack
+
+with open({repr(params_file)}) as _f:
+    _p = json.load(_f)
+if _p["bbox"] is not None:
+    _p["bbox"] = tuple(_p["bbox"])
+_p["on_progress"] = lambda msg: (print(msg, flush=True))
+
+try:
+    _result = download_rslc_stack(**_p)
+    print(json.dumps({{"status": "done", "result": _result}}), flush=True)
+except Exception as _e:
+    print(json.dumps({{"status": "failed", "error": str(_e), "traceback": traceback.format_exc()}}), flush=True)
+"""
+    with open(runner_file, "w") as f:
+        f.write(runner_script)
+
+    try:
+        with open(log_path, "w") as log_file:
+            proc = subprocess.Popen(
+                [sys.executable, runner_file],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+            )
+    except Exception as exc:
+        return {"error": "launch_failed", "message": str(exc)}
+
+    return {
+        "job_id": job_id,
+        "status": "running",
+        "pid": proc.pid,
+        "n_files": len(h5_urls),
+        "output_dir": output_dir,
+        "log_path": log_path,
+        "poll": f"tail -f {log_path}",
+    }
 
 
 @mcp.tool()
@@ -1844,6 +2065,7 @@ def insar_download_dem(
     aoi_path: str = "",
     source: str = "copernicus_30",
     margin_deg: float = 0.1,
+    proxy: str | None = None,
 ) -> dict:
     """Download a DEM covering the given bbox or AOI file."""
     try:
@@ -1863,6 +2085,7 @@ def insar_download_dem(
             source=source,
             margin_deg=margin_deg,
             on_progress=lambda msg: messages.append(msg),
+            proxy=proxy,
         )
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}

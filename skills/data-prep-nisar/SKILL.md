@@ -10,12 +10,17 @@ description: >
 
 # Data Preparation: NISAR RSLC + DEM
 
-## Required confirmations (ask only if missing)
+## First check what the user already provided
 
-- RSLC download URL list
-- Research area input: AOI file path or explicit bbox
-- Output directory for downloaded RSLC data
-- DEM output path if DEM should be created
+Relevant files and links are user-provided by default. When something is missing, ask the user for it or help the user obtain it before continuing.
+
+- **RSLC URL list** — `.h5` URLs from ASF Vertex
+- **Study area** — AOI file path (`.shp`, `.geojson`, `.kml`) or explicit `[min_lon, min_lat, max_lon, max_lat]`
+- **Output directory** — where to write downloaded RSLC files
+- **ASF / Earthdata credentials** — username and password, or confirmation that `~/.netrc` is already configured
+- **Proxy** — ask whether the current system proxy settings are sufficient; if not, get a temporary proxy URL for this download process (e.g. `http://10.x.x.x:7897`)
+- **n_workers** — default is `8`; recommend a value on the spot based on the user's current server resources
+- **DEM output path** — only if DEM should be created
 
 ## Hard constraints
 
@@ -32,14 +37,32 @@ See `references/rslc-download.md` for full details, AOI usage, pitfalls, and pro
 
 #### Step A1 — Prepare inputs
 
+- First confirm which required files, links, and credentials the user has already provided.
+- If RSLC URLs, AOI/bbox, or auth info are missing, ask the user to provide them or help the user obtain them.
 - The user must provide the RSLC `.h5` download URL list.
 - The user must also provide either:
-  - an AOI file path (`.shp`, `.geojson`, `.kml`), or
+  - an AOI file path (`.shp`, `.geojson`, `.kml`), **preferred** — pass as `aoi_path`, or
   - an explicit bbox `[min_lon, min_lat, max_lon, max_lat]`.
-
+- Before download, confirm ASF / Earthdata auth is available. If `~/.netrc` is not ready, ask the user for username and password and help them write:
+  ```
+  machine urs.earthdata.nasa.gov login <earthdata_user> password <earthdata_pass>
+  ```
 - Pass only `.h5` file URLs to the tool; non-RSLC URLs (`_QA_`, `.png`, `.pdf`, `.xml`, `.kml`) are filtered out but including them adds noise.
 
-#### Step A2 — Run RSLC download
+#### Step A1.5 — Server info check and worker advisory
+
+Before calling `insar_download_rslc`, run the following and present the results to the user:
+
+```bash
+nproc
+free -h | head -2
+df -h <output_dir>
+```
+
+Then recommend `n_workers` based on the live server configuration, available disk, and current network situation.
+Keep `8` as the default when there is no clear reason to change it.
+
+#### Step A2 — Run RSLC download (non-blocking)
 
 ```python
 insar_download_rslc(
@@ -47,12 +70,22 @@ insar_download_rslc(
     output_dir="/path/to/output",
     aoi_path="/path/to/study_area.shp",  # or bbox=[...]
     freq="A",                            # L-band
-    proxy=None,                          # default: direct; set if direct is slow
+    n_workers=8,                         # default; adjust from live server check if needed
+    proxy=None,                          # inherit system proxy settings; set only for a temporary download-only override
 )
 ```
 
+The tool returns immediately with `{job_id, log_path, status: "running"}`.
+After launch, report the log path and show the user how to monitor:
+
+```
+tail -f <log_path>
+```
+
+Do **not** wait or poll — proceed to Part B in parallel.
+
 Prerequisites (install once): `pip install fsspec`
-Auth: `~/.netrc` must contain `machine urs.earthdata.nasa.gov login <user> password <pass>`
+Auth: confirm the user has ASF / Earthdata credentials available, then ensure `~/.netrc` contains `machine urs.earthdata.nasa.gov login <user> password <pass>`
 
 Expected output filename: `NISAR_L1_PR_RSLC_<cycle>_<track>_…_cropped.h5`
 

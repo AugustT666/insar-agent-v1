@@ -1,112 +1,112 @@
-# MCP Tools Reference
+# MCP 工具参考
 
-This document is the primary implementation reference for all MCP tools, resources, and prompts exposed by `insar-mcp-server`.
+本文档是 `insar-mcp-server` 暴露的全部 MCP 工具、资源与 prompts 的主要实现参考。
 
-For system context and data object definitions see [architecture.md](architecture.md).
+系统上下文与数据对象定义请见 [architecture.md](architecture.md)。
 
 ---
 
-## Resources
+## 资源
 
-Resources are read-only documents the AI client fetches to understand constraints and workflow before calling any tool.
+Resources 是只读文档，AI 客户端会在调用任何工具前先获取这些资源，以理解约束和工作流。
 
 ---
 
 ### `insar://workflow-guide`
 
-Complete workflow guide — hard constraints, step-by-step instructions for both processing paths, allowed/forbidden field rules, and error reference.
+完整工作流指南，包含硬约束、两条处理路径的分步说明、允许/禁止字段规则以及错误参考。
 
-**Returns:** Plain text. Contains:
-- Hard constraints (no core parameter modification, official workflows only)
-- Path A: mandatory step order for single-pair RSLC → GUNW processing
-- Path B: batch stack + interferogram network preparation
-- Required and optional settable fields for each workflow
-- Error code reference
+**返回：** 纯文本。内容包括：
+- 硬约束（不得修改核心参数，只允许官方工作流）
+- 路径 A：单对 RSLC → GUNW 处理的强制步骤顺序
+- 路径 B：批处理 stack + 干涉图网络准备
+- 各工作流允许设置的必填字段和可选字段
+- 错误代码参考
 
-**Implementation:** `mcp/server.py::get_workflow_guide`
+**实现位置：** `mcp/server.py::get_workflow_guide`
 
 ---
 
 ### `insar://allowed-fields/{workflow}`
 
-Dynamic list of fields that may be set via `insar_set_runconfig_value` for the given workflow.
+给定工作流下，可通过 `insar_set_runconfig_value` 设置的字段动态列表。
 
-**URI parameter:** `workflow` — e.g. `insar`, `gslc`
+**URI 参数：** `workflow`，例如 `insar`、`gslc`
 
-**Returns:** Plain text with Required and Optional sections. Error message for unknown workflows.
+**返回：** 包含 Required 和 Optional 两部分的纯文本。若工作流未知则返回错误消息。
 
-**Implementation:** `mcp/server.py::get_allowed_fields`
+**实现位置：** `mcp/server.py::get_allowed_fields`
 
 ---
 
-## Prompts
+## 提示模板
 
-Prompts are task templates. Invoke to get pre-filled step-by-step instructions.
+Prompts 是任务模板。调用后可获得预填好的分步操作说明。
 
 ---
 
 ### `process_insar_pair`
 
-Guided template for processing a single RSLC pair (Path A workflow).
+用于处理单对 RSLC（路径 A）的引导式模板。
 
-**Parameters:** `reference_rslc`, `secondary_rslc`, `dem`, `output_dir`, `conda_env`
+**参数：** `reference_rslc`、`secondary_rslc`、`dem`、`output_dir`、`conda_env`
 
-**Returns:** 8-step instructions pre-filled with provided paths + constraint reminders.
+**返回：** 预填了提供路径和约束提醒的 8 步说明。
 
 ---
 
 ### `process_insar_batch`
 
-Guided template for batch stack + interferogram network preparation (Path B workflow).
+用于批处理 stack + 干涉图网络准备（路径 B）的引导式模板。
 
-**Parameters:** `data_dir`, `base_runconfig`, `dem`, `output_dir`, `network_mode`, `max_temporal_baseline_days`
+**参数：** `data_dir`、`base_runconfig`、`dem`、`output_dir`、`network_mode`、`max_temporal_baseline_days`
 
-**Returns:** 2-step instructions with terminal commands and output structure.
+**返回：** 含终端命令和输出结构说明的 2 步指引。
 
 ---
 
-## Tool Summary (18 tools)
+## 工具总览（18 个工具）
 
-| Group | Tool | Purpose |
+| 分组 | 工具 | 作用 |
 |---|---|---|
-| Discovery | `insar_discover` | List engines or workflows for an engine |
-| Discovery | `insar_get_project` | Project metadata + latest job status |
-| Config | `insar_create_project` | Create a new project |
-| Config | `insar_get_runconfig` | Read current runconfig |
-| Config | `insar_set_runconfig_value` | Set or remove a runconfig field (value=None removes) |
-| Config | `insar_set_processing_param` | Set whitelist-controlled algorithm parameter |
-| Utilities | `insar_describe_rslc` | Summarize local RSLC metadata for parameter advisory |
-| Execution | `insar_run_workflow` | Validate + export + launch (all in one) |
-| Execution | `insar_get_job` | Job status ± logs (ISCE3, MintPy, and batch) |
-| Execution | `insar_list_outputs` | List output files from a completed job |
-| Stack/Network | `insar_prepare_stack` | Prepare single-reference RSLC stack |
-| Stack/Network | `insar_prepare_network` | Generate interferogram network |
-| Stack/Network | `insar_run_batch` | Execute a prepared stack or network batch |
-| Data Prep | `insar_download_rslc` | AOI/bbox-driven RSLC crop download from URL list |
-| Data Prep | `insar_download_dem` | AOI/bbox-driven Copernicus 30m DEM download |
-| MintPy | `insar_run_mintpy` | Launch MintPy time-series processing |
-| MintPy | `insar_plot_baseline` | Render baseline network plot |
-| Utilities | `insar_export_geotiff` | HDF5 GUNW → GeoTIFF + PNG |
+| 发现 | `insar_discover` | 列出引擎，或列出指定引擎支持的工作流 |
+| 发现 | `insar_get_project` | 返回项目元数据和最新作业状态 |
+| 配置 | `insar_create_project` | 创建新项目 |
+| 配置 | `insar_get_runconfig` | 读取当前 runconfig |
+| 配置 | `insar_set_runconfig_value` | 设置或移除一个 runconfig 字段（`value=None` 表示移除） |
+| 配置 | `insar_set_processing_param` | 设置受白名单控制的算法参数 |
+| 工具 | `insar_describe_rslc` | 为参数建议汇总本地 RSLC 元数据 |
+| 执行 | `insar_run_workflow` | 校验 + 导出 + 启动（一步完成） |
+| 执行 | `insar_get_job` | 查询作业状态，可选附带日志（ISCE3、MintPy、batch） |
+| 执行 | `insar_list_outputs` | 列出已完成作业的输出文件 |
+| Stack/Network | `insar_prepare_stack` | 准备单参考景 RSLC stack |
+| Stack/Network | `insar_prepare_network` | 生成干涉图网络 |
+| Stack/Network | `insar_run_batch` | 执行已准备好的 stack 或 network 批处理 |
+| 数据准备 | `insar_download_rslc` | 基于 AOI/bbox，从 URL 列表裁剪下载 RSLC |
+| 数据准备 | `insar_download_dem` | 基于 AOI/bbox 下载 Copernicus 30m DEM |
+| MintPy | `insar_run_mintpy` | 启动 MintPy 时序处理 |
+| MintPy | `insar_plot_baseline` | 绘制基线网络图 |
+| 工具 | `insar_export_geotiff` | HDF5 GUNW → GeoTIFF + PNG |
 
 ---
 
-## Group 1: Discovery
+## 第 1 组：Discovery
 
-These tools are read-only and require no project context.
+这些工具都是只读的，不需要项目上下文。
 
 ---
 
 ### `insar_discover`
 
-Discover available engines (no args) or workflows for a specific engine.
+发现可用引擎（无参数）或某个指定引擎支持的工作流。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `engine` | string | no | Leave empty to list engines; provide `"isce3"` etc. to list workflows |
+| `engine` | string | 否 | 留空时列出引擎；传入 `"isce3"` 等值时列出其工作流 |
 
-**Returns (engine list, engine=""):**
+**返回（引擎列表，engine=""）：**
 ```json
 {
   "engines": [
@@ -119,7 +119,7 @@ Discover available engines (no args) or workflows for a specific engine.
 }
 ```
 
-**Returns (workflow list, engine="isce3"):**
+**返回（工作流列表，engine="isce3"）：**
 ```json
 {
   "engine": "isce3",
@@ -138,24 +138,24 @@ Discover available engines (no args) or workflows for a specific engine.
 }
 ```
 
-**Errors:**
-- `engine_not_found` — engine name not recognized
+**错误：**
+- `engine_not_found`：无法识别的引擎名称
 
-**Implementation:** `mcp/server.py::insar_discover`
+**实现位置：** `mcp/server.py::insar_discover`
 
 ---
 
 ### `insar_get_project`
 
-Returns project metadata, current runconfig summary, and latest job status.
+返回项目元数据、当前 runconfig 摘要和最新作业状态。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `project_id` | string | yes | UUID of the project |
+| `project_id` | string | 是 | 项目的 UUID |
 
-**Returns:**
+**返回：**
 ```json
 {
   "project_id": "...",
@@ -170,33 +170,33 @@ Returns project metadata, current runconfig summary, and latest job status.
 }
 ```
 
-**Errors:**
+**错误：**
 - `project_not_found`
 
-**Implementation:** `core/project.py`
+**实现位置：** `core/project.py`
 
 ---
 
-## Group 2: Config Management (M1)
+## 第 2 组：配置管理（M1）
 
-These tools create and manage projects and their runconfigs.
+这些工具负责创建和管理项目及其 runconfig。
 
 ---
 
 ### `insar_create_project`
 
-Creates a new project, initializes the workspace, and loads the default runconfig template for the chosen workflow.
+创建新项目、初始化工作空间，并为所选工作流加载默认 runconfig 模板。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `engine` | string | yes | Engine name, e.g. `"isce3"` |
-| `workflow` | string | yes | Workflow name, e.g. `"insar"` |
-| `workspace_root` | string | yes | Absolute path where project files will be written |
-| `name` | string | no | Human-readable project name (default: auto-generated) |
+| `engine` | string | 是 | 引擎名称，例如 `"isce3"` |
+| `workflow` | string | 是 | 工作流名称，例如 `"insar"` |
+| `workspace_root` | string | 是 | 项目文件写入的绝对路径 |
+| `name` | string | 否 | 人类可读的项目名称（默认：自动生成） |
 
-**Returns:**
+**返回：**
 ```json
 {
   "project_id": "a1b2c3d4-...",
@@ -212,29 +212,29 @@ Creates a new project, initializes the workspace, and loads the default runconfi
 }
 ```
 
-For skill-aware clients, this guidance is a plugin contract: parameter advice flows through the `param-advisor-isce3` skill, which calls `insar_describe_rslc`, then delegates recommendation generation to the project-level subagent defined in `.claude/agents/param-advisor-isce3.md`, and may consult `.claude/agents/references/param-advisor-isce3.md` for advisory heuristics. `insar_create_project` returns required path fields only; optional worker/logging fields remain available through `insar_set_runconfig_value` but are not part of `required_fields`.
+对于支持 skill 的客户端，这段 guidance 是一个插件契约：参数建议应通过 `param-advisor-isce3` skill 流转。该 skill 会先调用 `insar_describe_rslc`，然后把建议生成委派给 `.claude/agents/param-advisor-isce3.md` 中定义的项目级 subagent，并可参考 `.claude/agents/references/param-advisor-isce3.md` 中的 advisory heuristics。`insar_create_project` 只返回必填路径字段；可选的 worker/logging 字段仍可通过 `insar_set_runconfig_value` 设置，但不属于 `required_fields`。
 
-**Errors:**
+**错误：**
 - `engine_not_found`
 - `workflow_not_found`
-- `workspace_not_writable` — path does not exist or is not writable
+- `workspace_not_writable`：路径不存在或不可写
 
-**Implementation:** `core/project.py`, `engines/isce3/defaults.py`
+**实现位置：** `core/project.py`、`engines/isce3/defaults.py`
 
 ---
 
 ### `insar_get_runconfig`
 
-Returns the current runconfig for a project.
+返回项目当前的 runconfig。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `project_id` | string | yes | Project UUID |
-| `format` | string | no | `"json"` (default) or `"yaml"` |
+| `project_id` | string | 是 | 项目 UUID |
+| `format` | string | 否 | `"json"`（默认）或 `"yaml"` |
 
-**Returns (json):**
+**返回（json）：**
 ```json
 {
   "project_id": "...",
@@ -256,29 +256,29 @@ Returns the current runconfig for a project.
 }
 ```
 
-**Returns (yaml):** plain YAML string in `"runconfig_yaml"` field
+**返回（yaml）：** 在 `"runconfig_yaml"` 字段中返回原始 YAML 字符串
 
-**Errors:**
+**错误：**
 - `project_not_found`
 
-**Implementation:** `core/project.py`, `core/config.py`
+**实现位置：** `core/project.py`、`core/config.py`
 
 ---
 
 ### `insar_set_runconfig_value`
 
-Sets or removes a value at a dotted key path within the runconfig.
-Pass `value=null` to remove the key (restore to template default).
+在 runconfig 的点号路径下设置或移除一个值。
+传入 `value=null` 时表示移除该键（恢复模板默认值）。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `project_id` | string | yes | Project UUID |
-| `key` | string | yes | Dotted path, e.g. `"runconfig.groups.worker.gpu_enabled"` |
-| `value` | any\|null | yes | New value (string, number, boolean, list) or null to remove the key |
+| `project_id` | string | 是 | 项目 UUID |
+| `key` | string | 是 | 点号路径，例如 `"runconfig.groups.worker.gpu_enabled"` |
+| `value` | any\|null | 是 | 新值（字符串、数字、布尔值、列表）或 `null` 表示移除该键 |
 
-**Returns (set):**
+**返回（set）：**
 ```json
 {
   "project_id": "...",
@@ -288,7 +288,7 @@ Pass `value=null` to remove the key (restore to template default).
 }
 ```
 
-**Returns (unset, value=null):**
+**返回（unset，value=null）：**
 ```json
 {
   "project_id": "...",
@@ -297,34 +297,34 @@ Pass `value=null` to remove the key (restore to template default).
 }
 ```
 
-**Errors:**
+**错误：**
 - `project_not_found`
-- `key_not_allowed` — key is not in the allowed set for this workflow
-- `key_invalid` — path does not exist in the runconfig schema
-- `key_not_found` — key not present when removing
+- `key_not_allowed`：该字段不在当前工作流允许设置的字段集合中
+- `key_invalid`：该路径不在 runconfig schema 中
+- `key_not_found`：移除时目标键不存在
 
-**Implementation:** `core/config.py` — `set_path()` / `unset_path()`
+**实现位置：** `core/config.py` 中的 `set_path()` / `unset_path()`
 
 ---
 
 ### `insar_set_processing_param`
 
-Sets a whitelist-controlled processing parameter. This tool is intended to be called from `param-advisor-isce3`, not as a free-form replacement for direct YAML editing.
+设置受白名单控制的 processing parameter。这个工具设计上应由 `param-advisor-isce3` 调用，而不是作为自由形式 YAML 编辑的替代品。
 
-For skill-aware clients, `param-advisor-isce3` should first call `insar_describe_rslc`, then obtain the recommendation from the project-level subagent defined in `.claude/agents/param-advisor-isce3.md`, using `.claude/agents/references/param-advisor-isce3.md` as its advisory knowledge asset, before calling this tool. MCP does not verify that delegation; it only validates the parameter update itself.
+对于支持 skill 的客户端，`param-advisor-isce3` 应先调用 `insar_describe_rslc`，然后从 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent 获取建议，并使用 `.claude/agents/references/param-advisor-isce3.md` 作为 advisory knowledge asset，之后再调用此工具。MCP 不会验证这个委派链路；它只校验参数更新本身。
 
-**Behavior notes:**
-- Enforces type validation, range validation, enum validation, and simple structural validation for list-shaped values.
-- Rejects empty or vague `justification` strings.
-- Returns `validated_against` so the caller can explain which registry entry accepted the change.
+**行为说明：**
+- 执行类型校验、范围校验、枚举校验，以及对列表形参数的简单结构校验。
+- 拒绝空洞或模糊的 `justification` 字符串。
+- 返回 `validated_against`，便于调用方说明此次变更是依据哪个 registry entry 通过校验的。
 
-**Typical use:**
-- `crossmul` multilook factors
-- `phase_unwrap` settings
-- `filter_interferogram` filter mode and limited boxcar window sizing
-- atmospheric correction toggles
+**典型用途：**
+- `crossmul` 多视因子
+- `phase_unwrap` 相关设置
+- `filter_interferogram` 的滤波模式与受限 boxcar 窗口大小
+- 大气校正开关
 
-**Errors:**
+**错误：**
 - `project_not_found`
 - `key_not_allowed`
 - `invalid_type`
@@ -335,42 +335,38 @@ For skill-aware clients, `param-advisor-isce3` should first call `insar_describe
 
 ---
 
-### _Removed: `insar_validate_runconfig` and `insar_export_runconfig`_
+### _已移除：`insar_validate_runconfig` 和 `insar_export_runconfig`_
 
-These tools no longer exist as MCP tools. `insar_run_workflow` now automatically validates
-and exports the runconfig before launching. If validation fails it returns `runconfig_invalid`
-with the full errors list.
-
----
-
-### _Removed: `insar_unset_runconfig_value`_
-
-Use `insar_set_runconfig_value(project_id, key, value=None)` instead.
+这两个工具已经不再作为 MCP 工具存在。`insar_run_workflow` 现在会在启动前自动完成校验和导出。
+如果校验失败，它会返回 `runconfig_invalid`，并附带完整的错误列表。
 
 ---
 
+### _已移除：`insar_unset_runconfig_value`_
+
+请改用 `insar_set_runconfig_value(project_id, key, value=None)`。
 
 ---
 
-## Group 3: Execution (M2)
+## 第 3 组：执行（M2）
 
-These tools launch and monitor workflow jobs.
+这些工具负责启动并监控工作流作业。
 
 ---
 
 ### `insar_run_workflow`
 
-Validates the runconfig, exports it to YAML, and launches the workflow. Creates a `Job` record.
-No separate validate or export step is needed.
+校验 runconfig、将其导出为 YAML，并启动工作流。会同时创建一条 `Job` 记录。
+不再需要单独执行 validate 或 export 步骤。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `project_id` | string | yes | Project UUID |
-| `dry_run` | boolean | no | If true, validate + export but do not launch (default: false) |
+| `project_id` | string | 是 | 项目 UUID |
+| `dry_run` | boolean | 否 | 若为 true，则只校验并导出，不真正启动（默认：false） |
 
-**Returns:**
+**返回：**
 ```json
 {
   "job_id": "j-001",
@@ -385,34 +381,34 @@ No separate validate or export step is needed.
 }
 ```
 
-**Errors:**
+**错误：**
 - `project_not_found`
-- `runconfig_invalid` — validation failed; `errors` field contains the list
-- `export_failed` — could not write YAML to configs dir
-- `launch_failed` — subprocess failed to start
+- `runconfig_invalid`：校验失败；详细列表在 `errors` 字段中
+- `export_failed`：无法将 YAML 写入 configs 目录
+- `launch_failed`：子进程启动失败
 
-**Implementation:** `engines/isce3/runner.py`, `engines/isce3/validator.py`, `core/jobs.py`
+**实现位置：** `engines/isce3/runner.py`、`engines/isce3/validator.py`、`core/jobs.py`
 
 ---
 
 ### `insar_get_job`
 
-Returns the current state of any job — ISCE3 workflow jobs, MintPy jobs, or batch jobs.
-Optionally includes the full log content.
+返回任意作业的当前状态，包括 ISCE3 工作流作业、MintPy 作业或 batch 作业。
+可选返回完整日志内容。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `job_id` | string | yes | Job UUID |
-| `project_id` | string | cond. | Project UUID — required for ISCE3 workflow jobs |
-| `work_dir` | string | cond. | MintPy work directory — required for MintPy jobs |
-| `batch_dir` | string | cond. | Batch output directory — required for insar_run_batch jobs |
-| `include_logs` | boolean | no | If true, include full log content in response (default: false) |
+| `job_id` | string | 是 | 作业 UUID |
+| `project_id` | string | 条件 | ISCE3 工作流作业必填 |
+| `work_dir` | string | 条件 | MintPy 作业必填 |
+| `batch_dir` | string | 条件 | `insar_run_batch` 产生的 batch 作业必填 |
+| `include_logs` | boolean | 否 | 若为 true，则响应中包含完整日志内容（默认：false） |
 
-Provide exactly one of `project_id`, `work_dir`, or `batch_dir`.
+`project_id`、`work_dir`、`batch_dir` 三者必须且只能提供一个。
 
-**Returns (ISCE3 job):**
+**返回（ISCE3 作业）：**
 ```json
 {
   "job_id": "j-001",
@@ -428,7 +424,7 @@ Provide exactly one of `project_id`, `work_dir`, or `batch_dir`.
 }
 ```
 
-**Returns (MintPy job, work_dir provided):**
+**返回（MintPy 作业，提供 `work_dir`）：**
 ```json
 {
   "job_id": "m-001",
@@ -440,7 +436,7 @@ Provide exactly one of `project_id`, `work_dir`, or `batch_dir`.
 }
 ```
 
-**Returns (batch job, batch_dir provided):**
+**返回（batch 作业，提供 `batch_dir`）：**
 ```json
 {
   "job_id": "b-001",
@@ -457,38 +453,38 @@ Provide exactly one of `project_id`, `work_dir`, or `batch_dir`.
 }
 ```
 
-When `include_logs=true`, a `log_content` field is added with the full log text.
+当 `include_logs=true` 时，会额外返回 `log_content` 字段，包含完整日志文本。
 
-**Status values:** `running`, `done`, `failed`
+**状态值：** `running`、`done`、`failed`
 
-**Errors:**
+**错误：**
 - `project_not_found`
 - `job_not_found`
-- `path_not_found` — work_dir or batch_dir does not exist
-- `missing_param` — none of project_id, work_dir, or batch_dir provided
-- `status_failed` — unexpected error reading job state
+- `path_not_found`：`work_dir` 或 `batch_dir` 不存在
+- `missing_param`：未提供 `project_id`、`work_dir` 或 `batch_dir`
+- `status_failed`：读取作业状态时发生异常错误
 
-**Implementation:** `core/jobs.py`, `engines/isce3/mintpy.py`
+**实现位置：** `core/jobs.py`、`engines/isce3/mintpy.py`
 
 ---
 
-## Group 4: Outputs (M3)
+## 第 4 组：输出（M3）
 
-These tools locate and summarize job outputs.
+这些工具用于定位和汇总作业输出。
 
 ---
 
 ### `insar_list_outputs`
 
-Lists output files produced by a completed job.
+列出已完成作业生成的输出文件。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `job_id` | string | yes | Job UUID |
+| `job_id` | string | 是 | 作业 UUID |
 
-**Returns:**
+**返回：**
 ```json
 {
   "job_id": "j-001",
@@ -509,100 +505,112 @@ Lists output files produced by a completed job.
 }
 ```
 
-**Errors:**
+**错误：**
 - `job_not_found`
-- `job_not_done` — job is still running or failed
+- `job_not_done`：作业仍在运行中，或已经失败
 
-**Implementation:** `core/jobs.py`, `runtime/workspace.py`
-
----
+**实现位置：** `core/jobs.py`、`runtime/workspace.py`
 
 ---
 
-## Group 5: Stack / Network (M4)
+## 第 5 组：Stack / Network（M4）
 
-These tools implement wangshuai's two-layer ISCE3 batch processing architecture.
-They operate independently of the project registry — they take direct filesystem
-paths and generate self-contained directory structures with runconfigs and runner scripts.
+这些工具实现了 wangshuai 的两层 ISCE3 批处理架构。
+它们独立于项目注册表运行，直接接受文件系统路径，并生成自包含的目录结构，其中包含 runconfig 和 runner scripts。
 
 ---
 
 ### `insar_prepare_stack`
 
-Generate single-reference ISCE3 runconfigs from a directory of RSLC files (Layer 1).
+从一个 RSLC 文件目录生成单参考景的 ISCE3 runconfig（Layer 1）。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `data_dir` | string | yes | Directory containing NISAR RSLC `.h5` files |
-| `base_runconfig` | string | yes | Path to template ISCE3 runconfig YAML |
-| `dem` | string | yes | Path to the DEM file |
-| `output_dir` | string | yes | Directory where runconfigs and scripts are written |
-| `reference` | string | no | Reference scene: `'auto'` (earliest date), `YYYYMMDD`, or RSLC path |
+| `data_dir` | string | 是 | 包含 NISAR RSLC `.h5` 文件的目录 |
+| `base_runconfig` | string | 否 | 模板 ISCE3 runconfig YAML 的路径；留空时使用内置默认 `insar` 模板 |
+| `dem` | string | 是 | DEM 文件路径 |
+| `output_dir` | string | 是 | 写出 runconfig 和脚本的目录 |
+| `reference` | string | 否 | 参考景：`'auto'`（最早日期）、`YYYYMMDD` 或 RSLC 路径 |
+| `interaction_mode` | string | 否 | `interactive`（默认）或 `auto`；控制返回是否要求人工检查窗口 |
 
-**Returns:**
+**返回：**
 ```json
 {
   "reference_date": "20251122",
   "num_pairs": 1,
+  "base_runconfig": "/abs/path/to/insar.yaml",
+  "base_runconfig_source": "default_template",
   "output_dir": "/path/to/stack",
   "runconfigs": ["/path/to/stack/runconfigs/20251122_20251204.yaml"],
   "run_all_sh": "/path/to/stack/run_all.sh",
   "run_parallel_sh": "/path/to/stack/run_parallel.sh",
-  "manifest_csv": "/path/to/stack/stack_manifest.csv"
+  "manifest_csv": "/path/to/stack/stack_manifest.csv",
+  "run_command": "bash /path/to/stack/run_parallel.sh /path/to/stack <num_jobs>",
+  "interaction_mode": "interactive",
+  "handoff_required": true,
+  "handoff_reason": "Review the selected reference scene and generated stack manifest before launching stack execution.",
+  "review_artifacts": ["/path/to/stack/stack_manifest.csv", "/path/to/stack/run_parallel.sh", "/path/to/stack/reference_date.txt"],
+  "next_recommended_action": "insar_run_batch(batch_dir='/path/to/stack', max_jobs=<N>, interaction_mode='interactive')"
 }
 ```
 
-**Output structure:**
+`interactive` 模式下，`handoff_required=true` 表示调用方应暂停，把 `review_artifacts` 交给用户检查。
+`auto` 模式下仍会返回同样的 review 信息，但 `handoff_required=false`，可继续自动推进。
+
+**输出结构：**
 ```
 output_dir/
-  runconfigs/          # Per-secondary runconfig YAMLs
+  runconfigs/          # 每个次级景对应一个 runconfig YAML
   runs/<date1>_<date2>/
-    products/          # ISCE3 output destination
-    scratch/           # ISCE3 temp dir
-    qa/                # QA outputs
+    products/          # ISCE3 输出目录
+    scratch/           # ISCE3 临时目录
+    qa/                # QA 输出
     logs/
-  run_all.sh           # Sequential runner
-  run_parallel.sh      # Parallel runner (MAX_JOBS=8)
-  stack_manifest.csv   # reference/secondary/runconfig/run_dir index
-  reference_date.txt   # Selected reference date
+  run_all.sh           # 串行执行脚本
+  run_parallel.sh      # 并行执行脚本（MAX_JOBS=8）
+  stack_manifest.csv   # reference/secondary/runconfig/run_dir 索引
+  reference_date.txt   # 选中的参考日期
 ```
 
-**Errors:**
-- `path_not_found` — data_dir, base_runconfig, or dem does not exist
-- `invalid_input` — fewer than 2 RSLC files, duplicate dates, or negative baseline from reference selection
+**错误：**
+- `path_not_found`：`data_dir`、显式提供的 `base_runconfig` 或 `dem` 不存在
+- `invalid_input`：RSLC 文件少于 2 个、日期重复，或参考景选择导致负基线
 
-**Implementation:** `engines/isce3/stack.py::prepare_stack`
+**实现位置：** `engines/isce3/stack.py::prepare_stack`
 
 ---
 
 ### `insar_prepare_network`
 
-Generate ISCE3 runconfigs for an interferogram network from a directory of RSLC files (Layer 2).
+从一个 RSLC 文件目录为干涉图网络生成 ISCE3 runconfig（Layer 2）。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `data_dir` | string | yes | Directory containing NISAR RSLC `.h5` files |
-| `base_runconfig` | string | yes | Path to template ISCE3 runconfig YAML |
-| `dem` | string | yes | Path to the DEM file |
-| `output_dir` | string | yes | Directory where runconfigs and scripts are written |
-| `network_mode` | string | no | `'tbase'` (default) or `'conn'` |
-| `max_temporal_baseline_days` | int | no | Max days between pair dates in tbase mode (default: 36) |
-| `connection_span` | int | no | Forward neighbors per date in conn mode (default: 3) |
-| `pair_list` | string | no | Path to file with `YYYYMMDD_YYYYMMDD` pairs, one per line |
+| `data_dir` | string | 是 | 包含 NISAR RSLC `.h5` 文件的目录 |
+| `base_runconfig` | string | 否 | 模板 ISCE3 runconfig YAML 的路径；留空时使用内置默认 `insar` 模板 |
+| `dem` | string | 是 | DEM 文件路径 |
+| `output_dir` | string | 是 | 写出 runconfig 和脚本的目录 |
+| `network_mode` | string | 否 | `'tbase'`（默认）或 `'conn'` |
+| `max_temporal_baseline_days` | int | 否 | `tbase` 模式下配对间允许的最大时间间隔（默认：36） |
+| `connection_span` | int | 否 | `conn` 模式下每个日期向后连接的邻居数（默认：3） |
+| `pair_list` | string | 否 | 文本文件路径，内容为每行一个 `YYYYMMDD_YYYYMMDD` 配对 |
+| `interaction_mode` | string | 否 | `interactive`（默认）或 `auto`；控制返回是否要求人工检查窗口 |
 
-**Network modes:**
-- `tbase`: connect all pairs whose temporal baseline ≤ `max_temporal_baseline_days`
-- `conn`: connect each date to the next `connection_span` dates
-- Custom: when `pair_list` is provided, `network_mode` and span/threshold are ignored
+**网络模式：**
+- `tbase`：连接所有时间基线 ≤ `max_temporal_baseline_days` 的配对
+- `conn`：每个日期与其后续 `connection_span` 个日期配对
+- 自定义：若提供 `pair_list`，则忽略 `network_mode` 和跨度/阈值参数
 
-**Returns:**
+**返回：**
 ```json
 {
   "num_pairs": 3,
+  "base_runconfig": "/abs/path/to/insar.yaml",
+  "base_runconfig_source": "default_template",
   "output_dir": "/path/to/network",
   "runconfigs": ["..."],
   "run_all_sh": "/path/to/network/run_all.sh",
@@ -610,14 +618,21 @@ Generate ISCE3 runconfigs for an interferogram network from a directory of RSLC 
   "pairs_selected_txt": "/path/to/network/pair_lists/pairs_selected.txt",
   "manifest_csv": "/path/to/network/stack_manifest.csv",
   "network_label": "pairs_tbase36d",
-  "network_description": "Connect acquisitions with temporal baseline <= 36 days"
+  "network_description": "Connect acquisitions with temporal baseline <= 36 days",
+  "run_command": "bash /path/to/network/run_parallel.sh /path/to/network <num_jobs>",
+  "gunw_pattern": "/path/to/network/runs/*/products/*.h5",
+  "interaction_mode": "interactive",
+  "handoff_required": true,
+  "handoff_reason": "Review the selected interferogram network and pair list before launching network execution.",
+  "review_artifacts": ["/path/to/network/pair_lists/pairs_selected.txt", "/path/to/network/stack_manifest.csv", "/path/to/network/run_parallel.sh"],
+  "next_recommended_action": "insar_run_batch(batch_dir='/path/to/network', max_jobs=<N>, interaction_mode='interactive')"
 }
 ```
 
-**Output structure:**
+**输出结构：**
 ```
 output_dir/
-  runconfigs/          # Per-pair runconfig YAMLs
+  runconfigs/          # 每个干涉对一个 runconfig YAML
   runs/<date1>_<date2>/
     products/
     scratch/
@@ -626,37 +641,41 @@ output_dir/
   run_all.sh
   run_parallel.sh
   pair_lists/
-    pairs_selected.txt       # YYYYMMDD_YYYYMMDD, one per line
-    pairs_tbase36d.txt       # (or pairs_conn3.txt depending on mode)
-    pairs_selected.csv       # date1/date2/rslc mapping
+    pairs_selected.txt       # YYYYMMDD_YYYYMMDD，每行一个
+    pairs_tbase36d.txt       # 或根据模式生成 pairs_conn3.txt
+    pairs_selected.csv       # date1/date2/rslc 映射
   stack_manifest.csv
 ```
 
-**Errors:**
-- `path_not_found` — data_dir, base_runconfig, dem, or pair_list does not exist
-- `invalid_input` — invalid network_mode, span < 1, threshold < 1, bad pair format, or pair references unknown date
+**错误：**
+- `path_not_found`：`data_dir`、显式提供的 `base_runconfig`、`dem` 或 `pair_list` 不存在
+- `invalid_input`：`network_mode` 非法、跨度 < 1、阈值 < 1、pair 格式错误，或 pair 引用了未知日期
 
-**Implementation:** `engines/isce3/network.py::prepare_network`
+**实现位置：** `engines/isce3/network.py::prepare_network`
 
 ---
 
 ### `insar_run_batch`
 
-Execute a prepared stack or network batch by launching its `run_parallel.sh` script in the background.
+通过后台启动 `run_parallel.sh` 或 `run_all.sh`，执行一个已准备好的 stack 或 network 批处理。
 
-Call `insar_prepare_stack` or `insar_prepare_network` first, then call this tool to start execution.
-Returns immediately with `job_id` and `log_path`. The batch runs as a background process.
+必须先调用 `insar_prepare_stack` 或 `insar_prepare_network`，再用此工具启动执行。
+该工具会立即返回 `job_id` 和 `log_path`，而批处理本身作为后台进程继续运行。
 
-After calling, show `log_path` to the user — they can monitor real-time ISCE3 output with `tail -f <log_path>`. Poll status with `insar_get_job(job_id=..., batch_dir=...)`.
+调用后应把 `log_path` 展示给用户，用户可通过 `tail -f <log_path>` 实时查看 ISCE3 输出。
+状态轮询则通过 `insar_get_job(job_id=..., batch_dir=...)` 完成。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `batch_dir` | string | yes | Output directory used in `insar_prepare_stack` or `insar_prepare_network` |
-| `max_jobs` | int | no | Maximum parallel ISCE3 pairs (default: 4) |
+| `batch_dir` | string | 是 | `insar_prepare_stack` 或 `insar_prepare_network` 使用的输出目录 |
+| `max_jobs` | int | 否 | 最大并行 ISCE3 pair 数（默认：4） |
+| `execution_mode` | string | 否 | `parallel`（默认）或 `serial`；分别对应 `run_parallel.sh` 和 `run_all.sh` |
+| `python_bin` | string | 否 | 可选 `PYTHON_BIN` 覆盖，仅对本次 batch 启动进程生效 |
+| `interaction_mode` | string | 否 | `interactive`（默认）或 `auto`；用于前台展示/编排提示 |
 
-**Returns:**
+**返回：**
 ```json
 {
   "job_id": "b-001",
@@ -665,43 +684,55 @@ After calling, show `log_path` to the user — they can monitor real-time ISCE3 
   "num_pairs": 6,
   "pid": 34567,
   "status": "running",
+  "interaction_mode": "interactive",
+  "execution_mode": "parallel",
   "log_path": "/data/stack/logs/b-001.log",
+  "command": "bash /data/stack/run_parallel.sh /data/stack 4",
+  "progress_hint": "Monitor with tail -f /data/stack/logs/b-001.log and poll via insar_get_job(...)",
   "poll": "insar_get_job(job_id=\"b-001\", batch_dir=\"/data/stack\")"
 }
 ```
 
-`batch_type` is auto-detected: `"network"` if `pair_lists/` directory exists, otherwise `"stack"`.
+`batch_type` 会自动判定：若存在 `pair_lists/` 目录则为 `"network"`，否则为 `"stack"`。
 
-**Errors:**
-- `not_prepared` — `run_parallel.sh` not found; call `insar_prepare_stack` or `insar_prepare_network` first
-- `no_pairs_to_run` — no `*.yaml` files in `runconfigs/`
-- `launch_failed` — subprocess could not be started
+运行经验提醒：
 
-**Job persistence:** `{batch_dir}/.insar_agent/jobs/{job_id}.json`
+- `python_bin` 只覆盖子进程解释器，不会自动修正当前 shell / server 继承下来的
+  `GDAL_DRIVER_PATH`、`GDAL_DATA`、`PROJ_DATA`。
+- 因此在第一次真实执行前，应先确认用户选定的 ISCE3 conda 环境；若出现
+  “作业显示完成但没有产品” 或 HDF5 驱动异常，优先检查运行环境隔离。
 
-**Implementation:** `mcp/server.py`, `core/jobs.py::BatchJob`
+**错误：**
+- `invalid_input`：`execution_mode` 或 `interaction_mode` 非法
+- `not_prepared`：找不到所需脚本（`run_parallel.sh` 或 `run_all.sh`）；请先调用 `insar_prepare_stack` 或 `insar_prepare_network`
+- `no_pairs_to_run`：`runconfigs/` 下不存在任何 `*.yaml` 文件
+- `launch_failed`：子进程无法启动
+
+**作业持久化路径：** `{batch_dir}/.insar_agent/jobs/{job_id}.json`
+
+**实现位置：** `mcp/server.py`、`core/jobs.py::BatchJob`
 
 ---
 
-## Group 6: Utilities (M5)
+## 第 6 组：Utilities（M5）
 
-These tools support data preparation and output conversion tasks that are independent of the project registry.
+这些工具支持与项目注册表无关的数据准备和输出转换任务。
 
 ---
 
 ### `insar_describe_rslc`
 
-Summarize one RSLC or a reference/secondary RSLC pair for metadata-first parameter advisory.
+为基于元数据优先的参数建议流程，汇总单景 RSLC 或参考/次级 RSLC 对的信息。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `reference_rslc` | string | yes | Absolute path to the reference RSLC `.h5` file |
-| `secondary_rslc` | string | no | Absolute path to the secondary RSLC `.h5` file |
-| `project_id` | string | no | Existing project UUID; if provided, attach current processing context |
+| `reference_rslc` | string | 是 | 参考 RSLC `.h5` 文件的绝对路径 |
+| `secondary_rslc` | string | 否 | 次级 RSLC `.h5` 文件的绝对路径 |
+| `project_id` | string | 否 | 已存在的项目 UUID；若提供，则附加当前 processing context |
 
-**Returns:**
+**返回：**
 ```json
 {
   "reference_metadata": {},
@@ -718,15 +749,15 @@ Summarize one RSLC or a reference/secondary RSLC pair for metadata-first paramet
 }
 ```
 
-**Behavior notes:**
-- Reads directly observable facts from HDF5 when possible
-- Falls back to filename-derived inference for sensor, band, timestamps, polarizations, and orbit direction
-- If `project_id` is given, attaches the current processing-parameter snapshot
-- Intended to run inside `param-advisor-isce3` before subagent recommendation generation
+**行为说明：**
+- 尽量直接从 HDF5 中读取可观测事实
+- 对 sensor、band、时间戳、极化、轨道方向等字段，在必要时退回到文件名推断
+- 若提供 `project_id`，会附带当前 processing-parameter snapshot
+- 设计目标是在 `param-advisor-isce3` 内部执行，作为 subagent 建议生成之前的证据构建步骤
 
-**Errors:**
-- `invalid_input` — empty `reference_rslc`
-- `path_not_found` — one or more files do not exist
+**错误：**
+- `invalid_input`：`reference_rslc` 为空
+- `path_not_found`：一个或多个文件不存在
 - `project_not_found`
 - `metadata_summary_failed`
 
@@ -734,57 +765,63 @@ Summarize one RSLC or a reference/secondary RSLC pair for metadata-first paramet
 
 ### `insar_download_rslc`
 
-Download and bbox-crop NISAR RSLC files from a user-provided URL list.
-The crop region can be supplied either as an explicit bbox or an AOI file.
+根据用户提供的 URL 列表下载并按 bbox 裁剪 NISAR RSLC 文件。
+裁剪范围既可以显式提供 bbox，也可以提供 AOI 文件。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `urls` | list[string] | yes | Remote NISAR RSLC `.h5` URLs |
-| `output_dir` | string | yes | Directory where cropped RSLC files will be written |
-| `bbox` | list[number] | no | `[min_lon, min_lat, max_lon, max_lat]`; mutually exclusive with `aoi_path` |
-| `aoi_path` | string | no | AOI file path; mutually exclusive with `bbox` |
-| `freq` | string | no | Frequency band (`A` or `B`) |
-| `margin` | integer | no | Extra pixel margin around the crop |
-| `n_workers` | integer | no | Parallel worker count |
-| `chunk_rows` | integer | no | Per-worker azimuth chunk size |
-| `proxy` | string | no | Optional HTTP proxy URL |
+| `urls` | list[string] | 是 | 远程 NISAR RSLC `.h5` URL 列表 |
+| `output_dir` | string | 是 | 裁剪后 RSLC 文件的输出目录 |
+| `bbox` | list[number] | 否 | `[min_lon, min_lat, max_lon, max_lat]`；与 `aoi_path` 互斥 |
+| `aoi_path` | string | 否 | AOI 文件路径；与 `bbox` 互斥 |
+| `freq` | string | 否 | 频段（`A` 或 `B`） |
+| `margin` | integer | 否 | 裁剪窗口周围增加的额外像素边距 |
+| `n_workers` | integer | 否 | 并行 worker 数 |
+| `chunk_rows` | integer | 否 | 每个 worker 的方位向分块大小 |
+| `proxy` | string | 否 | 可选 HTTP 代理 URL；默认沿用当前系统代理设置，显式传入时仅对本次下载进程临时覆盖 |
+| `confirm` | boolean | 否 | 当未提供 `bbox` 或 `aoi_path` 时，是否确认执行整景下载（默认：false） |
 
-**Returns:**
+**返回：**
 ```json
 {
-  "ok": [{"url": "...", "path": "/data/rslc/file_cropped.h5", "size_mb": 320}],
-  "failed": [],
+  "job_id": "03f6ee562c00",
+  "status": "running",
+  "pid": 12345,
+  "n_files": 2,
   "output_dir": "/data/rslc",
-  "log": ["[download] ..."]
+  "log_path": "/data/rslc/.insar_logs/download_03f6ee562c00.log",
+  "poll": "tail -f /data/rslc/.insar_logs/download_03f6ee562c00.log"
 }
 ```
 
-**Errors:**
-- `invalid_input` — invalid URL list or invalid bbox/aoi_path combination
-- `path_not_found` — AOI path does not exist
-- `bbox_failed` — AOI could not be resolved to bbox
+**错误：**
+- `invalid_input`：URL 列表非法，或 bbox/aoi_path 组合不合法
+- `path_not_found`：AOI 路径不存在
+- `bbox_failed`：无法把 AOI 解析为 bbox
+- `confirmation_required`：未提供 AOI / bbox，且尚未通过 `confirm=true` 明确确认整景下载
 
-**Implementation:** `engines/isce3/download.py::download_rslc_stack`
+**实现位置：** `engines/isce3/download.py::download_rslc_stack`
 
 ---
 
 ### `insar_download_dem`
 
-Download a Copernicus 30m DEM for a user-provided bbox or AOI file.
+为用户提供的 bbox 或 AOI 文件下载 Copernicus 30m DEM。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `output_path` | string | yes | Output GeoTIFF path |
-| `bbox` | list[number] | no | `[min_lon, min_lat, max_lon, max_lat]`; mutually exclusive with `aoi_path` |
-| `aoi_path` | string | no | AOI file path; mutually exclusive with `bbox` |
-| `source` | string | no | DEM source, currently `copernicus_30` |
-| `margin_deg` | number | no | Margin added around bbox before download |
+| `output_path` | string | 是 | 输出 GeoTIFF 路径 |
+| `bbox` | list[number] | 否 | `[min_lon, min_lat, max_lon, max_lat]`；与 `aoi_path` 互斥 |
+| `aoi_path` | string | 否 | AOI 文件路径；与 `bbox` 互斥 |
+| `source` | string | 否 | DEM 数据源，目前为 `copernicus_30` |
+| `margin_deg` | number | 否 | 下载前在 bbox 外扩的边距 |
+| `proxy` | string | 否 | 可选 HTTP 代理 URL；默认沿用当前系统代理设置，显式传入时仅对本次 DEM 下载临时覆盖 |
 
-**Returns:**
+**返回：**
 ```json
 {
   "output_path": "/data/dem/dem.tif",
@@ -795,30 +832,30 @@ Download a Copernicus 30m DEM for a user-provided bbox or AOI file.
 }
 ```
 
-**Errors:**
-- `invalid_input` — invalid bbox/aoi_path combination or unsupported source
-- `path_not_found` — AOI path does not exist
-- `bbox_failed` — AOI could not be resolved to bbox
-- `download_failed` — DEM download or GDAL mosaic/crop failed
+**错误：**
+- `invalid_input`：bbox/aoi_path 组合不合法，或 source 不受支持
+- `path_not_found`：AOI 路径不存在
+- `bbox_failed`：无法把 AOI 解析为 bbox
+- `download_failed`：DEM 下载失败，或 GDAL mosaic/crop 失败
 
-**Implementation:** `engines/isce3/dem.py::download_dem`
+**实现位置：** `engines/isce3/dem.py::download_dem`
 
 ---
 
 ### `insar_export_geotiff`
 
-Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images. Iterates all spatial datasets in the file and writes outputs under `<output_dir>/browse/`.
+将 NISAR GUNW HDF5 产品转换为 GeoTIFF + PNG browse 图像。会遍历文件内所有空间数据集，并将输出写入 `<output_dir>/browse/`。
 
-Requires h5py, numpy, and GDAL — must be run inside the isce3 conda environment.
+依赖 h5py、numpy 和 GDAL，必须在 isce3 conda 环境中运行。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `h5_path` | string | yes | Absolute path to a NISAR GUNW `.h5` output file |
-| `output_dir` | string | yes | Directory where `browse/` subdirectory will be created |
+| `h5_path` | string | 是 | NISAR GUNW `.h5` 输出文件的绝对路径 |
+| `output_dir` | string | 是 | 将创建 `browse/` 子目录的输出目录 |
 
-**Returns:**
+**返回：**
 ```json
 {
   "output_dir": "/data/.../browse",
@@ -828,94 +865,121 @@ Requires h5py, numpy, and GDAL — must be run inside the isce3 conda environmen
 }
 ```
 
-**Errors:**
-- `path_not_found` — h5_path does not exist
-- `dependency_missing` — h5py, numpy, or GDAL not available in current environment
-- `export_failed` — unexpected error during conversion
+**错误：**
+- `path_not_found`：`h5_path` 不存在
+- `dependency_missing`：当前环境缺少 h5py、numpy 或 GDAL
+- `export_failed`：转换过程中出现未预期错误
 
-**Implementation:** `engines/isce3/geotiff.py::export_geotiff`
+**实现位置：** `engines/isce3/geotiff.py::export_geotiff`
 
 ---
 
-## Group 7: MintPy Time-Series (M6)
+## 第 7 组：MintPy 时序分析（M6）
 
-These tools run MintPy time-series analysis on a completed ISCE3 interferogram network (Path B, filesystem-direct — no project registry).
+这些工具用于在已完成的 ISCE3 干涉图网络上运行 MintPy 时序分析（路径 B，直接基于文件系统，不使用项目注册表）。
 
 ---
 
 ### `insar_run_mintpy`
 
-Launch MintPy time-series processing asynchronously. Wraps `run_mintpy_nisar_stack.sh` inside the given conda environment. Logs are written to `<mintpy_work_dir>/logs/<job_id>.log`. Job metadata is persisted to `<mintpy_work_dir>/.jobs/<job_id>.json`.
+异步启动 MintPy 时序处理。内部会在指定 conda 环境中包装调用 `run_mintpy_nisar_stack.sh`。日志写入 `<mintpy_work_dir>/logs/<job_id>.log`，作业元数据持久化到 `<mintpy_work_dir>/.jobs/<job_id>.json`。
 
-Requires MintPy and GDAL in the conda environment.
+依赖 MintPy 和 GDAL，且二者必须位于对应 conda 环境中。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `mintpy_work_dir` | string | yes | Output directory for MintPy results |
-| `gunw_glob` | string | yes | Shell glob matching GUNW `.h5` files, e.g. `/path/to/network/runs/*/products/*.h5` |
-| `mintpy_config` | string | yes | Path to MintPy smallbaselineApp config file (`.cfg` or `.txt`) |
-| `dem_path` | string | yes | Path to the DEM GeoTIFF used during ISCE3 processing |
-| `conda_env` | string | yes | Conda environment that contains MintPy and GDAL |
+| `mintpy_work_dir` | string | 是 | MintPy 结果输出目录 |
+| `gunw_glob` | string | 是 | 匹配 GUNW `.h5` 文件的 shell glob，例如 `/path/to/network/runs/*/products/*.h5` |
+| `mintpy_config` | string | 是 | MintPy `smallbaselineApp` 配置文件路径（`.cfg` 或 `.txt`） |
+| `dem_path` | string | 是 | ISCE3 处理时使用的 DEM GeoTIFF 路径 |
+| `conda_env` | string | 是 | 包含 MintPy 和 GDAL 的 conda 环境名 |
+| `python_bin` | string | 否 | 可选 `PYTHON_BIN` 覆盖，仅对本次 MintPy 进程生效 |
+| `smallbaseline_bin` | string | 否 | 可选 `SMALLBASELINE_BIN` 覆盖，仅对本次 MintPy 进程生效 |
+| `interaction_mode` | string | 否 | `interactive`（默认）或 `auto`；用于前台展示/编排提示 |
 
-**Returns:**
+**返回：**
 ```json
 {
   "job_id": "uuid",
   "pid": 12345,
   "status": "running",
+  "interaction_mode": "interactive",
   "log_path": "/work/mintpy/logs/uuid.log",
   "submitted_at": "2026-01-01T00:00:00+00:00",
+  "command": "conda run --no-capture-output -n mintpy bash run_mintpy_nisar_stack.sh ...",
+  "progress_hint": "Monitor with tail -f /work/mintpy/logs/uuid.log and poll via insar_get_job(...)",
   "poll": "insar_get_job(job_id='uuid', work_dir='/work/mintpy')",
   "work_dir": "/work/mintpy"
 }
 ```
 
-**Errors:**
-- `invalid_input` — `gunw_glob` is empty
-- `path_not_found` — `mintpy_config` or `dem_path` does not exist
-- `launch_failed` — subprocess could not be started
+该工具封装的是 README 中已经过实践检验的 MintPy 流程：
+准备 GUNW 输入 → 施加公共掩膜 → 运行到 `reference_point` → 再次施加公共掩膜 →
+从 `correct_unwrap_error` 继续运行。自动模式可以连续推进，但仍必须展示日志和进度入口。
 
-**Implementation:** `engines/isce3/mintpy.py::run_mintpy`
+**错误：**
+- `invalid_input`：`gunw_glob` 为空
+- `invalid_input`：`interaction_mode` 非法
+- `path_not_found`：`mintpy_config` 或 `dem_path` 不存在
+- `launch_failed`：子进程启动失败
+
+**实现位置：** `engines/isce3/mintpy.py::run_mintpy`
 
 ---
 
-### _Removed: `insar_get_mintpy_status`_
+### _已移除：`insar_get_mintpy_status`_
 
-Use `insar_get_job(job_id=..., work_dir=<mintpy_work_dir>)` instead.
-The `poll` field returned by `insar_run_mintpy` already contains the correct call.
+请改用 `insar_get_job(job_id=..., work_dir=<mintpy_work_dir>)`。
+`insar_run_mintpy` 返回的 `poll` 字段已经给出了正确的调用方式。
 
 ---
 
 ### `insar_plot_baseline`
 
-Generate a spatiotemporal baseline network plot and CSV files from a completed interferogram network. Reads perpendicular baseline from GUNW HDF5 products, solves per-scene baselines via least-squares, and saves PNG, PDF, and two CSV files.
+从一个已完成的干涉图网络生成时空基线网络图和 CSV 文件。它会从 GUNW HDF5 产品中读取垂直基线，通过最小二乘法求解每个景的基线，并保存 PNG、PDF 以及两个 CSV 文件。
 
-Requires h5py, matplotlib, and numpy — must be run inside the isce3 conda environment.
+依赖 h5py、matplotlib 和 numpy，必须在 isce3 conda 环境中运行。
 
-**Parameters:**
+**参数：**
 
-| Name | Type | Required | Description |
+| 名称 | 类型 | 必填 | 说明 |
 |------|------|----------|-------------|
-| `network_dir` | string | yes | Network output directory containing `runs/` and `pair_lists/` |
-| `pair_list` | string | no | Path to a pair-list file (`YYYYMMDD_YYYYMMDD` per line). Leave empty to use `pair_lists/pairs_selected.txt` |
-| `title` | string | no | Figure title (default: `"ISCE3 Spatiotemporal Baseline Network"`) |
+| `network_dir` | string | 是 | 包含 `runs/` 和 `pair_lists/` 的 network 输出目录 |
+| `pair_list` | string | 否 | pair-list 文件路径（每行一个 `YYYYMMDD_YYYYMMDD`）。留空时使用 `pair_lists/pairs_selected.txt` |
+| `title` | string | 否 | 图标题（默认：`"ISCE3 Spatiotemporal Baseline Network"`） |
+| `interaction_mode` | string | 否 | `interactive`（默认）或 `auto`；控制是否把该步骤作为强制检查窗口 |
 
-**Returns:**
+**返回：**
 ```json
 {
   "png_path": "/network/pair_lists/baseline_network.png",
   "pdf_path": "/network/pair_lists/baseline_network.pdf",
   "pair_csv": "/network/pair_lists/pair_baselines.csv",
   "scene_csv": "/network/pair_lists/scene_baselines.csv",
-  "n_pairs": 12
+  "n_pairs": 12,
+  "interaction_mode": "interactive",
+  "handoff_required": true,
+  "handoff_reason": "Review the baseline plot and CSV summaries before proceeding to MintPy. If pair selection needs adjustment, return to network preparation.",
+  "review_artifacts": ["/network/pair_lists/baseline_network.png", "/network/pair_lists/baseline_network.pdf", "/network/pair_lists/pair_baselines.csv", "/network/pair_lists/scene_baselines.csv"],
+  "next_recommended_action": "If accepted, call insar_run_mintpy(...) with the same interaction_mode."
 }
 ```
 
-**Errors:**
-- `path_not_found` — `network_dir` or explicit `pair_list` does not exist
-- `dependency_missing` — h5py, matplotlib, or numpy not available
-- `plot_failed` — unexpected error during plot generation
+该工具从真实 GUNW 产品中读取垂直基线。network 尚未跑完、或某些产品缺失时会失败。
+`interactive` 模式下这一步是进入 MintPy 前的强制人工检查窗口；`auto` 模式下仍应展示这些产物，但可继续执行。
 
-**Implementation:** `engines/isce3/baseline.py::plot_baseline_network`
+运行经验提醒：
+
+- 该工具依赖的是当前 MCP/server 运行环境中的 `h5py`、`numpy`、`matplotlib`，而不是
+  `insar_run_mintpy` 里传入的 `conda_env`。
+- 如果绘图环境不完整，至少应保留 pair list、GUNW 产品路径和基线统计文件作为人工检查入口。
+
+**错误：**
+- `path_not_found`：`network_dir` 或显式提供的 `pair_list` 不存在
+- `invalid_input`：`interaction_mode` 非法
+- `dependency_missing`：当前环境缺少 h5py、matplotlib 或 numpy
+- `plot_failed`：绘图过程中出现未预期错误
+
+**实现位置：** `engines/isce3/baseline.py::plot_baseline_network`

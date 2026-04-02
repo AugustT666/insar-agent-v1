@@ -25,6 +25,8 @@ def run_mintpy(
     mintpy_config: str | Path,
     dem_path: str | Path,
     conda_env: str,
+    python_bin: str | None = None,
+    smallbaseline_bin: str | None = None,
 ) -> dict[str, object]:
     """Launch MintPy time-series processing asynchronously.
 
@@ -42,6 +44,8 @@ def run_mintpy(
                          (.cfg or .txt).
         dem_path:        Path to the DEM GeoTIFF used during GUNW preprocessing.
         conda_env:       Conda environment name that contains MintPy and GDAL.
+        python_bin:      Optional override for PYTHON_BIN inside the shell script.
+        smallbaseline_bin: Optional override for SMALLBASELINE_BIN inside the shell script.
 
     Returns:
         dict with keys: job_id, pid, status, log_path, submitted_at
@@ -75,8 +79,14 @@ def run_mintpy(
         str(dem),
     ]
 
+    env = os.environ.copy()
+    if python_bin:
+        env["PYTHON_BIN"] = python_bin
+    if smallbaseline_bin:
+        env["SMALLBASELINE_BIN"] = smallbaseline_bin
+
     with open(log_path, "w") as lf:
-        proc = subprocess.Popen(command, stdout=lf, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(command, stdout=lf, stderr=subprocess.STDOUT, env=env)
 
     job_data: dict[str, object] = {
         "job_id": job_id,
@@ -85,6 +95,7 @@ def run_mintpy(
         "log_path": log_path,
         "submitted_at": datetime.now(UTC).isoformat(),
         "finished_at": None,
+        "command": command,
     }
     (jobs_dir / f"{job_id}.json").write_text(json.dumps(job_data, indent=2))
     return job_data

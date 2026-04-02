@@ -1,7 +1,6 @@
 # RSLC Download: insar_download_rslc
 
 MCP tool for remote-crop download of NISAR RSLC files from NASA Earthdata (ASF).
-Ported from `docs/archive/knowledge-base/wangshuai/Scripts/nisar-test-download_v2.py`.
 
 ## How it works
 
@@ -28,6 +27,8 @@ The user must provide the URL list in advance.
 pip install fsspec
 ```
 
+Before download, ask the user to provide ASF / Earthdata username and password, or confirm that auth is already configured locally.
+
 Auth: `~/.netrc` must contain:
 ```
 machine urs.earthdata.nasa.gov login <earthdata_user> password <earthdata_pass>
@@ -45,7 +46,7 @@ machine urs.earthdata.nasa.gov login <earthdata_user> password <earthdata_pass>
 | `margin` | `20` | Extra pixel margin around bbox crop window |
 | `n_workers` | `8` | Parallel download threads per file |
 | `chunk_rows` | `256` | Azimuth rows per thread chunk |
-| `proxy` | `None` | HTTP proxy URL. Default: direct (no proxy). |
+| `proxy` | `None` | Optional HTTP proxy URL. Default: inherit current system proxy settings. |
 
 ## AOI handling
 
@@ -55,19 +56,19 @@ fallback if local parsing fails.
 
 ## Proxy configuration
 
-By default the tool clears any system proxy and downloads **direct**.
-If direct access to `nisar.asf.earthdatacloud.nasa.gov` is slow or blocked,
-ask the user for a proxy address and pass it explicitly:
+By default the tool inherits the current system proxy settings.
+If the current settings are not suitable for this download, ask the user for a
+proxy address and pass it explicitly as a temporary override for the download process:
 
 ```python
 insar_download_rslc(..., proxy="http://<proxy-host>:<port>")
 ```
 
-The proxy override applies only for the duration of the download; system proxy
-env vars are restored afterwards.
+The proxy override applies only for the duration of the download process;
+original proxy env vars are restored afterwards.
 
-**Scope:** the override sets `HTTP_PROXY`/`HTTPS_PROXY` process-wide for the
-download session. It covers both the data server (`nisar.asf.earthdatacloud.nasa.gov`)
+**Scope:** the override sets `HTTP_PROXY`/`HTTPS_PROXY` inside the download
+process for the current download session. It covers both the data server (`nisar.asf.earthdatacloud.nasa.gov`)
 and the NASA Earthdata auth server (`urs.earthdata.nasa.gov`), which is critical
 because authentication redirects to `urs.earthdata.nasa.gov` before serving data.
 
@@ -79,6 +80,13 @@ passed to the `urls` parameter.
 Supported input: `.h5` NISAR L1 RSLC product URLs. The tool silently skips
 non-RSLC URLs (`_QA_STATS.h5`, `.png`, `.pdf`, `.xml`, `.kml`), but keeping
 the list clean avoids unnecessary validation overhead.
+
+Example RSLC URLs:
+
+```text
+https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L1_RSLC_BETA_V1/NISAR_L1_PR_RSLC_009_172_A_008_2005_DHDH_A_20260109T024620_20260109T024654_X05009_N_F_J_001/NISAR_L1_PR_RSLC_009_172_A_008_2005_DHDH_A_20260109T024620_20260109T024654_X05009_N_F_J_001.h5
+https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L1_RSLC_BETA_V1/NISAR_L1_PR_RSLC_008_172_A_008_2005_DHDH_A_20251228T024619_20251228T024654_X05009_N_F_J_001/NISAR_L1_PR_RSLC_008_172_A_008_2005_DHDH_A_20251228T024619_20251228T024654_X05009_N_F_J_001.h5
+```
 
 ## Performance notes
 

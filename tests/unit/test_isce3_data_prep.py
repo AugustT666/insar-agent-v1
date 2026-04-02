@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -93,13 +95,13 @@ class TestDownloadDemEngine:
 
 
 class TestInsarDownloadRslcTool:
-    def test_requires_bbox_or_aoi_path(self, tmp_path: Path):
+    def test_requires_confirmation_for_full_frame_download(self, tmp_path: Path):
         result = insar_download_rslc(
             urls=["https://example.test/NISAR_RSLC.h5"],
             output_dir=str(tmp_path / "out"),
         )
 
-        assert result["error"] == "invalid_input"
+        assert result["status"] == "confirmation_required"
 
     def test_requires_exactly_one_of_bbox_or_aoi_path(self, tmp_path: Path):
         result = insar_download_rslc(
@@ -126,16 +128,20 @@ class TestInsarDownloadRslcTool:
 
         with (
             patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
-            patch("insar_agent.mcp.server.download_rslc_stack", return_value={"ok": [], "failed": [], "output_dir": str(tmp_path / 'out')}) as mock_download,
+            patch("insar_agent.mcp.server.subprocess.Popen") as mock_popen,
         ):
+            mock_popen.return_value.pid = 12345
             result = insar_download_rslc(
                 urls=["https://example.test/NISAR_RSLC.h5"],
                 aoi_path=str(shp_path),
                 output_dir=str(tmp_path / "out"),
             )
 
-        assert "error" not in result
-        assert mock_download.call_args.kwargs["bbox"] == (40.5, 13.4, 40.8, 13.7)
+        assert result["status"] == "running"
+        params_files = list((tmp_path / "out" / ".insar_logs").glob("*_params.json"))
+        assert len(params_files) == 1
+        params = json.loads(params_files[0].read_text(encoding="utf-8"))
+        assert params["bbox"] == [40.5, 13.4, 40.8, 13.7]
 
 
 class TestInsarDownloadDemTool:
@@ -179,3 +185,173 @@ class TestInsarDownloadDemTool:
 
         assert "error" not in result
         assert mock_download.call_args.kwargs["bbox"] == (40.5, 13.4, 40.8, 13.7)
+
+    def test_passes_proxy_to_dem_engine(self, tmp_path: Path):
+        with patch(
+            "insar_agent.mcp.server.download_dem",
+            return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
+        ) as mock_download:
+            result = insar_download_dem(
+                output_path=str(tmp_path / "dem.tif"),
+                bbox=[40.5, 13.4, 40.8, 13.7],
+                proxy="http://temporary-proxy:7890",
+            )
+
+        assert "error" not in result
+        assert mock_download.call_args.kwargs["proxy"] == "http://temporary-proxy:7890"
+
+
+class TestDownloadRslcProxyBehavior:
+    def test_preserves_system_proxy_when_proxy_not_provided(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from insar_agent.engines.isce3 import download as download_mod
+
+        observed: dict[str, str | None] = {}
+
+        class _DummyFile:
+            def close(self) -> None:
+                return None
+
+        class _DummyH5:
+            def close(self) -> None:
+                return None
+
+        def fake_open_remote(url: str, *args, **kwargs):
+            observed["HTTP_PROXY"] = os.environ.get("HTTP_PROXY")
+            observed["HTTPS_PROXY"] = os.environ.get("HTTPS_PROXY")
+            return _DummyFile(), _DummyH5()
+
+        monkeypatch.setenv("HTTP_PROXY", "http://system-proxy:8080")
+        monkeypatch.setenv("HTTPS_PROXY", "http://system-proxy:8443")
+
+        with (
+            patch.object(download_mod, "_open_remote", side_effect=fake_open_remote),
+            patch.object(download_mod, "bbox_to_radar_window", return_value={"az_start": 0, "az_end": 10, "rg_start": 0, "rg_end": 20, "n_az_orig": 10, "n_rg_orig": 20}),
+            patch.object(download_mod, "download_cropped_rslc", return_value=None),
+        ):
+            result = download_mod.download_rslc_stack(
+                urls=["https://example.test/NISAR_RSLC.h5"],
+                bbox=(40.5, 13.4, 40.8, 13.7),
+                output_dir=str(tmp_path / "out"),
+            )
+
+        assert result["failed"] == []
+        assert observed == {
+            "HTTP_PROXY": "http://system-proxy:8080",
+            "HTTPS_PROXY": "http://system-proxy:8443",
+        }
+        assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
+
+    def test_applies_temporary_proxy_override_for_download_session(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from insar_agent.engines.isce3 import download as download_mod
+
+        observed: dict[str, str | None] = {}
+
+        class _DummyFile:
+            def close(self) -> None:
+                return None
+
+        class _DummyH5:
+            def close(self) -> None:
+                return None
+
+        def fake_open_remote(url: str, *args, **kwargs):
+            observed["HTTP_PROXY"] = os.environ.get("HTTP_PROXY")
+            observed["HTTPS_PROXY"] = os.environ.get("HTTPS_PROXY")
+            return _DummyFile(), _DummyH5()
+
+        monkeypatch.setenv("HTTP_PROXY", "http://system-proxy:8080")
+        monkeypatch.setenv("HTTPS_PROXY", "http://system-proxy:8443")
+
+        with (
+            patch.object(download_mod, "_open_remote", side_effect=fake_open_remote),
+            patch.object(download_mod, "bbox_to_radar_window", return_value={"az_start": 0, "az_end": 10, "rg_start": 0, "rg_end": 20, "n_az_orig": 10, "n_rg_orig": 20}),
+            patch.object(download_mod, "download_cropped_rslc", return_value=None),
+        ):
+            result = download_mod.download_rslc_stack(
+                urls=["https://example.test/NISAR_RSLC.h5"],
+                bbox=(40.5, 13.4, 40.8, 13.7),
+                output_dir=str(tmp_path / "out"),
+                proxy="http://temporary-proxy:7890",
+            )
+
+        assert result["failed"] == []
+        assert observed == {
+            "HTTP_PROXY": "http://temporary-proxy:7890",
+            "HTTPS_PROXY": "http://temporary-proxy:7890",
+        }
+        assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
+
+
+class TestDownloadDemProxyBehavior:
+    def test_preserves_system_proxy_when_proxy_not_provided(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from insar_agent.engines.isce3 import dem as dem_mod
+
+        observed: dict[str, str | None] = {}
+
+        class _DummyDataset:
+            pass
+
+        def fake_warp(output_path, sources, options=None):
+            observed["HTTP_PROXY"] = os.environ.get("HTTP_PROXY")
+            observed["HTTPS_PROXY"] = os.environ.get("HTTPS_PROXY")
+            Path(output_path).write_bytes(b"dem")
+            return _DummyDataset()
+
+        monkeypatch.setenv("HTTP_PROXY", "http://system-proxy:8080")
+        monkeypatch.setenv("HTTPS_PROXY", "http://system-proxy:8443")
+
+        with (
+            patch("osgeo.gdal.UseExceptions", return_value=None),
+            patch("osgeo.gdal.Warp", side_effect=fake_warp),
+            patch("osgeo.gdal.WarpOptions", side_effect=lambda **kwargs: kwargs),
+        ):
+            result = dem_mod.download_dem(
+                output_path=str(tmp_path / "dem.tif"),
+                bbox=(40.5, 13.4, 40.8, 13.7),
+            )
+
+        assert result["output_path"] == str(tmp_path / "dem.tif")
+        assert observed == {
+            "HTTP_PROXY": "http://system-proxy:8080",
+            "HTTPS_PROXY": "http://system-proxy:8443",
+        }
+        assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
+
+    def test_applies_temporary_proxy_override_for_download_session(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from insar_agent.engines.isce3 import dem as dem_mod
+
+        observed: dict[str, str | None] = {}
+
+        class _DummyDataset:
+            pass
+
+        def fake_warp(output_path, sources, options=None):
+            observed["HTTP_PROXY"] = os.environ.get("HTTP_PROXY")
+            observed["HTTPS_PROXY"] = os.environ.get("HTTPS_PROXY")
+            Path(output_path).write_bytes(b"dem")
+            return _DummyDataset()
+
+        monkeypatch.setenv("HTTP_PROXY", "http://system-proxy:8080")
+        monkeypatch.setenv("HTTPS_PROXY", "http://system-proxy:8443")
+
+        with (
+            patch("osgeo.gdal.UseExceptions", return_value=None),
+            patch("osgeo.gdal.Warp", side_effect=fake_warp),
+            patch("osgeo.gdal.WarpOptions", side_effect=lambda **kwargs: kwargs),
+        ):
+            result = dem_mod.download_dem(
+                output_path=str(tmp_path / "dem.tif"),
+                bbox=(40.5, 13.4, 40.8, 13.7),
+                proxy="http://temporary-proxy:7890",
+            )
+
+        assert result["output_path"] == str(tmp_path / "dem.tif")
+        assert observed == {
+            "HTTP_PROXY": "http://temporary-proxy:7890",
+            "HTTPS_PROXY": "http://temporary-proxy:7890",
+        }
+        assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"

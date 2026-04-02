@@ -71,11 +71,17 @@ def get_processing_param_keys(workflow: str) -> list[str]:
 
 def load_default_runconfig(workflow: str) -> dict:
     """Load the default runconfig template for a workflow from the assets directory."""
-    template_file = _ASSETS / f"{workflow}.yaml"
-    if not template_file.exists():
-        raise FileNotFoundError(f"No default runconfig template for workflow: {workflow!r}")
+    template_file = get_default_runconfig_template_path(workflow)
     with template_file.open() as f:
         return yaml.safe_load(f)
+
+
+def get_default_runconfig_template_path(workflow: str) -> Path:
+    """Return the absolute on-disk default runconfig template path for a workflow."""
+    template_file = (_ASSETS / f"{workflow}.yaml").resolve()
+    if not template_file.exists():
+        raise FileNotFoundError(f"No default runconfig template for workflow: {workflow!r}")
+    return template_file
 
 
 SUPPORTED_WORKFLOWS = [

@@ -42,6 +42,7 @@ follow the contract in this file.
 The main agent should send only a compressed package with:
 
 - `project_id` when available
+- processing path / task type
 - workflow / task type
 - user goal summary
 - local metadata summary from `insar_describe_rslc`
@@ -49,6 +50,13 @@ The main agent should send only a compressed package with:
 - evidence profile
 - missing information
 - whitelist-controlled parameter registry summary
+
+If the task is a time-series / Path B scenario, the package should also include:
+
+- whether the tuned `base_runconfig` will be propagated to an entire stack/network
+- stack size / temporal span / reference-scene choice when available
+- network mode (`tbase`, `conn`, or custom pair list) when available
+- whether the user prioritizes stable coherence across many pairs or sharper single-pair detail
 
 ## Required Output
 
@@ -96,3 +104,7 @@ The main agent will:
 - present the enhanced diff to the user
 - apply parameters if the user confirms
 - show the full YAML and continue the workflow
+
+For time-series / Path B tasks, prefer conservative, reproducible changes unless the
+evidence strongly supports a deviation from defaults. One tuned template may be reused
+across many pairs, so stability usually matters more than optimizing a single pair.

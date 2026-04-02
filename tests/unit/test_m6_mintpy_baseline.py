@@ -122,6 +122,34 @@ class TestRunMintpy:
         assert str(dem) in call_args
         assert "myenv" in call_args
 
+    def test_command_includes_env_overrides(self, tmp_path):
+        cfg = tmp_path / "mintpy.cfg"
+        cfg.write_text("")
+        dem = tmp_path / "dem.tif"
+        dem.write_bytes(b"")
+
+        fake_script = tmp_path / "run_mintpy_nisar_stack.sh"
+        fake_script.write_text("#!/bin/bash\n")
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 7
+
+        with patch("insar_agent.engines.isce3.mintpy._SCRIPT", fake_script), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            run_mintpy(
+                mintpy_work_dir=str(tmp_path / "work"),
+                gunw_glob="/data/*.h5",
+                mintpy_config=str(cfg),
+                dem_path=str(dem),
+                conda_env="myenv",
+                python_bin="/opt/py",
+                smallbaseline_bin="/opt/smallbaselineApp.py",
+            )
+
+        _, kwargs = mock_popen.call_args
+        assert kwargs["env"]["PYTHON_BIN"] == "/opt/py"
+        assert kwargs["env"]["SMALLBASELINE_BIN"] == "/opt/smallbaselineApp.py"
+
 
 # ── get_mintpy_status engine tests ───────────────────────────────────────────
 
@@ -271,6 +299,37 @@ class TestInsarRunMintpy:
         assert result["job_id"] == "abc-123"
         assert "insar_get_job" in result["poll"]
         assert "abc-123" in result["poll"]
+        assert result["interaction_mode"] == "interactive"
+        assert "progress_hint" in result
+
+    def test_success_passes_overrides_and_mode_to_engine(self, tmp_path):
+        cfg = tmp_path / "mintpy.cfg"
+        cfg.write_text("")
+        dem = tmp_path / "dem.tif"
+        dem.write_bytes(b"")
+        fake_result = {
+            "job_id": "abc-123",
+            "pid": 42,
+            "status": "running",
+            "log_path": "/work/logs/abc-123.log",
+            "submitted_at": "2026-01-01T00:00:00+00:00",
+        }
+        with patch("insar_agent.mcp.server.run_mintpy", return_value=fake_result) as mock_run:
+            result = insar_run_mintpy(
+                mintpy_work_dir=str(tmp_path / "work"),
+                gunw_glob="/data/*.h5",
+                mintpy_config=str(cfg),
+                dem_path=str(dem),
+                conda_env="mintpy",
+                python_bin="/opt/python",
+                smallbaseline_bin="/opt/smallbaselineApp.py",
+                interaction_mode="auto",
+            )
+
+        _, kwargs = mock_run.call_args
+        assert kwargs["python_bin"] == "/opt/python"
+        assert kwargs["smallbaseline_bin"] == "/opt/smallbaselineApp.py"
+        assert result["interaction_mode"] == "auto"
 
 
 # ── insar_get_mintpy_status MCP tool tests ───────────────────────────────────
@@ -361,6 +420,10 @@ class TestInsarPlotBaseline:
         assert result["n_pairs"] == 5
         assert result["png_path"].endswith(".png")
         assert result["pair_csv"].endswith(".csv")
+        assert result["interaction_mode"] == "interactive"
+        assert result["handoff_required"] is True
+        assert any(path.endswith(".png") for path in result["review_artifacts"])
+        assert "insar_run_mintpy" in result["next_recommended_action"]
 
     def test_empty_pair_list_uses_default(self, tmp_path):
         """pair_list='' should pass None to the engine (use default path)."""
@@ -374,3 +437,21 @@ class TestInsarPlotBaseline:
 
         _, kwargs = mock_fn.call_args
         assert kwargs.get("pair_list") is None
+
+    def test_auto_mode_skips_handoff(self, tmp_path):
+        tmp_path.mkdir(exist_ok=True)
+        fake_result = {
+            "png_path": "/net/pair_lists/baseline_network.png",
+            "pdf_path": "/net/pair_lists/baseline_network.pdf",
+            "pair_csv": "/net/pair_lists/pair_baselines.csv",
+            "scene_csv": "/net/pair_lists/scene_baselines.csv",
+            "n_pairs": 5,
+        }
+        with patch("insar_agent.mcp.server.plot_baseline_network", return_value=fake_result):
+            result = insar_plot_baseline(
+                network_dir=str(tmp_path),
+                interaction_mode="auto",
+            )
+
+        assert result["interaction_mode"] == "auto"
+        assert result["handoff_required"] is False

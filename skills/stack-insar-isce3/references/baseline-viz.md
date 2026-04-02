@@ -1,18 +1,22 @@
 # Baseline Network Visualization
 
-Run after `insar_prepare_network` to visualize the spatiotemporal baseline network.
+Run after the interferogram network has actually finished and produced GUNW products.
+Use the MCP tool `insar_plot_baseline`, not the raw script, when you are operating as an AI client.
 
-## Script
+## MCP usage
 
-`docs/archive/knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py`
-
-## Usage
-
-```bash
-python docs/archive/knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network.py \
-    --pair-list <network_output_dir>/pairs_manifest.txt \
-    --output-dir <network_output_dir>
+```text
+insar_plot_baseline(
+    network_dir=<network_output_dir>,
+    pair_list="",          # optional
+    title="ISCE3 Spatiotemporal Baseline Network",
+    interaction_mode=<interactive|auto>
+)
 ```
+
+In `interactive` mode this is a mandatory review checkpoint before MintPy.
+If the user wants to change pair selection after reviewing the figure, go back to
+`insar_prepare_network` instead of continuing.
 
 ## Output files
 
@@ -23,7 +27,9 @@ python docs/archive/knowledge-base/wangshuai/Scripts/plot_isce3_baseline_network
 | `baseline_network.png` | Spatiotemporal network plot |
 | `baseline_network.pdf` | Vector version of the same plot |
 
-## Future
+## Notes
 
-Full time-series processing is available through `insar_run_mintpy` and the
-`mintpy-isce3` skill.
+- The tool reads perpendicular baseline from the real GUNW products.
+- If the network has not finished, or products are missing, plotting will fail.
+- Full time-series processing continues through `insar_run_mintpy` and the
+  `mintpy-isce3` skill.
