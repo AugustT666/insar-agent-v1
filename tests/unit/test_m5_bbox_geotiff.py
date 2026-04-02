@@ -1,13 +1,14 @@
 """Unit tests for M5: bbox extraction and GeoTIFF export tools."""
 from __future__ import annotations
 
-import struct
+import warnings
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from insar_agent.engines.isce3.bbox import _parse_bounding_polygon, union_bbox
+from insar_agent.engines.isce3.geotiff import export_geotiff
 from insar_agent.mcp.server import insar_extract_bbox, insar_export_geotiff
 
 
@@ -134,3 +135,27 @@ class TestInsarExportGeotiff:
         assert "error" not in result
         assert result["n_files"] == 2
         assert result["skipped"] == 0
+
+    def test_export_geotiff_handles_nonfinite_values_without_runtime_warning(self, tmp_path):
+        h5py = pytest.importorskip("h5py")
+        np = pytest.importorskip("numpy")
+
+        h5 = tmp_path / "product.h5"
+        with h5py.File(h5, "w") as hf:
+            hf.create_dataset(
+                "science/LSAR/GUNW/grids/frequencyA/unwrappedInterferogram/HH/unwrappedPhase",
+                data=np.array([[0.0, np.nan], [np.inf, -1.0]], dtype=np.float32),
+            )
+
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            result = export_geotiff(h5_path=h5, output_dir=tmp_path / "out")
+
+        runtime_warnings = [
+            warning
+            for warning in recorded
+            if issubclass(warning.category, RuntimeWarning)
+        ]
+        assert not runtime_warnings
+        assert any(path.endswith(".tif") for path in result["files"])
+        assert any(path.endswith(".png") for path in result["files"])

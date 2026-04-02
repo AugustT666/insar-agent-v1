@@ -101,6 +101,22 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
                     break
         return ct
 
+    def _scale_browse_data(data, lo: float, hi: float):
+        finite_mask = np.isfinite(data)
+        if not finite_mask.any():
+            return np.zeros(data.shape, dtype=np.uint8)
+
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            finite_values = data[finite_mask]
+            lo = float(finite_values.min())
+            hi = float(finite_values.max())
+            if hi <= lo:
+                hi = lo + 1.0
+
+        scaled = np.zeros(data.shape, dtype=np.float32)
+        scaled[finite_mask] = (data[finite_mask] - lo) / (hi - lo) * 255.0
+        return np.clip(scaled, 0, 255).astype(np.uint8)
+
     def _process_dataset(name: str, obj) -> None:
         nonlocal skipped
         if not hasattr(obj, "shape") or len(obj.shape) < 2:
@@ -136,11 +152,11 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
                 band = gdal.Open(tif_path).GetRasterBand(1)
                 stats = band.GetStatistics(True, True)
                 lo, hi = stats[0], stats[1]
-                if hi <= lo:
+                if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
                     hi = lo + 1.0
 
             mem_ds = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Byte)
-            scaled = np.clip((data - lo) / (hi - lo) * 255, 0, 255).astype(np.uint8)
+            scaled = _scale_browse_data(data, lo, hi)
             mem_ds.GetRasterBand(1).WriteArray(scaled)
             mem_ds.GetRasterBand(1).SetColorTable(_make_color_table(mode))
             gdal.GetDriverByName("PNG").CreateCopy(png_path, mem_ds)
