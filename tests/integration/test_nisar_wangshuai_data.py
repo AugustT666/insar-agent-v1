@@ -5,7 +5,7 @@ These tests verify that the MCP tools correctly handle real NISAR RSLC files
 and produce valid runconfigs ready for ISCE3 execution.
 
 Run only when NAS data is mounted:
-    pytest tests/integration/test_nisar_wangshuai_data.py -v
+    pytest tests/integration/test_nisar_wangshuai_data.py -v -m real_data
 
 Skip automatically if data is not available.
 """
@@ -35,9 +35,13 @@ DEM_FILE = NAS_ROOT / "dem.wgs84"
 
 NAS_AVAILABLE = REF_RSLC.exists() and SEC_RSLC.exists() and DEM_FILE.exists()
 
-pytestmark = pytest.mark.skipif(
-    not NAS_AVAILABLE, reason="NAS test data not available at /home/august/NAS/NISAR_wangshuai_data/"
-)
+pytestmark = [
+    pytest.mark.real_data,
+    pytest.mark.skipif(
+        not NAS_AVAILABLE,
+        reason="NAS test data not available at /home/august/NAS/NISAR_wangshuai_data/",
+    ),
+]
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 

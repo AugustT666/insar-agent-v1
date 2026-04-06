@@ -14,10 +14,13 @@ DEM_FILE = NAS_ROOT / "dem.wgs84"
 
 NAS_AVAILABLE = REF_RSLC.exists() and SEC_RSLC.exists() and DEM_FILE.exists()
 
-pytestmark = pytest.mark.skipif(
-    not NAS_AVAILABLE,
-    reason="NAS data not available; mount /home/august/NAS/NISAR_wangshuai_data/",
-)
+pytestmark = [
+    pytest.mark.real_data,
+    pytest.mark.skipif(
+        not NAS_AVAILABLE,
+        reason="NAS data not available; mount /home/august/NAS/NISAR_wangshuai_data/",
+    ),
+]
 
 
 @pytest.fixture(autouse=True)

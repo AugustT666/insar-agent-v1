@@ -14,7 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-pytest                                              # run all tests
+pytest                                              # run default test suite (excludes real_data)
+pytest -m real_data tests/integration -q            # run real-data tests explicitly
 pytest tests/unit/test_smoke.py::test_name         # run a single test
 pip install -e ".[dev]"                             # install with dev deps
 ```
@@ -68,4 +69,4 @@ Knowledge archive:
 - `docs/archive/knowledge-base/tianxiaolong/` — workflow constraints, runconfig templates, DEM/GeoTIFF scripts
 - `docs/archive/knowledge-base/wangshuai/` — stack/network prep, MintPy time-series, baseline visualization
 
-**Test data:** NAS RSLC files at `/home/august/NAS/NISAR_wangshuai_data/`; integration tests skip automatically if NAS not mounted.
+**Test data:** NAS RSLC files at `/home/august/NAS/NISAR_wangshuai_data/`; real-data tests are marked `real_data` and are excluded from default `pytest` runs unless explicitly selected.

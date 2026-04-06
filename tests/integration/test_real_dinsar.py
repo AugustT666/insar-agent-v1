@@ -6,7 +6,7 @@ Requires:
 - conda environment 'isce3gpu' with nisar.workflows.insar available
 
 Run with:
-    pytest tests/integration/test_real_dinsar.py -v -s --timeout=3600
+    pytest tests/integration/test_real_dinsar.py -v -s -m real_data --timeout=3600
 
 The test produces a GUNW_product.h5 in a temporary directory and verifies that
 key output layers (wrapped phase, coherence, unwrapped phase) are present.
@@ -41,10 +41,13 @@ CONDA_ENV = "isce3gpu"
 
 NAS_AVAILABLE = REF_RSLC.exists() and SEC_RSLC.exists() and DEM_FILE.exists()
 
-pytestmark = pytest.mark.skipif(
-    not NAS_AVAILABLE,
-    reason="NAS data not available; mount /home/august/NAS/NISAR_wangshuai_data/",
-)
+pytestmark = [
+    pytest.mark.real_data,
+    pytest.mark.skipif(
+        not NAS_AVAILABLE,
+        reason="NAS data not available; mount /home/august/NAS/NISAR_wangshuai_data/",
+    ),
+]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

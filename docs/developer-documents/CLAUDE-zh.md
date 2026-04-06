@@ -7,8 +7,11 @@
 ## 常用命令
 
 ```bash
-# 运行全部测试
+# 运行默认测试集（不含 real_data）
 pytest
+
+# 显式运行真实数据测试
+pytest -m real_data tests/integration -q
 
 # 运行单个测试文件
 pytest tests/unit/test_smoke.py
@@ -99,7 +102,7 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 1. `docs/developer-documents/dev-plan.md` — 当前进度、后续计划、协作开发主文档
 2. `docs/architecture.md` — 系统概述、层边界、里程碑状态
-3. `docs/mcp-tools.md` — 每个 MCP 工具的完整输入/输出规格
+3. `docs/developer-documents/mcp-tools.md` — 每个 MCP 工具的完整输入/输出规格
 4. `docs/agent-guide.md` — AI 约束指南（唯一权威来源）；同时作为 `insar://workflow-guide` MCP 资源提供
 
 ---
@@ -168,8 +171,8 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 ## 测试数据
 
-- NAS RSLC 文件：`/home/august/NAS/NISAR_wangshuai_data/`（集成测试直接引用）
+- NAS RSLC 文件：`/home/august/NAS/NISAR_wangshuai_data/`（真实数据测试直接引用）
 - 固定 runconfig：`tests/fixtures/insar_nisar.yaml`
-- NAS 未挂载时集成测试自动跳过
+- 真实数据测试统一标记为 `real_data`，默认 `pytest` 不会执行；只有显式使用 `-m real_data` 才会运行
 
-完整工具规格与领域对象总览见 `docs/mcp-tools.md` 和 `docs/architecture.md`。
+完整工具规格与领域对象总览见 `docs/developer-documents/mcp-tools.md` 和 `docs/architecture.md`。

@@ -228,120 +228,126 @@
 
 ---
 
-## 最新进展（本轮未提交改动汇总）
+## 2026-04-05 项目审阅与状态校准
 
-### 1. 数据准备链路强化
+> 说明：下列审阅结论以 2026-04-05 当天仓库代码、`PYTHONPATH=src python -m insar_agent.mcp.server --describe` 输出、`pytest tests -q` 结果以及仓库内测试/文档证据为准。若与上文历史里程碑描述冲突，以本节作为当前状态基线。
 
-- `insar_download_rslc`
-  - 默认沿用系统代理设置，不再默认清空代理强制直连
-  - 支持仅对本次下载进程临时覆盖代理
-  - 支持无 bbox / AOI 时的 full-frame 下载，但必须 `confirm=True`
-  - MCP 层改为后台任务模式，返回 `job_id` / `log_path` / `pid`，不再同步阻塞
-- `insar_download_dem`
-  - 与 RSLC 下载统一代理语义：默认沿用系统代理，必要时可临时覆盖
-- `data-prep-nisar` skill 与参考文档
-  - 明确“相关文件默认由用户提供”
-  - 加入 ASF / Earthdata 凭据和 `~/.netrc` 引导
-  - 增加服务器资源检查和 `n_workers` 现场推荐
-  - 删除不必要的经验化/推导式表述
+### 审阅事实基线
 
-### 2. Path B 时序工作流补齐
+- 当前活跃 MCP 面：`18 tools / 2 resources / 2 prompts`
+  - 证据：`src/insar_agent/mcp/server.py` 中 `@mcp.tool()` / `@mcp.resource()` / `@mcp.prompt()` 定义，以及 `--describe` 输出一致
+- 当前测试基线：`pytest tests -q` 在本机环境实跑通过，结果为 `237 passed in 64.96s`
+  - 证据：2026-04-05 本地验证
+- 当前真实数据路径在本机环境可用
+  - 证据：`tests/integration/test_real_dinsar.py`、`tests/integration/test_param_advisor_real_data.py`、`tests/integration/test_nisar_wangshuai_data.py` 本次运行未被 skip
 
-- `stack-insar-isce3` 与 `mintpy-isce3` skills 已按 README 实践路径重写
-- MCP 契约层加入统一 `interaction_mode`
-- `insar_prepare_stack` / `insar_prepare_network` / `insar_plot_baseline`
-  - 返回 `handoff_required`、`handoff_reason`、`review_artifacts`、`next_recommended_action`
+### 与计划一致且已落地
+
+- Path B 的交互编排字段已进入主实现，不应再视为“本轮未提交改动”
+  - 包括 `interaction_mode`、`execution_mode`、`python_bin`、`smallbaseline_bin`
+  - 包括 `handoff_required`、`handoff_reason`、`review_artifacts`、`next_recommended_action`、`progress_hint`
+  - 证据：代码实现（`src/insar_agent/mcp/server.py`）
+- `prepare_stack` / `prepare_network` 的默认模板回退已落地
+  - 支持 `base_runconfig` 留空回退到内置 `insar` 模板
+  - 证据：代码实现 + 单元测试（`tests/unit/test_m4_stack_network.py`）
+- 参数专家对 Path B 的上下文约束已进入 skill / subagent contract
+  - 证据：文档约束（`skills/param-advisor-isce3/SKILL.md`、`.claude/agents/*.md`）
+
+### 能力完成度矩阵
+
+| 能力/模块 | 当前状态 | 证据 | 后续动作 |
+|------|------|------|------|
+| Path A 主线：`insar_create_project` / `insar_set_runconfig_value` / `insar_run_workflow` / `insar_get_job` / `insar_list_outputs` | 已实现，且有真实数据验证 | 代码实现 + 单元测试 + `tests/integration/test_real_dinsar.py` / `test_nisar_wangshuai_data.py` | 继续维持回归测试 |
+| `insar_describe_rslc` | 已实现，且有真实数据验证 | 代码实现 + 单元测试 + `tests/integration/test_param_advisor_real_data.py` | 继续完善 metadata-first 文档 |
+| `insar_extract_bbox` / `insar_export_geotiff` | 已实现，且有真实数据验证 | 代码实现 + 单元测试 + `tests/integration/test_real_dinsar.py` | 保持 GDAL 相关环境说明 |
+| `insar_set_processing_param` | 已实现，但当前以单元测试/契约测试为主 | 代码实现 + `tests/unit/test_set_processing_param.py` + subagent contract tests | 增补更接近真实调参流程的集成回归 |
+| Path B：`insar_prepare_stack` / `insar_prepare_network` / `insar_run_batch` | 已实现，但当前以单元测试/契约测试为主 | 代码实现 + `tests/unit/test_m4_stack_network.py` + workflow 文档 | 增补真实数据回归与端到端记录 |
+| MintPy：`insar_plot_baseline` / `insar_run_mintpy` | 已实现，但当前以单元测试为主 | 代码实现 + `tests/unit/test_m6_mintpy_baseline.py` + skill 文档 | 增补真实 MintPy 链路回归 |
+| 数据准备：`insar_download_rslc` / `insar_download_dem` | 已实现，但当前以单元测试为主 | 代码实现 + `tests/unit/test_isce3_data_prep.py` / `test_isce3_download.py` + skill 文档 | 增补真实 Earthdata/AOI 回归 |
+| `gslc` workflow | 模板级支持，未完成产品化闭环 | 代码实现（template + discover + allowed-fields）+ 文档 | 补 workflow 指南、参数注册表、真实执行验证 |
+| `examples/runconfigs/` | 占位目录，不是当前已完成能力 | 文档约束 | 仅在需要公开 sanitized 样例时再升级 |
+
+### 已实现，但验证边界仍弱的部分
+
+以下模块当前可以视为“已开发”，但仓库内尚缺真实数据自动化验证，暂不应按与 Path A 同等成熟度表述：
+
+- `insar_set_processing_param`
+- `insar_prepare_stack`
+- `insar_prepare_network`
 - `insar_run_batch`
-  - 新增 `execution_mode="parallel|serial"`
-  - 新增 `python_bin`
-  - 返回 `command`、`progress_hint`
 - `insar_run_mintpy`
-  - 新增 `python_bin`、`smallbaseline_bin`
-  - 返回 `command`、`progress_hint`
+- `insar_plot_baseline`
+- `insar_download_rslc`
+- `insar_download_dem`
 
-### 3. Path B 默认模板稳定化
+统一证据来源：
 
-- `prepare_stack` / `prepare_network` 支持 `base_runconfig` 留空
-- 留空时自动回落到 `src/insar_agent/engines/isce3/assets/insar.yaml`
-- 返回结果显式回传：
-  - `base_runconfig`
-  - `base_runconfig_source`
-- 针对内置模板缺少 `logging.path` 的情况补了兼容逻辑，确保默认模板可稳定用于 Path B
+- 代码实现：`src/insar_agent/mcp/server.py` 与 `src/insar_agent/engines/isce3/*`
+- 单元测试 / 契约测试：`tests/unit/`
+- 文档约束：对应 skills、`mcp-tools.md`、`.claude/agents/*.md`
 
-### 4. 参数专家子代理适配时序任务
+### 仍属占位或未闭环的部分
 
-- `param-advisor-isce3` skill、subagent contract 和 reference asset 已补充 Path B 所需上下文：
-  - 调参结果是否会传播到整条 stack / network
-  - stack 场景数、时间跨度、参考景
-  - network 模式
-  - 用户偏向“稳定 coherence”还是“单对细节”
-- guidance 明确：时序场景优先保守、稳健、可复现的建议
+- `gslc`
+  - 当前已有默认模板、discover 暴露、allowed-fields 支持
+  - 但缺独立 workflow 指南、缺 processing param registry、缺真实数据执行验证
+  - 当前应定义为“部分支持 / 模板级支持”，不应与 `insar` 按同等成熟度叙述
+- `examples/runconfigs/`
+  - 当前只有占位说明，没有正式公开样例
+  - 应明确归类为示例资产保留位，而非已完成能力模块
 
-### 5. 真实数据验证结果
+### 文档漂移与校准项
 
-已完成的真实验证：
+- [README.md](/home/august/insar-agent/README.md) 中“17 FastMCP tools”已过时，当前真实值为 18
+  - 证据：`--describe` 与 `mcp/server.py` 一致
+- Path B 返回字段与交互模式已经进入实现，但不是所有总览文档都已同步说明
+  - 证据：代码实现 vs 总览文档对比
+- 当前真实数据验证主要集中在 Path A、`insar_describe_rslc`、GeoTIFF/bbox 辅助能力
+  - Path B、MintPy、批处理、数据准备下载链路仍缺仓库内可重复的真实外部环境回归
+- `gslc` 当前成熟度低于 `insar`
+  - 证据：代码/测试/技能文档覆盖面明显不足
 
-- `insar_download_dem`：已在真实 AOI 上验证可用
-- Path B：
-  - stack 已在真实数据上跑通
-  - network 已在真实数据上跑通
-  - baseline CSV 与图形检查链路已交付真实产物
+### 本轮文档整理动作
 
-本轮暴露的关键环境问题：
-
-- `insar_run_batch` 仅覆盖 `python_bin` 还不够，父进程继承的 `GDAL_DRIVER_PATH` / `GDAL_DATA` / `PROJ_DATA` 可能污染目标 conda 环境
-- `insar_plot_baseline` 依赖当前工具运行环境的绘图库能力，而不是 MintPy 的 `conda_env`
-- MintPy 真实端到端尚未完成，当前阻塞点是目标环境里 `smallbaselineApp.py` / plotting 依赖未统一验证
-
-### 6. 文档整理
-
-- `mcp-tools.md` 已按当前 MCP 行为大幅更新并中文化
-- 新增一批中文开发文档镜像：
-  - `docs/developer-documents/skills/data-prep-nisar/...`
-  - `docs/developer-documents/skills/stack-insar-isce3/...`
-  - `docs/developer-documents/skills/mintpy-isce3/...`
-- 新增路线评估文档：
-  - `docs/developer-documents/2026-04-02-cli-anything-vs-mcp-route-evaluation.md`
+- 新增主线英文文档的中文镜像到 `docs/developer-documents/`
+- 对缺失中文镜像的 skill / subagent 文档补齐中文版本
+- 对已有中文文档做最小必要同步，避免继续扩散过时表述
 
 ---
 
 ## 下一阶段开发计划
 
-### P1 — 运行环境收口（最高优先级）
+### P1 — Path B / MintPy / 数据准备真实回归补齐（最高优先级）
 
-1. 修复 `insar_run_batch` 的运行环境污染问题
-   - 在指定 `python_bin` 时，同时清理或重建 `GDAL_DRIVER_PATH`、`GDAL_DATA`、`PROJ_DATA` 等高风险环境变量
-   - 验证 `base` → `isce3gpu`、`base` → `isce3` 等跨环境调用场景
-2. 明确 baseline plotting 的运行时依赖
-   - 决定是把 `insar_plot_baseline` 绑定到统一环境，还是提供无 `matplotlib` 依赖的 fallback 输出路径
-3. 把 conda 环境确认进一步制度化
-   - `insar-agent` 路由 skill 继续持有会话级 env 确认
-   - Path B / MintPy skills 保留执行级兜底检查
+1. 为 `insar_prepare_stack` / `insar_prepare_network` / `insar_run_batch` 增补真实数据验证记录
+2. 为 `insar_plot_baseline` / `insar_run_mintpy` 增补真实 MintPy 链路验证
+3. 为 `insar_download_rslc` / `insar_download_dem` 增补真实 AOI / Earthdata 环境验证
+4. 将真实失败模式沉淀到对应 skill 与开发文档，而不是只留在临时会话结论中
 
-### P2 — MintPy 真实链路补齐
+### P2 — `gslc` 从模板级支持推进到正式能力
 
-1. 在真实数据上跑通 `insar_run_mintpy`
-2. 验证 `smallbaselineApp.py`、DEM、GUNW glob、MintPy config 的最小可用组合
-3. 将真实失败模式补充进 `mintpy-isce3` skill 与开发文档
-4. 形成一份可复用的真实时序测试记录
+1. 补独立 workflow 指南与 skill 路径
+2. 若需要开放参数修改，补充 `processing_params_gslc.yaml` 及其校验边界
+3. 增补最小可运行测试与真实执行验证
+4. 在开发文档中把 `gslc` 和 `insar` 的成熟度边界写清楚
 
-### P3 — 下载任务模型统一化
+### P3 — 长任务模型与状态查询风格统一
 
-1. 评估是否给 `insar_download_rslc` 引入正式 job metadata，而不是只返回 `tail -f <log_path>`
+1. 评估是否让 `insar_download_rslc` 进入正式 job metadata 模型，而不是只返回 `tail -f <log_path>`
 2. 统一 long-running 工具的状态查询风格：
    - `insar_run_workflow`
    - `insar_run_batch`
    - `insar_run_mintpy`
    - `insar_download_rslc`
-3. 若统一，则让下载任务也走 `insar_get_job` 风格查询
+3. 若统一，则尽量收敛到 `insar_get_job` 的单一查询入口
 
 ### P4 — 参数与 ancillary 能力继续演进
 
 1. 继续补齐 troposphere / ionosphere ancillary 准备路径
 2. 给 `param-advisor-isce3` 加入 ancillary-aware gating
-3. 评估是否放宽“每次参数建议都必须 web search”的硬约束，使其更符合 metadata-first 设计
+3. 评估“每次参数建议都必须 web search”的约束是否需要进一步收敛为 metadata-first 优先策略
 
-### P5 — DEM 能力补强（参考 `ddem.pyc`，但按当前架构迁移）
+### P5 — DEM 能力补强（参考历史脚本，但按当前架构迁移）
 
 1. 多数据源/provider 抽象
 2. 下载管理器、缓存、重试
@@ -351,7 +357,7 @@
 
 ### 远期规划（待讨论）
 
-- 长时间处理的定时状态监测：后台守护进程定期 poll `insar_get_job`，错误时主动通知 AI 介入修复（当前完全依赖 AI 被动轮询）
+- 长时间处理的定时状态监测：后台守护进程定期 poll `insar_get_job`，错误时主动通知 AI 介入修复
 - 多引擎支持（ISCE2 / HyP3 适配器）
 - Web UI / 任务队列（可选）
 
@@ -365,8 +371,13 @@
 | `docs/developer-documents/dev-plan.md` | 本文档：已完成进度 + 未来计划 |
 | `docs/developer-documents/workflow-showcase.md` | 三方交互流程展示，序列图，错误处理示例 |
 | `docs/developer-documents/CLAUDE-zh.md` | CLAUDE.md 中文对照版（供领域专家阅读） |
+| `docs/developer-documents/README-zh.md` | README 中文镜像（按当前实现审校翻译） |
+| `docs/developer-documents/architecture-zh.md` | architecture 中文镜像 |
+| `docs/developer-documents/agent-guide-zh.md` | agent-guide 中文镜像 |
 | `docs/architecture.md` | 系统分层架构，模块边界，里程碑状态 |
 | `docs/developer-documents/mcp-tools.md` | 全部 MCP 工具的输入/输出规格 |
+| `docs/developer-documents/skills/` | 主线 workflow skills 的中文镜像 |
+| `docs/developer-documents/agents/` | 参数专家 subagent 与 reference asset 的中文镜像 |
 | `docs/archive/knowledge-base/` | 历史来源材料归档，不作为当前权威入口 |
 
 ### 文档/示例占位与归档整理

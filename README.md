@@ -36,6 +36,16 @@ PYTHONPATH=src python -m insar_agent.mcp.server --stdio
 `insar-mcp-server` runs over stdio. `--describe` prints the active MCP surface;
 `--stdio` starts the server for external clients.
 
+## Tests
+
+```bash
+pytest                              # default suite; excludes real_data tests
+pytest tests/unit -q                # unit tests only
+pytest -m real_data tests/integration -q
+```
+
+Real-data tests require the NAS dataset and may launch actual processing workflows, so they are opt-in.
+
 ## Typical Workflows
 
 ### Single Pair
