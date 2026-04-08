@@ -19,6 +19,16 @@ description: >
 - Workspace / output directory (absolute path)
 - Conda environment name — run `conda env list` and let user choose from ISCE-related envs
 
+## Execution modes
+
+- Default to `interaction_mode="interactive"`.
+- At the start, tell the user they can switch to `interaction_mode="auto"` if they want
+  the AI to keep going with minimal interruptions.
+- **interactive**: At Step 2.5, pause and ask the user whether to run param-advisor-isce3.
+  Wait for confirmation before proceeding.
+- **auto**: At Step 2.5, automatically enter param-advisor-isce3 without asking.
+  Skip only if the user has explicitly said to use default parameters.
+
 ## Hard constraints
 
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
@@ -50,14 +60,33 @@ description: >
 
    Optional: `worker.gpu_enabled`, `worker.gpu_id`, `logging.path`
 
-2.5. **（可选）参数调优** — 若用户需要调整处理参数：
-   进入 `param-advisor-isce3`。该 skill 负责：
-   - 调 `insar_describe_rslc`
-   - 调 `.claude/agents/param-advisor-isce3.md`
-   - 展示参数 diff 和三选一确认
-   - 如用户接受建议，调用 `insar_set_processing_param`
-   - 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
-   完成后再回到本 workflow 继续 Step 3。
+2.5. **参数调优**
+
+   收到 `PARAM_ADVISOR_PROMPT` 后，先调用 `insar_run_workflow(project_id, dry_run=True)`
+   获取 `param_tuned_found` 和 `param_tuned_config` 字段：
+
+   - **若 `param_tuned_found: true`**：
+     - interactive：提示用户"已有已优化参数文件（`param_tuned_config`），是否复用？"，等待确认后复用或重新调优
+     - auto：直接复用，跳过调优，继续 Step 3
+   - **若 `param_tuned_found: false`**，根据 interaction_mode 决策：
+
+   **interactive 模式：** 询问用户是否进入参数调优，等待确认后再继续。
+   提供三个选项：
+   1. 使用默认参数，直接运行
+   2. 进入 param-advisor-isce3 进行专家调优
+   3. 手动指定参数值
+
+   **auto 模式：** 直接进入 `param-advisor-isce3`，无需用户确认。
+
+   param-advisor-isce3 调用链：
+   - `insar_describe_rslc(reference_rslc, secondary_rslc, project_id)`
+   - `.claude/agents/param-advisor-isce3.md`（生成推荐 + yaml_diff_preview）
+   - interactive：展示 diff，等待用户三选一确认；auto：自动接受推荐
+   - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
+   - `insar_get_runconfig(format='yaml')` 展示最终配置
+   - **落盘**：`insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
+     → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`，供后续复用
+   完成后继续 Step 3。
 
 3. **Run workflow**
    ```

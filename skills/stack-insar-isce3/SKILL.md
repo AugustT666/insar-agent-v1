@@ -1,19 +1,21 @@
 ---
 name: stack-insar-isce3
 description: >
-  Use when the user has multiple NISAR RSLC files and wants to generate a batch
-  interferogram network for time-series analysis. Invoke when the user mentions
-  Stack-InSAR, batch processing, interferogram network, MintPy, time-series,
-  multiple scenes, temporal baseline, or asks to process more than two RSLC files.
-  Also invoke when the user wants to run parallel ISCE3 jobs across a scene stack.
-  If the DEM or RSLC files are missing, invoke data-prep-nisar first.
+  Use when the user has multiple NISAR RSLC files and wants to run Stack processing
+  (single-reference hub-and-spoke pairs), Network processing (short-baseline any-to-any
+  pairs for MintPy), or both. Invoke when the user mentions Stack-InSAR, batch processing,
+  interferogram network, MintPy, time-series, multiple scenes, temporal baseline, or asks
+  to process more than two RSLC files. Stack and Network are independent — either can be
+  run alone. If the DEM or RSLC files are missing, invoke data-prep-nisar first.
 ---
 
-# Stack-InSAR: Multi-scene Batch → Interferogram Network (Path B)
+# Stack-InSAR: Multi-scene Batch Processing (Path B)
+
+> Stack（单主影像拓扑）与 Network（短基线任意配对）互相独立，无依赖关系，可按需单独运行。
+> 两者都直接读取原始 RSLC 文件；Stack 用于建立统一的参考景，Network 用于生成 MintPy 时序反演所需的配对产品。
 
 Path B tools operate directly on the filesystem and do not use the project registry.
-Each step generates shell scripts that can either be launched manually or through
-`insar_run_batch`.
+Each option generates shell scripts that can be launched manually or through `insar_run_batch`.
 
 ## Execution modes
 
@@ -28,11 +30,12 @@ Each step generates shell scripts that can either be launched manually or throug
 ## Required confirmations (ask only if missing)
 
 - `data_dir`: directory containing multiple NISAR RSLC `.h5` files
-- `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, Path B uses the built-in default `insar` template.
+- `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, uses the built-in default `insar` template.
 - `isce3_conda_env`: conda env that contains ISCE3 and a working GDAL HDF5 plugin path
 - DEM path (`.tif`) — if missing, invoke `data-prep-nisar` first
-- Output directory for stack and network results
-- Network mode: `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
+- Which option(s) to run: Stack only, Network only, or both
+- Output directory (one per option if running both)
+- Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
 - Number of parallel jobs (`N`) for the shell scripts
 - Interaction mode: `interactive` (default) or `auto`
 
@@ -41,42 +44,57 @@ Each step generates shell scripts that can either be launched manually or throug
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
 - If workflow parameters are unclear, ask the user — do not invent them.
 - Core processing parameters in the base runconfig (multilook, unwrapping, etc.) are
-  inherited by all pairs in the stack.
+  inherited by all pairs in the batch.
 - Do not silently choose a project-specific base runconfig. Use the user-provided template.
   If the user does not provide one, use the built-in default `insar` template exposed by MCP.
-- If the user wants parameter tuning, this workflow must invoke `param-advisor-isce3`
-  **before Step 1** using a temporary project.
 - `param-advisor-isce3` is the only supported route for processing-parameter changes in
   this workflow. It must call `insar_describe_rslc`, delegate recommendation generation
   to `.claude/agents/param-advisor-isce3.md`, present `yaml_diff_preview`, collect user
   confirmation, apply accepted changes via `insar_set_processing_param`, then export the
   tuned YAML as the new `base_runconfig`.
-- Do not invoke `param-advisor-isce3` automatically. Run it only when the user asks for
-  parameter tuning or explicitly asks for parameter recommendations.
 - Before the first actual execution, confirm the chosen ISCE3 runtime. If batch execution
   uses `python_bin`, it must point into the confirmed env.
-- Run Step 1 and Step 2 separately.
-- Prefer an explicit reference date for reproducibility. If the user does not provide one,
-  `reference="auto"` selects the earliest acquisition.
+- Option A only: prefer an explicit reference date for reproducibility. If the user does
+  not provide one, `reference="auto"` selects the earliest acquisition.
 - For custom pair list mode: file must contain one `YYYYMMDD_YYYYMMDD` pair per line.
 
-## Standard workflow (always follow this order)
+## Standard workflow
 
-### Step 0 — Optional parameter advisory
+### Step 0 — 参数调优
 
-Run this only when the user wants to tune multilook, filtering, unwrapping,
-ionosphere correction, troposphere correction, or other processing parameters
-in the base runconfig.
+收到 `PARAM_ADVISOR_PROMPT` 后，先用 Glob 工具检测 `<data_dir>/base_runconfig_param_tuned.yaml`
+是否存在（`insar_prepare_stack` / `insar_prepare_network` 调用后也会在返回值中确认
+`param_tuned_found` 和 `param_tuned_base_runconfig` 字段）：
 
-- Enter `param-advisor-isce3` before generating any stack or network runconfigs.
-- Use a temporary project to hold the working runconfig state.
-- The required call chain is:
-  `param-advisor-isce3` → `insar_describe_rslc` → `.claude/agents/param-advisor-isce3.md`
-  → user diff review / confirmation → `insar_set_processing_param`
-- If the user accepts the recommendation, export the tuned YAML and use it as the new
-  `base_runconfig` for both Step 1 and Step 2.
+- **若文件存在（或调用后 `param_tuned_found: true`）**：
+  - interactive：提示用户"已有已优化参数文件（路径），是否复用？"，等待确认后复用或重新调优
+  - auto：直接将其作为 base_runconfig 传入后续选项，跳过调优
+- **若不存在**，根据 interaction_mode 决策：
 
-### Step 1 — Generate single-reference stack
+**interactive 模式：** 询问用户是否在生成 runconfigs 之前进行参数调优，等待确认。
+提供三个选项：
+1. 使用默认参数，直接继续
+2. 进入 param-advisor-isce3 进行专家调优
+3. 手动指定 base_runconfig 路径
+
+**auto 模式：** 直接进入 `param-advisor-isce3`，无需用户确认。
+自动接受推荐参数，导出调优后的 YAML 作为 base_runconfig。
+
+param-advisor-isce3 调用链（Path B）：
+- `insar_describe_rslc`（data_dir 中代表性 RSLC 的元数据）
+- `.claude/agents/param-advisor-isce3.md`（生成推荐）
+- interactive：展示 yaml_diff_preview，等待确认；auto：自动接受
+- 若接受：`insar_set_processing_param`（临时 project）
+- **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用
+- 使用该文件作为后续选项的 base_runconfig
+
+若用户选择跳过，使用内置默认模板或用户指定路径。
+
+---
+
+运行以下选项中的一个或两个，顺序不限：
+
+### Option A — Single-reference stack
 
 ```
 insar_prepare_stack(
@@ -89,37 +107,23 @@ insar_prepare_stack(
 )
 ```
 
-The response includes `run_command`, `handoff_required`, `handoff_reason`,
-`review_artifacts`, and `next_recommended_action`.
-
 - If `handoff_required=true`, stop. Show the reference date, number of secondary scenes,
-  `run_command`, and the listed review artifacts. Wait for the user to approve or ask for
-  a different reference before launching execution.
+  `run_command`, and the listed review artifacts. Wait for user approval before executing.
 - If `handoff_required=false`, show the same information briefly, then continue.
 
-**Option A — AI 代为执行（推荐）：**
 ```
 insar_run_batch(
     batch_dir=<stack_output_dir>,
     max_jobs=<N>,
-    execution_mode="parallel",   # or "serial"
+    execution_mode="parallel",
     python_bin=<path from isce3_conda_env>,
     interaction_mode=<interactive|auto>
 )
 ```
-Returns `job_id`, `log_path`, `poll`, `command`, and `progress_hint`. Tell the user they can monitor real-time output with:
-```bash
-tail -f <log_path>
-```
-Poll `insar_get_job(job_id=<job_id>, batch_dir=<stack_output_dir>)` every ~30s until `status` is `done` or `failed`.
+Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done.
+Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
 
-**Option B — 用户自行执行：**
-```bash
-bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>
-```
-Wait for the user to confirm completion before proceeding to Step 2.
-
-### Step 2 — Generate interferogram network
+### Option B — Short-baseline network
 
 ```
 insar_prepare_network(
@@ -137,37 +141,28 @@ insar_prepare_network(
 
 See `references/network-modes.md` for network strategy options.
 
-The response includes `run_command`, `gunw_pattern`, `handoff_required`,
-`review_artifacts`, and `next_recommended_action`.
-
 - If `handoff_required=true`, stop. Show the network mode, pair count, pair-list path,
-  `gunw_pattern`, and the listed review artifacts. Let the user adjust the network before
-  execution if needed.
+  `gunw_pattern`, and the listed review artifacts. Let the user adjust before executing.
 - If `handoff_required=false`, show the same information briefly, then continue.
 
-**Option A:**
 ```
 insar_run_batch(
     batch_dir=<network_output_dir>,
     max_jobs=<N>,
-    execution_mode="parallel",   # or "serial"
+    execution_mode="parallel",
     python_bin=<path from isce3_conda_env>,
     interaction_mode=<interactive|auto>
 )
 ```
 Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(batch_dir=...)` until done.
+Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>`
 
-**Option B:**
-```bash
-bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>
-```
-
-## Output requirements (report after each step)
+## Output requirements (report after each completed option)
 
 - Base runconfig source path, and whether `param-advisor-isce3` was used
-- Step 1: number of secondary scenes, reference date, `run_command` to execute
-- Step 2: network mode, number of pairs, pair list path, `run_command` to execute
-- Final output structure: `<network_output_dir>/runs/<date1>_<date2>/products/GUNW_*.h5`
+- If Option A ran: number of secondary scenes, reference date, `run_command`
+- If Option B ran: network mode, number of pairs, pair list path, `run_command`
+- Final GUNW output: `<output_dir>/runs/<date1>_<date2>/products/GUNW_*.h5`
 - In `interactive` mode, treat MCP handoff points as mandatory user review windows.
 
 ## Practical notes
@@ -177,9 +172,9 @@ bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>
   - generated pair runconfigs under `runconfigs/`: one YAML per stack pair or network pair
   - `mintpy_config`: separate MintPy config, used later by `mintpy-isce3`, not by this skill
 - A failed batch with no products is often an environment problem, not a pairing problem.
-  Check the selected runtime before regenerating the network.
+  Check the selected runtime before regenerating.
 
 ## References
 
 - `references/network-modes.md` — network strategy options and parameters
-- `references/baseline-viz.md` — baseline network visualization after Step 2
+- `references/baseline-viz.md` — baseline network visualization after Option B

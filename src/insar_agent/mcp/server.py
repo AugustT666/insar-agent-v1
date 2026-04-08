@@ -912,11 +912,15 @@ def insar_validate_runconfig(project_id: str) -> dict:
     }
 
 
+@mcp.tool()
 def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
     """
     Render the current runconfig as a YAML file on disk.
 
     The exported file can be used directly with ISCE3 or reviewed by the user.
+    To save a param-tuned snapshot, pass output_dir="<workspace_root>/param_tuned".
+    The resulting file (<output_dir>/runconfig.yaml) will be detected automatically
+    by insar_run_workflow as a previously-tuned config.
 
     Args:
         project_id: Project UUID
@@ -974,6 +978,8 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         return _project_error(project_id)
 
     _ensure_project_logging(project)
+    _param_tuned_path = Path(project.workspace_root) / "param_tuned" / "runconfig.yaml"
+    _param_tuned_found = _param_tuned_path.exists()
     # Step 1: validate
     errors = validate_runconfig(project.runconfig, project.workflow)
     if errors:
@@ -1022,6 +1028,8 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             "command": command,
             "status": "dry_run",
             "dry_run": True,
+            "param_tuned_found": _param_tuned_found,
+            "param_tuned_config": str(_param_tuned_path) if _param_tuned_found else None,
         }
 
     project.logs_dir().mkdir(parents=True, exist_ok=True)
@@ -1064,6 +1072,8 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         "log_path": log_path,
         "dry_run": False,
         "poll": f"insar_get_job(job_id='{job.job_id}', project_id='{project_id}')",
+        "param_tuned_found": _param_tuned_found,
+        "param_tuned_config": str(_param_tuned_path) if _param_tuned_found else None,
     }
 
 
@@ -1403,6 +1413,9 @@ def insar_prepare_stack(
             reference=reference,
         )
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
+        _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
+        result["param_tuned_found"] = _param_tuned.exists()
+        result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -1477,6 +1490,9 @@ def insar_prepare_network(
         )
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         result["gunw_pattern"] = f"{result['output_dir']}/runs/*/products/*.h5"
+        _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
+        result["param_tuned_found"] = _param_tuned.exists()
+        result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,

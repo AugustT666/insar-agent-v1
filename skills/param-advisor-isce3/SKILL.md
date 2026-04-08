@@ -11,6 +11,17 @@ description: >
 
 # 参数专家：ISCE3 参数优化统一入口
 
+## AUTO-TRIGGER
+
+当收到 `PARAM_ADVISOR_PROMPT` 时，根据当前 `interaction_mode` 决策：
+
+- **interactive 模式**：进入本技能，向用户展示三选一确认，等待用户决策后再继续
+- **auto 模式**：直接进入本技能，自动接受推荐参数，无需用户确认
+
+退出差异：
+- **Path A**：调优后通过 `insar_set_processing_param(project_id, ...)` 应用，返回 d-insar-isce3 继续 `insar_run_workflow`
+- **Path B**：调优后导出 YAML，作为 `base_runconfig` 传入 `insar_prepare_stack` / `insar_prepare_network`
+
 ## 角色定位
 
 本 skill 是参数优化的统一入口，但它本身只是**薄编排层**。
@@ -101,13 +112,20 @@ subagent 返回内容至少应包含：
 
 同时保留风险提示和用户责任声明。
 
-### Phase 4 — 应用与回显
+### Phase 4 — 应用、回显与落盘
 
 如果用户选择采用建议参数或自行指定参数：
 
 1. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 2. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
-3. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
+3. **落盘（防重复调优）：**
+   - **Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
+     → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`
+     → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
+   - **Path B**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
+     → 此后 `insar_prepare_stack` / `insar_prepare_network` 返回 `param_tuned_found: true`
+     和 `param_tuned_base_runconfig` 路径
+4. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
 
 如果用户选择默认参数：
 
