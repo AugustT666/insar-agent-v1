@@ -12,6 +12,7 @@ from insar_agent.mcp.server import (
     insar_get_runconfig,
     insar_set_processing_param,
     insar_set_runconfig_value,
+    insar_run_workflow,
 )
 
 
@@ -29,6 +30,18 @@ def insar_project(tmp_path):
         engine="isce3",
         workflow="insar",
         workspace_root=str(tmp_path / "workspace"),
+    )
+    assert "project_id" in result, result
+    return result
+
+
+@pytest.fixture()
+def isce2_stack_project(tmp_path):
+    result = insar_create_project(
+        engine="isce2",
+        workflow="stack",
+        workspace_root=str(tmp_path / "isce2-stack-workspace"),
+        conda_env="isce2",
     )
     assert "project_id" in result, result
     return result
@@ -72,6 +85,42 @@ def test_known_keys_present():
 def test_load_processing_params_unknown_workflow():
     with pytest.raises(FileNotFoundError):
         load_processing_params("nonexistent")
+
+
+def test_isce2_stack_params_can_be_set_and_dry_run(isce2_stack_project, tmp_path):
+    pid = isce2_stack_project["project_id"]
+    slc_dir = tmp_path / "slc_dir"
+    slc_dir.mkdir()
+    orbit_dir = tmp_path / "orbits"
+    orbit_dir.mkdir()
+    dem_file = tmp_path / "dem.tif"
+    dem_file.write_text("fake-dem", encoding="utf-8")
+
+    for key, value in [
+        ("slc_dir", str(slc_dir)),
+        ("orbit_dir", str(orbit_dir)),
+        ("dem_file", str(dem_file)),
+    ]:
+        result = insar_set_processing_param(
+            project_id=pid,
+            key=key,
+            value=value,
+            justification="descending Sentinel stack smoke test",
+        )
+        assert result.get("error") is None, result
+
+    dry_run = insar_run_workflow(pid, dry_run=True)
+    assert dry_run.get("error") is None, dry_run
+    command = dry_run["command"]
+    rendered = " ".join(command)
+    assert "stackSentinel.py" in rendered
+    assert "-s" in rendered
+    assert str(slc_dir) in rendered
+    assert "-o" in rendered
+    assert str(orbit_dir) in rendered
+    assert "-d" in rendered
+    assert str(dem_file) in rendered
+    assert "-w" in rendered
 
 
 # ── insar_set_processing_param — success cases ────────────────────────────────

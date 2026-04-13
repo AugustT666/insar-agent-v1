@@ -60,6 +60,7 @@ class TestRunMintpy:
                 )
 
     def test_job_json_written_on_launch(self, tmp_path):
+        (tmp_path / ".insar_logs").mkdir()
         cfg = tmp_path / "mintpy.cfg"
         cfg.write_text("")
         dem = tmp_path / "dem.tif"
@@ -93,6 +94,7 @@ class TestRunMintpy:
         assert data["pid"] == 99999
 
         # log file created
+        assert Path(result["log_path"]).parent == tmp_path / ".insar_logs"
         assert Path(result["log_path"]).parent.exists()
 
     def test_command_includes_dem_as_4th_arg(self, tmp_path):

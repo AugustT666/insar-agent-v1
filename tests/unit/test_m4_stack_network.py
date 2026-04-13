@@ -261,6 +261,21 @@ def test_prepare_stack_runconfig_contains_paths(tmp_path):
     assert str(dem) in rendered
 
 
+def test_prepare_stack_runconfig_uses_workspace_dot_insar_logs(tmp_path):
+    (tmp_path / ".insar_logs").mkdir()
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    runconfig = make_fixture_runconfig(tmp_path)
+    dem = make_dem(tmp_path)
+    output_dir = tmp_path / "stack"
+
+    result = prepare_stack(data_dir=data_dir, base_runconfig=runconfig, dem=dem, output_dir=output_dir)
+    rendered = Path(result["runconfigs"][0]).read_text()
+    assert str(tmp_path / ".insar_logs" / "stack_20251122_20251204.log") in rendered
+
+
 def test_prepare_stack_manifest_csv(tmp_path):
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
@@ -649,6 +664,7 @@ def _make_batch_dir(tmp_path: Path, n_pairs: int = 2) -> Path:
 def test_insar_run_batch_background_returns_job_id(tmp_path):
     """run_batch returns job_id, pid, log_path, and poll in background mode."""
     import unittest.mock as mock
+    (tmp_path / ".insar_logs").mkdir()
     batch_dir = _make_batch_dir(tmp_path)
     mock_proc = mock.MagicMock()
     mock_proc.pid = 99999
@@ -665,6 +681,7 @@ def test_insar_run_batch_background_returns_job_id(tmp_path):
     assert "command" in result
     assert "progress_hint" in result
     assert "batch_dir" in result["poll"]
+    assert Path(result["log_path"]).parent == tmp_path / ".insar_logs"
     # Job JSON persisted
     jobs_dir = batch_dir / ".insar_agent" / "jobs"
     assert any(jobs_dir.glob("*.json"))

@@ -111,7 +111,7 @@ def test_create_project_unknown_workflow(workspace):
 
 
 def test_create_project_unknown_engine(workspace):
-    result = insar_create_project(engine="isce2", workflow="insar", workspace_root=workspace)
+    result = insar_create_project(engine="isce_unknown", workflow="insar", workspace_root=workspace)
     assert result["error"] == "engine_not_found"
 
 
@@ -147,8 +147,13 @@ def test_create_project_loads_runconfig_template(insar_project):
 def test_create_project_backfills_logging_config(insar_project, workspace):
     result = insar_get_runconfig(insar_project["project_id"])
     logging_cfg = result["runconfig"]["runconfig"]["groups"]["logging"]
-    assert logging_cfg["path"] == str(Path(workspace) / "logs" / "insar_workflow.log")
+    assert logging_cfg["path"] == str(Path(workspace) / ".insar_logs" / "insar_workflow.log")
     assert logging_cfg["write_mode"] == "w"
+
+
+def test_project_logs_dir_points_to_dot_insar_logs(workspace):
+    project = new_project(name="test", engine="isce3", workflow="insar", workspace_root=workspace)
+    assert project.logs_dir() == Path(workspace) / ".insar_logs"
 
 
 # ── get_runconfig ─────────────────────────────────────────────────────────────
@@ -343,6 +348,30 @@ def test_run_workflow_dry_run(insar_project, tmp_path):
     assert result["dry_run"] is True
     assert result["status"] == "dry_run"
     assert "nisar.workflows.insar" in " ".join(result["command"])
+
+
+def test_run_workflow_writes_plugin_log_under_dot_insar_logs(insar_project):
+    from unittest.mock import MagicMock, patch
+
+    pid = insar_project["project_id"]
+    workspace = Path(insar_project["workspace_root"])
+    for key, val in [
+        ("runconfig.groups.input_file_group.reference_rslc_file", "/data/ref.h5"),
+        ("runconfig.groups.input_file_group.secondary_rslc_file", "/data/sec.h5"),
+        ("runconfig.groups.dynamic_ancillary_file_group.dem_file", "/data/dem.tif"),
+        ("runconfig.groups.product_path_group.product_path", "/out/products"),
+        ("runconfig.groups.product_path_group.scratch_path", "/out/scratch"),
+        ("runconfig.groups.product_path_group.sas_output_file", "GUNW_product.h5"),
+    ]:
+        insar_set_runconfig_value(pid, key, val)
+
+    mock_proc = MagicMock()
+    mock_proc.pid = 12345
+    with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc):
+        result = insar_run_workflow(pid, dry_run=False)
+
+    assert "error" not in result
+    assert Path(result["log_path"]).parent == workspace / ".insar_logs"
 
 
 def test_run_workflow_invalid_runconfig_fails(insar_project):
