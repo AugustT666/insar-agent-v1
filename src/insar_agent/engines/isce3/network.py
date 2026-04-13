@@ -236,7 +236,7 @@ def prepare_network(
     for reference_scene, secondary_scene in pair_scenes:
         pair_name = f"{reference_scene.date}_{secondary_scene.date}"
         pair_dir = output_dir / "runs" / pair_name
-        for subdir in ("products", "scratch", "qa", "logs"):
+        for subdir in ("products", "scratch", "qa"):
             (pair_dir / subdir).mkdir(parents=True, exist_ok=True)
 
         runconfig_path = runconfig_dir / f"{pair_name}.yaml"

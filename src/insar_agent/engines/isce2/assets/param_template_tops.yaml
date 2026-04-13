@@ -1,0 +1,28 @@
+template_name: sentinel-isce2-dinsar
+description: Single-pair Sentinel-1 TOPS D-InSAR parameter template aligned to topsApp defaults.
+shared_defaults:
+  swaths: [1, 2, 3]
+  polarization: vv
+  bbox: null
+  do_esd: true
+  esd_coherence_threshold: 0.85
+  filter_strength: 0.5
+  do_unwrap: true
+workflow_defaults:
+  range_looks: 4
+  azimuth_looks: 1
+  unwrap_method: icu
+  do_unwrap_2stage: false
+single_pair_only:
+  - reference_safe
+  - secondary_safe
+  - do_unwrap_2stage
+stack_only: []
+sources:
+  - title: ISCE2 topsApp.py
+    url: https://github.com/isce-framework/isce2/blob/a492b8d/applications/topsApp.py
+  - title: ISCE2 topsApp.xml example
+    url: https://github.com/isce-framework/isce2/blob/a492b8d/examples/input_files/topsApp.xml
+notes:
+  - Use smaller looks to preserve single-pair detail.
+  - ESD remains enabled by default for TOPS burst alignment.

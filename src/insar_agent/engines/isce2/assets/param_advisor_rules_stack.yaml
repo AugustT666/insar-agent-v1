@@ -1,0 +1,16 @@
+workflow: stack
+parameters:
+  - key: range_looks
+    trigger_facts: [prefer_stable_coherence, sample_scene_count, landcover]
+  - key: azimuth_looks
+    trigger_facts: [prefer_stable_coherence, sample_scene_count, landcover]
+  - key: filter_strength
+    trigger_facts: [landcover, climate, sample_scene_count]
+  - key: unwrap_method
+    trigger_facts: [prefer_stable_coherence, sample_scene_count]
+  - key: num_connections
+    trigger_facts: [sample_scene_count, prefer_fast_turnaround, prefer_stable_coherence]
+  - key: coregistration
+    trigger_facts: [sample_scene_count, prefer_fast_turnaround]
+  - key: swaths
+    trigger_facts: [bbox, prefer_fast_turnaround]

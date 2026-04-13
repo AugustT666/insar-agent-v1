@@ -1,0 +1,33 @@
+template_name: sentinel-isce2-stack
+description: Sentinel-1 TOPS stack/time-series parameter template aligned to stackSentinel defaults.
+shared_defaults:
+  swaths: [1, 2, 3]
+  polarization: vv
+  bbox: null
+  esd_coherence_threshold: 0.85
+  filter_strength: 0.5
+workflow_defaults:
+  workflow: interferogram
+  num_connections: 3
+  coregistration: NESD
+  range_looks: 9
+  azimuth_looks: 3
+  unwrap_method: snaphu
+  num_proc: 1
+  use_gpu: false
+single_pair_only: []
+stack_only:
+  - slc_dir
+  - workflow
+  - num_connections
+  - coregistration
+  - num_proc
+  - use_gpu
+sources:
+  - title: ISCE2 stackSentinel.py
+    url: https://github.com/isce-framework/isce2/blob/a492b8d/contrib/stack/topsStack/stackSentinel.py
+  - title: ISCE2 topsStack README
+    url: https://github.com/isce-framework/isce2/blob/a492b8d/contrib/stack/topsStack/README.md
+notes:
+  - Use larger looks than single-pair D-InSAR to stabilize coherence across the stack.
+  - Network formation and coregistration mode are stack-only decisions.

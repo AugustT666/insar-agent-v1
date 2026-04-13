@@ -16,6 +16,8 @@ from datetime import datetime, UTC
 from pathlib import Path
 from uuid import uuid4
 
+from insar_agent.core.project import resolve_plugin_logs_dir
+
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_nisar_stack.sh"
 
 
@@ -64,8 +66,8 @@ def run_mintpy(
     work_dir.mkdir(parents=True, exist_ok=True)
     jobs_dir = work_dir / ".jobs"
     jobs_dir.mkdir(exist_ok=True)
-    logs_dir = work_dir / "logs"
-    logs_dir.mkdir(exist_ok=True)
+    logs_dir = resolve_plugin_logs_dir(work_dir, fallback_root=work_dir)
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = str(uuid4())
     log_path = str(logs_dir / f"{job_id}.log")
@@ -123,12 +125,23 @@ def get_mintpy_status(job_id: str, mintpy_work_dir: str | Path) -> dict[str, obj
         raise FileNotFoundError(job_file)
 
     data: dict[str, object] = json.loads(job_file.read_text())
-    pid = data.get("pid")
+    pid_raw = data.get("pid")
 
-    if data.get("status") == "running" and pid is not None:
+    if data.get("status") == "running" and pid_raw is not None:
+        pid: int = int(pid_raw)  # type: ignore[arg-type]
+        alive = True
         try:
-            os.kill(int(pid), 0)
+            os.kill(pid, 0)
+            # Also check for zombie (defunct) — os.kill succeeds on zombies
+            try:
+                state = Path(f"/proc/{pid}/status").read_text()
+                if any(ln.startswith("State:") and "Z" in ln for ln in state.splitlines()):
+                    alive = False
+            except OSError:
+                alive = False
         except ProcessLookupError:
+            alive = False
+        if not alive:
             log_tail = _read_log_tail(str(data.get("log_path", "")))
             log_lower = log_tail.lower()
             failed = (

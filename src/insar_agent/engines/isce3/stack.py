@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from insar_agent.core.project import resolve_plugin_logs_dir
 from insar_agent.engines.isce3.defaults import get_default_runconfig_template_path
 
 
@@ -114,13 +115,15 @@ def render_runconfig(
     secondary_scene: Scene,
     dem_path: Path,
     pair_dir: Path,
+    logs_dir: Path | None = None,
 ) -> str:
     pair_name = f"{reference_scene.date}_{secondary_scene.date}"
     product_dir = pair_dir / "products"
     product_file = product_dir / f"{pair_name}.h5"
     scratch_dir = pair_dir / "scratch"
     qa_dir = pair_dir / "qa"
-    log_path = pair_dir / "logs" / "insar_process.log"
+    log_root = logs_dir or resolve_plugin_logs_dir(pair_dir, fallback_root=pair_dir.parent.parent)
+    log_path = log_root / f"{pair_dir.parent.parent.name}_{pair_name}.log"
 
     rendered = ensure_logging_group(template_text)
     replacements = {
@@ -272,6 +275,8 @@ def prepare_stack(
     output_dir.mkdir(parents=True, exist_ok=True)
     runconfig_dir = output_dir / "runconfigs"
     runconfig_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = resolve_plugin_logs_dir(output_dir, fallback_root=output_dir)
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_rows: list[list[str]] = []
     generated_runconfigs: list[Path] = []
@@ -281,7 +286,7 @@ def prepare_stack(
             continue
         pair_name = f"{reference_scene.date}_{secondary_scene.date}"
         pair_dir = output_dir / "runs" / pair_name
-        for subdir in ("products", "scratch", "qa", "logs"):
+        for subdir in ("products", "scratch", "qa"):
             (pair_dir / subdir).mkdir(parents=True, exist_ok=True)
 
         runconfig_path = runconfig_dir / f"{pair_name}.yaml"
@@ -291,6 +296,7 @@ def prepare_stack(
             secondary_scene=secondary_scene,
             dem_path=dem_path,
             pair_dir=pair_dir,
+            logs_dir=logs_dir,
         )
         runconfig_path.write_text(rendered, encoding="utf-8")
         generated_runconfigs.append(runconfig_path)

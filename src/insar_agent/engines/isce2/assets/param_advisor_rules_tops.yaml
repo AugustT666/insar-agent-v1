@@ -1,0 +1,14 @@
+workflow: tops
+parameters:
+  - key: range_looks
+    trigger_facts: [landcover, prefer_fast_turnaround, bbox]
+  - key: azimuth_looks
+    trigger_facts: [landcover, prefer_fast_turnaround, bbox]
+  - key: filter_strength
+    trigger_facts: [landcover, climate, temporal_baseline_days]
+  - key: unwrap_method
+    trigger_facts: [deformation_magnitude, prefer_fast_turnaround]
+  - key: do_esd
+    trigger_facts: [landcover, coherence_risk]
+  - key: swaths
+    trigger_facts: [bbox, prefer_fast_turnaround]

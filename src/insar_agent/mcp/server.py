@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, UTC
 from pathlib import Path
@@ -15,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from insar_agent.core.config import set_path, unset_path
 from insar_agent.core.jobs import BatchJob, Job
-from insar_agent.core.project import Project, new_project
+from insar_agent.core.project import Project, new_project, resolve_plugin_logs_dir
 from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS,
@@ -36,9 +39,22 @@ from insar_agent.engines.isce3.rslc_metadata import describe_rslc_pair
 from insar_agent.engines.isce3.runner import build_workflow_command
 from insar_agent.engines.isce3.stack import prepare_stack
 from insar_agent.engines.isce3.validator import validate_runconfig
+from insar_agent.engines.isce2.adapter import ISCE2Adapter
+from insar_agent.engines.isce2.defaults import (
+    REQUIRED_PARAM_FIELDS as ISCE2_REQUIRED_PARAM_FIELDS,
+    get_processing_param_keys as isce2_get_processing_param_keys,
+    load_default_params as isce2_load_default_params,
+    load_processing_params as isce2_load_processing_params,
+)
+from insar_agent.engines.isce2.runner import build_topsapp_xml, build_workflow_command as isce2_build_workflow_command
+from insar_agent.engines.isce2.mintpy import run_mintpy_isce2_stack
+from insar_agent.engines.isce2.sentinel_prep import _read_safe_metadata, prepare_sentinel_data
+from insar_agent.engines.isce2.stack import build_stack_command as isce2_build_stack_command
+from insar_agent.engines.isce2.validator import validate_params as isce2_validate_params
 
 _ADAPTER = ISCE3Adapter()
-_ENGINES = {_ADAPTER.name: _ADAPTER}
+_ISCE2_ADAPTER = ISCE2Adapter()
+_ENGINES = {_ADAPTER.name: _ADAPTER, _ISCE2_ADAPTER.name: _ISCE2_ADAPTER}
 
 mcp = FastMCP("insar-mcp-server")
 
@@ -52,7 +68,7 @@ def _ensure_logging_group(runconfig: dict, workspace_root: str) -> None:
     groups = runconfig.setdefault("runconfig", {}).setdefault("groups", {})
     logging_cfg = groups.setdefault("logging", {})
     if not logging_cfg.get("path"):
-        logging_cfg["path"] = str(Path(workspace_root) / "logs" / "insar_workflow.log")
+        logging_cfg["path"] = str(resolve_plugin_logs_dir(workspace_root, workspace_root=workspace_root) / "insar_workflow.log")
     logging_cfg.setdefault("write_mode", "w")
 
 
@@ -61,6 +77,22 @@ def _ensure_project_logging(project: Project) -> None:
     _ensure_logging_group(project.runconfig, project.workspace_root)
     if project.runconfig_template:
         _ensure_logging_group(project.runconfig_template, project.workspace_root)
+
+
+def _prepare_tool_log(paths: list[str | Path | None], prefix: str, params: dict, *, fallback_root: str | Path | None = None) -> tuple[str, Path, Path]:
+    job_id = uuid.uuid4().hex[:12]
+    logs_dir = resolve_plugin_logs_dir(*paths, fallback_root=fallback_root)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / f"{prefix}_{job_id}.log"
+    params_path = logs_dir / f"{prefix}_{job_id}_params.json"
+    log_path.touch()
+    params_path.write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
+    return job_id, log_path, params_path
+
+
+def _append_log(log_path: Path, message: str) -> None:
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(f"{message}\n")
 
 
 # ── Resources ──────────────────────────────────────────────────────────────────
@@ -593,6 +625,51 @@ def insar_create_project(
     elif not ws.is_dir():
         return {"error": "workspace_not_writable", "message": f"{workspace_root!r} exists but is not a directory"}
 
+    # ISCE2 uses a flat param dict instead of a nested YAML runconfig
+    if engine == "isce2":
+        try:
+            default_params = isce2_load_default_params(workflow)
+        except FileNotFoundError as exc:
+            return {"error": "template_not_found", "message": str(exc)}
+
+        project_name = name.strip() or f"{engine}-{workflow}-{ws.name}"
+        project = new_project(
+            name=project_name,
+            engine=engine,
+            workflow=workflow,
+            workspace_root=str(ws.resolve()),
+            conda_env=conda_env.strip() or None,
+        )
+        project.runconfig = default_params
+        project.runconfig_template = default_params
+
+        try:
+            project.save()
+        except Exception as exc:
+            return {"error": "workspace_not_writable", "message": str(exc)}
+
+        required = ISCE2_REQUIRED_PARAM_FIELDS.get(workflow, [])
+        return {
+            "project_id": project.project_id,
+            "name": project.name,
+            "engine": project.engine,
+            "workflow": project.workflow,
+            "workspace_root": project.workspace_root,
+            "conda_env": project.conda_env,
+            "created_at": project.created_at,
+            "required_fields": required,
+            "guidance": (
+                "Set required path fields with insar_set_processing_param. "
+                "Use insar_describe_s1 to inspect scene metadata (orbit, polarization, coverage). "
+                "If you need to tune looks, filtering, ESD/coregistration, unwrapping, or stack connections, "
+                "enter the param-advisor-isce2 skill before validate/run. That skill must call insar_describe_s1, "
+                "then delegate recommendation generation to the project-level subagent defined in "
+                ".claude/agents/param-advisor-isce2.md before applying changes via insar_set_processing_param. "
+                "For S1 time-series (workflow='stack'), set slc_dir to the directory containing "
+                "all S1 SAFE/ZIP files, then call insar_run_workflow to run stackSentinel.py."
+            ),
+        }
+
     try:
         default_runconfig = load_default_runconfig(workflow)
     except FileNotFoundError as exc:
@@ -777,6 +854,67 @@ def insar_set_processing_param(
     except (KeyError, FileNotFoundError):
         return _project_error(project_id)
 
+    # Dispatch to engine-specific param registry
+    if project.engine == "isce2":
+        allowed_keys = isce2_get_processing_param_keys(project.workflow)
+        if key not in allowed_keys:
+            return {
+                "error": "key_not_allowed",
+                "message": (
+                    f"Key {key!r} is not in the ISCE2 processing parameter registry for "
+                    f"workflow {project.workflow!r}. "
+                    f"Allowed keys: {allowed_keys}"
+                ),
+            }
+        params_meta = {p["key"]: p for p in isce2_load_processing_params(project.workflow)}
+        meta = params_meta[key]
+        old_value = project.runconfig.get(key)
+
+        valid_values = meta.get("valid_values")
+        valid_range = meta.get("valid_range")
+
+        type_error = _validate_processing_param_type(value, meta)
+        if type_error is not None:
+            return type_error
+
+        structure_error = _validate_processing_param_structure(value, meta)
+        if structure_error is not None:
+            return structure_error
+
+        if valid_values is not None and value not in valid_values:
+            return {
+                "error": "value_not_allowed",
+                "message": f"Value {value!r} is not in valid_values {valid_values} for key {key!r}.",
+            }
+        if valid_range is not None and value is not None:
+            lo, hi = valid_range
+            try:
+                if not (lo <= value <= hi):
+                    return {
+                        "error": "value_out_of_range",
+                        "message": f"Value {value!r} is outside valid_range {valid_range} for key {key!r}.",
+                    }
+            except TypeError:
+                pass
+
+        project.runconfig[key] = value
+        try:
+            project.save()
+        except Exception as exc:
+            return {"error": "save_failed", "message": str(exc)}
+
+        return {
+            "project_id": project_id,
+            "key": key,
+            "label": meta.get("label", key),
+            "old_value": old_value,
+            "new_value": value,
+            "risk_level": meta.get("risk_level", "unknown"),
+            "justification": justification.strip(),
+            "validated_against": f"isce2/processing_params_{project.workflow}.yaml@{meta.get('label', key)}",
+            "updated_at": project.updated_at,
+        }
+
     allowed_keys = get_processing_param_keys(project.workflow)
     if key not in allowed_keys:
         return {
@@ -959,6 +1097,116 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
 
 # ── Group 3: Execution (M2) ────────────────────────────────────────────────────
 
+def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
+    """Launch an ISCE2 workflow (topsApp.py or stackSentinel.py)."""
+    params = project.runconfig
+
+    # Validate required fields
+    errors = isce2_validate_params(params, project.workflow)
+    if errors:
+        return {
+            "error": "params_invalid",
+            "message": "ISCE2 project parameters have validation errors — fix them before running.",
+            "errors": errors,
+        }
+
+    configs_dir = project.configs_dir()
+    configs_dir.mkdir(parents=True, exist_ok=True)
+
+    if project.workflow == "tops":
+        # Generate topsApp.xml
+        try:
+            xml_content = build_topsapp_xml(params)
+        except Exception as exc:
+            return {"error": "config_generation_failed", "message": str(exc)}
+
+        config_path = configs_dir / "topsApp.xml"
+        config_path.write_text(xml_content)
+        project.runconfig_exported_path = str(config_path)
+        project.save()
+
+        command = isce2_build_workflow_command(
+            workflow="tops",
+            config_path=str(config_path),
+            conda_env=project.conda_env,
+        )
+
+    elif project.workflow == "stack":
+        # stackSentinel.py args are passed directly (no config file)
+        command = isce2_build_stack_command(
+            params=params,
+            work_dir=project.workspace_root,
+            conda_env=project.conda_env,
+        )
+        config_path = None
+
+    else:
+        return {"error": "workflow_not_found", "message": f"Unknown ISCE2 workflow: {project.workflow!r}"}
+
+    job = Job(
+        project_id=project.project_id,
+        engine=project.engine,
+        workflow=project.workflow,
+        command=command,
+        runconfig_path=str(config_path) if config_path else "",
+    )
+    log_path = str(project.logs_dir() / f"{job.job_id}.log")
+    exit_code_path = str(project.logs_dir() / f"{job.job_id}.exitcode")
+    job.log_path = log_path
+    job.exit_code_path = exit_code_path
+
+    if dry_run:
+        return {
+            "job_id": job.job_id,
+            "project_id": project.project_id,
+            "command": command,
+            "status": "dry_run",
+            "dry_run": True,
+        }
+
+    project.logs_dir().mkdir(parents=True, exist_ok=True)
+    project.outputs_dir().mkdir(parents=True, exist_ok=True)
+
+    job.started_at = _utc_now()
+    job.status = "running"
+    job.save(project.jobs_dir())
+
+    try:
+        shell_command = (
+            f"{shlex.join(command)}; "
+            f"status=$?; "
+            f"printf '%s' \"$status\" > {shlex.quote(exit_code_path)}; "
+            f"exit $status"
+        )
+        with open(log_path, "w") as log_file:
+            proc = subprocess.Popen(
+                ["bash", "-lc", shell_command],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                cwd=project.workspace_root,
+            )
+        job.pid = proc.pid
+        job.save(project.jobs_dir())
+    except Exception as exc:
+        job.status = "failed"
+        job.finished_at = _utc_now()
+        job.exit_code = -1
+        job.save(project.jobs_dir())
+        return {"error": "launch_failed", "message": str(exc)}
+
+    return {
+        "job_id": job.job_id,
+        "project_id": project.project_id,
+        "command": command,
+        "status": "running",
+        "pid": proc.pid,
+        "submitted_at": job.submitted_at,
+        "log_path": log_path,
+        "dry_run": False,
+        "poll": f"insar_get_job(job_id='{job.job_id}', project_id='{project.project_id}')",
+    }
+
+
 @mcp.tool()
 def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
     """
@@ -976,6 +1224,10 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         project = Project.load(project_id)
     except (KeyError, FileNotFoundError):
         return _project_error(project_id)
+
+    # Dispatch to engine-specific run logic
+    if project.engine == "isce2":
+        return _run_workflow_isce2(project, dry_run)
 
     _ensure_project_logging(project)
     _param_tuned_path = Path(project.workspace_root) / "param_tuned" / "runconfig.yaml"
@@ -1348,6 +1600,17 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
     candidate_dirs = [project.outputs_dir() / job_id]
     if project.outputs_dir() not in candidate_dirs:
         candidate_dirs.append(project.outputs_dir())
+    if project.engine == "isce2":
+        candidate_dirs.extend(
+            [
+                Path(project.workspace_root) / "merged",
+                Path(project.workspace_root) / "reference",
+                Path(project.workspace_root) / "secondary",
+                Path(project.workspace_root) / "geom_reference",
+                Path(project.workspace_root) / "fine_interferogram",
+                Path(project.workspace_root) / "fine_coreg",
+            ]
+        )
 
     seen_paths: set[str] = set()
     for outputs_dir in candidate_dirs:
@@ -1586,7 +1849,7 @@ def insar_run_batch(
     else:
         command = ["bash", str(runner_path)]
 
-    logs_dir = Path(batch_dir) / "logs"
+    logs_dir = resolve_plugin_logs_dir(batch_dir, fallback_root=batch_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     batch_job = BatchJob(
@@ -1857,6 +2120,69 @@ def insar_run_mintpy(
     }
 
 
+@mcp.tool()
+def insar_run_mintpy_isce2(
+    mintpy_work_dir: str,
+    stack_work_dir: str,
+    conda_env: str,
+    mintpy_config: str = "",
+    python_bin: str | None = None,
+    smallbaseline_bin: str | None = None,
+    prep_isce_bin: str | None = None,
+    prep_isce_env: str | None = None,
+    interaction_mode: str = "interactive",
+) -> dict:
+    """Launch MintPy asynchronously on an ISCE2/topsStack-style Sentinel workspace.
+
+    Uses prep_isce.py plus smallbaselineApp.py against a completed ISCE2 stack
+    directory containing merged/interferograms, merged/geom_reference,
+    merged/baselines, and reference/IW*.xml.
+    """
+    try:
+        interaction_mode = _normalize_interaction_mode(interaction_mode)
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+
+    stack_dir = Path(stack_work_dir)
+    if not stack_dir.exists():
+        return {"error": "path_not_found", "message": f"stack_work_dir not found: {stack_work_dir!r}"}
+
+    try:
+        result = run_mintpy_isce2_stack(
+            mintpy_work_dir=mintpy_work_dir,
+            stack_work_dir=stack_work_dir,
+            conda_env=conda_env,
+            mintpy_config=mintpy_config or None,
+            python_bin=python_bin,
+            smallbaseline_bin=smallbaseline_bin,
+            prep_isce_bin=prep_isce_bin,
+            prep_isce_env=prep_isce_env,
+        )
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "launch_failed", "message": str(exc)}
+
+    job_id = result["job_id"]
+    return {
+        "job_id": job_id,
+        "pid": result["pid"],
+        "status": result["status"],
+        "interaction_mode": interaction_mode,
+        "log_path": result["log_path"],
+        "submitted_at": result["submitted_at"],
+        "command": shlex.join(result.get("command", [])) if result.get("command") else "",
+        "mintpy_config": result.get("mintpy_config", ""),
+        "progress_hint": (
+            f"Monitor with tail -f {result['log_path']} and poll via "
+            f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')"
+        ),
+        "poll": f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')",
+        "work_dir": mintpy_work_dir,
+        "stack_work_dir": stack_work_dir,
+    }
+
+
 def insar_get_mintpy_status(job_id: str, mintpy_work_dir: str) -> dict:
     """Return MintPy job status. Use insar_get_job(job_id, work_dir=...) instead."""
     return insar_get_job(job_id=job_id, work_dir=mintpy_work_dir)
@@ -2012,13 +2338,6 @@ def insar_download_rslc(
     if not h5_urls:
         return {"error": "invalid_input", "message": "No RSLC .h5 URLs found in the provided list"}
 
-    job_id = uuid.uuid4().hex[:12]
-    log_dir = Path(output_dir) / ".insar_logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = str(log_dir / f"download_{job_id}.log")
-    params_file = str(log_dir / f"download_{job_id}_params.json")
-    runner_file = str(log_dir / f"download_{job_id}_run.py")
-
     params = {
         "urls": h5_urls,
         "bbox": list(resolved_bbox) if resolved_bbox is not None else None,
@@ -2029,8 +2348,15 @@ def insar_download_rslc(
         "chunk_rows": chunk_rows,
         "proxy": proxy,
     }
-    with open(params_file, "w") as f:
-        json.dump(params, f)
+    job_id, log_path_obj, params_path = _prepare_tool_log(
+        [output_dir],
+        "nisar_download",
+        params,
+        fallback_root=output_dir,
+    )
+    log_path = str(log_path_obj)
+    params_file = str(params_path)
+    runner_file = str(log_path_obj.with_name(f"nisar_download_{job_id}_run.py"))
 
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
@@ -2070,6 +2396,7 @@ except Exception as _e:
         "n_files": len(h5_urls),
         "output_dir": output_dir,
         "log_path": log_path,
+        "params_path": params_file,
         "poll": f"tail -f {log_path}",
     }
 
@@ -2082,6 +2409,8 @@ def insar_download_dem(
     source: str = "copernicus_30",
     margin_deg: float = 0.1,
     proxy: str | None = None,
+    backend: str = "general",
+    dem_type: str | None = None,
 ) -> dict:
     """Download a DEM covering the given bbox or AOI file."""
     try:
@@ -2093,7 +2422,146 @@ def insar_download_dem(
     except Exception as exc:
         return {"error": "bbox_failed", "message": str(exc)}
 
+    params = {
+        "output_path": output_path,
+        "bbox": list(bbox) if bbox is not None else None,
+        "aoi_path": aoi_path,
+        "source": source,
+        "margin_deg": margin_deg,
+        "proxy": proxy,
+        "backend": backend,
+        "dem_type": dem_type,
+    }
+    _, log_path, params_path = _prepare_tool_log(
+        [output_path, aoi_path],
+        "sentinel_dem",
+        params,
+        fallback_root=Path(output_path).expanduser().parent,
+    )
     messages: list[str] = []
+    if backend == "isce2":
+        dem_script = next(
+            (
+                path
+                for path in (Path.home() / "miniconda3" / "envs" / "isce2" / "lib").glob(
+                    "python*/site-packages/isce/applications/dem.py"
+                )
+            ),
+            None,
+        )
+        if dem_script is None:
+            return {
+                "error": "path_not_found",
+                "message": "ISCE2 dem.py not found in the isce2 conda environment",
+                "log_path": str(log_path),
+                "params_path": str(params_path),
+            }
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        west, south, east, north = resolved_bbox
+        bbox_args = [
+            str(math.floor(south)),
+            str(math.ceil(north)),
+            str(math.floor(west)),
+            str(math.ceil(east)),
+        ]
+        isce2_dem_type = dem_type or (source if source in {"version2", "version3", "nasadem"} else "version3")
+        command = [
+            "conda",
+            "run",
+            "-n",
+            "isce2",
+            "python",
+            str(dem_script),
+            "-a",
+            "stitch",
+            "-b",
+            *bbox_args,
+            "-d",
+            str(output.parent),
+            "-o",
+            output.name,
+            "-t",
+            isce2_dem_type,
+            "-s",
+            "1",
+            "-r",
+        ]
+        # Build subprocess env: bypass proxy for NASA EarthData to avoid SSL inspection issues.
+        # Includes both the legacy USGS host and the new LP DAAC Earthdata Cloud host.
+        isce2_env = os.environ.copy()
+        nasa_hosts = [
+            "e4ftl01.cr.usgs.gov",
+            "data.lpdaac.earthdatacloud.nasa.gov",
+            "urs.earthdata.nasa.gov",
+        ]
+        existing_no_proxy = isce2_env.get("no_proxy", isce2_env.get("NO_PROXY", ""))
+        to_add = [h for h in nasa_hosts if h not in existing_no_proxy]
+        if to_add:
+            merged = ",".join(filter(None, [existing_no_proxy] + to_add))
+            isce2_env["no_proxy"] = merged
+            isce2_env["NO_PROXY"] = merged
+
+        attempts = 3
+        result = None
+        for attempt in range(1, attempts + 1):
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=600, env=isce2_env)
+            except FileNotFoundError as exc:
+                _append_log(log_path, str(exc))
+                return {"error": "path_not_found", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+            except Exception as exc:
+                _append_log(log_path, str(exc))
+                return {"error": "download_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+
+            attempt_messages: list[str] = []
+            if result.stdout.strip():
+                attempt_messages.extend(line for line in result.stdout.splitlines() if line.strip())
+            if result.stderr.strip():
+                attempt_messages.extend(line for line in result.stderr.splitlines() if line.strip())
+            messages.extend(attempt_messages)
+            _append_log(log_path, f"attempt {attempt}/{attempts}")
+            for line in attempt_messages:
+                _append_log(log_path, line)
+
+            if result.returncode == 0 and output.exists():
+                break
+            if attempt < attempts:
+                time.sleep(1)
+
+        assert result is not None
+        if result.returncode != 0:
+            return {
+                "error": "download_failed",
+                "message": result.stderr.strip() or result.stdout.strip() or "ISCE2 DEM download failed",
+                "backend": backend,
+                "command": command,
+                "log": messages,
+                "log_path": str(log_path),
+                "params_path": str(params_path),
+            }
+        if not output.exists():
+            return {
+                "error": "download_failed",
+                "message": f"ISCE2 DEM backend did not create output: {output}",
+                "backend": backend,
+                "command": command,
+                "log": messages,
+                "log_path": str(log_path),
+                "params_path": str(params_path),
+            }
+
+        return {
+            "output_path": str(output),
+            "source": isce2_dem_type,
+            "bbox": list(resolved_bbox),
+            "backend": backend,
+            "command": command,
+            "log": messages,
+            "log_path": str(log_path),
+            "params_path": str(params_path),
+        }
+
     try:
         result = download_dem(
             output_path=output_path,
@@ -2104,16 +2572,333 @@ def insar_download_dem(
             proxy=proxy,
         )
     except FileNotFoundError as exc:
+        _append_log(log_path, str(exc))
+        return {"error": "path_not_found", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+    except ValueError as exc:
+        _append_log(log_path, str(exc))
+        return {"error": "invalid_input", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+    except RuntimeError as exc:
+        _append_log(log_path, str(exc))
+        return {"error": "download_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+    except Exception as exc:
+        _append_log(log_path, str(exc))
+        return {"error": "download_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+
+    result["backend"] = backend
+    result["log"] = messages
+    for line in messages:
+        _append_log(log_path, line)
+    result["log_path"] = str(log_path)
+    result["params_path"] = str(params_path)
+    return result
+
+
+# ── New tools: Sentinel download, S1 metadata, environment check ───────────────
+
+@mcp.tool()
+def insar_download_scene(
+    urls: list[str],
+    output_dir: str,
+    n_workers: int = 4,
+    proxy: str | None = None,
+) -> dict:
+    """
+    Download Sentinel-1 or Sentinel-2 scene files (ZIP/SAFE) from provided URLs.
+
+    Downloads files in parallel. Authentication uses ~/.netrc when needed.
+    By default the download inherits the current system proxy settings.
+    Pass proxy to temporarily override for this download only.
+
+    Args:
+        urls:       List of direct download URLs for S1/S2 ZIP or SAFE files.
+        output_dir: Local directory to write downloaded files.
+        n_workers:  Number of parallel download threads (default 4).
+        proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
+                    If omitted, inherits current system proxy settings.
+
+    Returns:
+        {ok: [{url, path, size_mb}], failed: [{url, error}], output_dir}
+    """
+    import concurrent.futures
+    import urllib.request
+
+    out_dir = Path(output_dir)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return {"error": "output_dir_not_writable", "message": str(exc)}
+
+    proxy_env: dict[str, str] = {}
+    if proxy:
+        proxy_env["http_proxy"] = proxy
+        proxy_env["https_proxy"] = proxy
+
+    def _download_one(url: str) -> dict:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        rel_path = parsed.path.lstrip("/").split("?")[0] or f"scene_{uuid.uuid4().hex[:8]}"
+        dest = out_dir / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            size_mb = round(dest.stat().st_size / 1024 / 1024, 2)
+            return {"url": url, "path": str(dest), "size_mb": size_mb, "skipped": True}
+        try:
+            opener = urllib.request.build_opener()
+            if proxy:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+                )
+            with opener.open(url) as response, dest.open("wb") as fh:
+                shutil.copyfileobj(response, fh)
+            if dest.exists():
+                return {"url": url, "path": str(dest),
+                        "size_mb": round(dest.stat().st_size / 1024 / 1024, 2)}
+            return {"url": url, "error": "file not created after download"}
+        except Exception as exc:
+            return {"url": url, "error": str(exc)}
+
+    _, log_path, params_path = _prepare_tool_log(
+        [output_dir],
+        "sentinel_scene",
+        {"urls": urls, "output_dir": output_dir, "n_workers": n_workers, "proxy": proxy},
+        fallback_root=Path(output_dir).expanduser().parent,
+    )
+    ok: list[dict] = []
+    failed: list[dict] = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futures = {pool.submit(_download_one, u): u for u in urls}
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            if "error" in res:
+                failed.append(res)
+                _append_log(log_path, f"FAILED {res['url']}: {res['error']}")
+            else:
+                ok.append(res)
+                _append_log(log_path, f"OK {res['url']} -> {res['path']}")
+
+    return {
+        "ok": ok,
+        "failed": failed,
+        "output_dir": output_dir,
+        "log_path": str(log_path),
+        "params_path": str(params_path),
+    }
+
+
+@mcp.tool()
+def insar_describe_s1(zip_path: str) -> dict:
+    """
+    Parse Sentinel-1 SAFE/ZIP metadata and return key scene information.
+
+    Reads manifest.safe and annotation XML from inside the SAFE package
+    without full extraction. Works with both .zip archives and unpacked
+    .SAFE directories.
+
+    Args:
+        zip_path: Absolute path to a Sentinel-1 .zip archive or .SAFE directory.
+
+    Returns:
+        {
+            "scene_id": str,
+            "satellite": "S1A" | "S1B",
+            "mode": "IW" | "EW" | ...,
+            "polarizations": ["VV", "VH"],
+            "pass_direction": "ASCENDING" | "DESCENDING",
+            "relative_orbit": int,
+            "absolute_orbit": int,
+            "start_time": str (ISO8601),
+            "stop_time": str (ISO8601),
+            "bbox": [west, south, east, north],
+        }
+    """
+    p = Path(zip_path)
+    if not p.exists():
+        return {"error": "path_not_found", "message": f"Path does not exist: {zip_path!r}"}
+
+    try:
+        scene_id, info = _read_safe_metadata(p)
+        info["scene_id"] = scene_id
+        return info
+    except FileNotFoundError as exc:
+        return {"error": "manifest_not_found", "message": str(exc)}
+    except ValueError as exc:
+        return {"error": "invalid_format", "message": str(exc)}
+    except zipfile.BadZipFile:
+        return {"error": "invalid_zip", "message": f"Cannot open as ZIP: {zip_path!r}"}
+    except Exception as exc:
+        return {"error": "parse_failed", "message": str(exc)}
+
+
+@mcp.tool()
+def insar_prepare_sentinel_data(
+    project_root: str,
+    mode: str = "auto",
+    aoi_path: str | None = None,
+    bbox: list[float] | None = None,
+    dem_path: str | None = None,
+    dem_output_path: str | None = None,
+    download_dem: bool = False,
+    dem_backend: str = "general",
+    dem_type: str | None = None,
+    download_orbits: bool = False,
+    orbit_dir: str | None = None,
+    orbit_username: str | None = None,
+    orbit_password: str | None = None,
+    orbit_token_file: str | None = None,
+    source_paths: list[str] | None = None,
+    burst_manifest: str | None = None,
+    include_pair: bool = True,
+    include_stack: bool = True,
+    resume: bool = True,
+) -> dict:
+    """
+    Organize Sentinel-1 SAFE inputs into grouped SAFE paths for later ISCE2 use.
+
+    This tool only prepares grouped SAFE outputs. It can organize existing
+    SAFE/ZIP inputs or synthesize lightweight SAFE directories from local burst
+    files. It can also optionally prepare DEM and Sentinel-1 orbit files for
+    downstream ISCE2 workflows.
+    """
+    try:
+        return prepare_sentinel_data(
+            project_root=project_root,
+            mode=mode,
+            aoi_path=aoi_path,
+            bbox=bbox,
+            dem_path=dem_path,
+            dem_output_path=dem_output_path,
+            download_dem=download_dem,
+            dem_backend=dem_backend,
+            dem_type=dem_type,
+            download_orbits=download_orbits,
+            orbit_dir=orbit_dir,
+            orbit_username=orbit_username,
+            orbit_password=orbit_password,
+            orbit_token_file=orbit_token_file,
+            source_paths=source_paths,
+            burst_manifest=burst_manifest,
+            include_pair=include_pair,
+            include_stack=include_stack,
+            resume=resume,
+            dem_downloader=insar_download_dem,
+        )
+    except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
+    except FileExistsError as exc:
+        return {"error": "target_exists", "message": str(exc)}
     except ValueError as exc:
         return {"error": "invalid_input", "message": str(exc)}
-    except RuntimeError as exc:
-        return {"error": "download_failed", "message": str(exc)}
     except Exception as exc:
-        return {"error": "download_failed", "message": str(exc)}
+        return {"error": "prepare_failed", "message": str(exc)}
 
-    result["log"] = messages
-    return result
+@mcp.tool()
+def insar_check_env() -> dict:
+    """
+    Check the project environment status: conda envs, MCP registration, and skills.
+
+    Probes each expected conda environment by attempting to import its key package.
+    Also checks MCP server registration and installed Claude Code skills.
+
+    Returns:
+        {
+            "envs": {"isce3": {"status": "ok"|"missing", "version": ...}, ...},
+            "mcp": {"registered": bool, "server_name": str},
+            "skills": {"installed": [...], "missing": [...]},
+            "install_hints": {env_name: "conda install ..." for missing envs},
+        }
+    """
+    envs_to_check = {
+        "isce3gpu": {
+            "probe": "import isce3; print(isce3.__version__)",
+            "install": "conda create -n isce3gpu -c conda-forge isce3 cudatoolkit -y",
+        },
+        "mintpy": {
+            "probe": "import mintpy; print(mintpy.__version__)",
+            "install": "conda create -n mintpy -c conda-forge mintpy -y",
+        },
+        "isce2": {
+            "probe": "import isce; print(isce.__version__)",
+            "install": "conda create -n isce2 -c conda-forge isce2 -y",
+        },
+    }
+
+    env_results: dict[str, dict] = {}
+    install_hints: dict[str, str] = {}
+
+    for env_name, cfg in envs_to_check.items():
+        try:
+            result = subprocess.run(
+                ["conda", "run", "-n", env_name, "--no-capture-output",
+                 "python", "-c", cfg["probe"]],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                version = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "unknown"
+                env_results[env_name] = {"status": "ok", "version": version}
+            else:
+                env_results[env_name] = {"status": "missing", "error": result.stderr.strip()[:200]}
+                install_hints[env_name] = cfg["install"]
+        except FileNotFoundError:
+            env_results[env_name] = {"status": "missing", "error": "conda not found in PATH"}
+            install_hints[env_name] = cfg["install"]
+        except subprocess.TimeoutExpired:
+            env_results[env_name] = {"status": "timeout", "error": "probe timed out after 30s"}
+
+    # Check MCP registration via claude mcp list
+    mcp_status: dict = {"registered": False, "server_name": "insar-mcp-server"}
+    try:
+        result = subprocess.run(
+            ["claude", "mcp", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and "insar-mcp-server" in result.stdout:
+            mcp_status["registered"] = True
+        mcp_status["raw_output"] = result.stdout.strip()[:500]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        mcp_status["error"] = "claude CLI not found or timed out"
+
+    # Check installed skills
+    expected_skills = [
+        "env-setup", "insar-agent", "data-prep-nisar", "data-prep-sentinel",
+        "d-insar-isce3", "stack-insar-isce3", "param-advisor-isce3", "mintpy-isce3",
+        "d-insar-isce2", "stack-insar-isce2", "param-advisor-isce2",
+    ]
+    plugin_skills_dir = Path.home() / ".claude" / "plugins"
+    installed_skills: list[str] = []
+    try:
+        result = subprocess.run(
+            ["claude", "plugin", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        raw = result.stdout
+        installed_skills = [s for s in expected_skills if s in raw]
+        missing_skills = [s for s in expected_skills if s not in installed_skills]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        missing_skills = expected_skills
+
+    skills_status = {
+        "installed": installed_skills,
+        "missing": missing_skills,
+    }
+    if missing_skills:
+        skills_status["hint"] = (
+            "Run: claude plugin marketplace add /home/august/insar-agent --scope project "
+            "&& claude plugin install insar-agent-skills@insar-agent"
+        )
+
+    return {
+        "envs": env_results,
+        "mcp": mcp_status,
+        "skills": skills_status,
+        "install_hints": install_hints,
+    }
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────
@@ -2124,7 +2909,7 @@ def build_server_description() -> dict:
         "server_name": "insar-mcp-server",
         "transport": "stdio",
         "status": "active",
-        "engines": ["isce3"],
+        "engines": ["isce3", "isce2"],
         "tools": [
             "insar_discover",
             "insar_get_project",
@@ -2144,6 +2929,10 @@ def build_server_description() -> dict:
             "insar_export_geotiff",
             "insar_run_mintpy",
             "insar_plot_baseline",
+            "insar_download_scene",
+            "insar_describe_s1",
+            "insar_prepare_sentinel_data",
+            "insar_check_env",
         ],
     }
 

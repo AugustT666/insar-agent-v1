@@ -1,0 +1,153 @@
+parameters:
+
+  - key: slc_dir
+    label: Grouped Sentinel SAFE directory
+    type: str
+    required: true
+    risk_level: low
+    description: >
+      Directory containing only the Sentinel-1 SAFE or ZIP inputs for one
+      stack, typically a prepared grouped track directory such as
+      safe/s1a_desc_rel079.
+
+  - key: orbit_dir
+    label: Orbit files directory
+    type: str
+    required: true
+    risk_level: low
+    description: >
+      Directory containing Sentinel-1 POEORB or RESORB orbit files for the
+      stack scenes.
+
+  - key: dem_file
+    label: DEM file path
+    type: str
+    required: true
+    risk_level: low
+    description: >
+      Absolute path to the DEM file used by stackSentinel.py.
+
+  - key: aux_dir
+    label: Auxiliary calibration files directory
+    type: str
+    required: false
+    risk_level: low
+    description: >
+      Optional Sentinel-1 auxiliary calibration directory passed through to
+      stackSentinel.py.
+
+  - key: bbox
+    label: Bounding box [S, N, W, E]
+    type: list
+    required: false
+    risk_level: medium
+    description: >
+      Geographic bounding box in south, north, west, east order.
+
+  - key: swaths
+    label: IW subswaths to process
+    type: list
+    required: false
+    risk_level: low
+    valid_values: [[1], [2], [3], [1, 2], [1, 3], [2, 3], [1, 2, 3]]
+    description: >
+      Subswaths passed to stackSentinel.py via -n.
+
+  - key: polarization
+    label: Polarization channel
+    type: str
+    required: false
+    risk_level: low
+    valid_values: [vv, vh, hh, hv, VV, VH, HH, HV]
+    description: >
+      Polarization to pass to stackSentinel.py.
+
+  - key: workflow
+    label: Stack workflow mode
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [slc, interferogram, correlation, offset]
+    description: >
+      stackSentinel.py workflow selection.
+
+  - key: num_connections
+    label: Network connections per scene
+    type: int
+    required: false
+    risk_level: medium
+    valid_range: [1, 999]
+    description: >
+      Number of forward connections per acquisition in the interferogram
+      network.
+
+  - key: coregistration
+    label: Coregistration mode
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [geometry, NESD]
+    description: >
+      Coregistration strategy passed to stackSentinel.py.
+
+  - key: esd_coherence_threshold
+    label: ESD coherence threshold
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.1, 0.99]
+    description: >
+      Coherence threshold used by ESD-based coregistration.
+
+  - key: filter_strength
+    label: Interferogram filter strength
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.0, 1.0]
+    description: >
+      Goldstein filter strength passed to stackSentinel.py.
+
+  - key: range_looks
+    label: Range looks
+    type: int
+    required: false
+    risk_level: medium
+    valid_range: [1, 100]
+    description: >
+      Range multilook factor.
+
+  - key: azimuth_looks
+    label: Azimuth looks
+    type: int
+    required: false
+    risk_level: medium
+    valid_range: [1, 100]
+    description: >
+      Azimuth multilook factor.
+
+  - key: unwrap_method
+    label: Phase unwrapping algorithm
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [snaphu, icu]
+    description: >
+      Unwrapping algorithm selection for stackSentinel.py.
+
+  - key: num_proc
+    label: Number of worker processes
+    type: int
+    required: false
+    risk_level: low
+    valid_range: [1, 1024]
+    description: >
+      Worker process count passed via --num_proc.
+
+  - key: use_gpu
+    label: Use GPU acceleration
+    type: bool
+    required: false
+    risk_level: medium
+    description: >
+      Whether to pass -useGPU to stackSentinel.py.
