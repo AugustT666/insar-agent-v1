@@ -34,7 +34,7 @@ Agent Client
 - Default runconfig loading and validation
 - Workflow command construction
 - Stack and network generation
-- MintPy launch support
+- MintPy launch support (ISCE3/GUNW + ISCE2/topsStack)
 - GeoTIFF export and RSLC metadata summarization
 
 ### `insar_agent.runtime`
@@ -77,7 +77,7 @@ See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for ful
 - Stack/network: `insar_prepare_stack`, `insar_prepare_network`,
   `insar_run_batch`
 - Data prep: `insar_download_rslc`, `insar_download_dem`
-- MintPy: `insar_run_mintpy`, `insar_plot_baseline`
+- MintPy: `insar_run_mintpy`, `insar_run_mintpy_isce2`, `insar_plot_baseline`
 - Utilities: `insar_export_geotiff`
 
 ## Execution Modes
@@ -86,9 +86,9 @@ See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for ful
 
 1. Create a project
 2. Set required path fields
-3. If tuning is needed, enter `param-advisor-isce3`; it will call
-   `insar_describe_rslc`, build a compact evidence profile, and delegate
-   recommendation generation to `.claude/agents/param-advisor-isce3.md`
+3. If tuning is needed, enter the engine-appropriate advisor skill:
+   - NISAR / ISCE3: `param-advisor-isce3` → `insar_describe_rslc` → `.claude/agents/param-advisor-isce3.md`
+   - Sentinel / ISCE2: `param-advisor-isce2` → `insar_describe_s1` → `.claude/agents/param-advisor-isce2.md`
 4. Apply approved whitelist-controlled parameters through
    `insar_set_processing_param`
 5. Run `insar_run_workflow`
@@ -101,17 +101,16 @@ See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for ful
 2. Generate network runconfigs with `insar_prepare_network`
 3. Run generated batches manually or through `insar_run_batch`
 4. Poll batch progress with `insar_get_job(batch_dir=...)`
-5. Run MintPy with `insar_run_mintpy`
+5. Run MintPy with `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (ISCE2/topsStack)
 6. Poll MintPy progress with `insar_get_job(work_dir=...)`
 
 ### Parameter optimization boundary
 
 Parameter optimization is intentionally split:
 
-- `skills/param-advisor-isce3/SKILL.md` gathers evidence, shows diff, and handles user confirmation
-- `.claude/agents/param-advisor-isce3.md` produces the structured
-  recommendation package
-- `.claude/agents/references/param-advisor-isce3.md` stores advisory heuristics and evidence patterns
+- `skills/param-advisor-isce3/SKILL.md` and `skills/param-advisor-isce2/SKILL.md` gather evidence, show diff, and handle user confirmation
+- `.claude/agents/param-advisor-isce3.md` and `.claude/agents/param-advisor-isce2.md` produce the structured recommendation package
+- `.claude/agents/references/param-advisor-isce3.md` and `.claude/agents/references/param-advisor-isce2.md` store advisory heuristics and workflow templates
 - `insar_set_processing_param` applies only whitelist-controlled changes
 
 This keeps detailed reasoning out of the main conversation while preserving a

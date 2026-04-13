@@ -10,8 +10,9 @@ Current support is centered on `ISCE3` and NISAR RSLC data:
 
 - Path A: single reference/secondary RSLC pair -> `GUNW`
 - Path B: multi-scene stack preparation -> interferogram network -> MintPy
-- metadata-first parameter optimization via the `param-advisor-isce3` skill,
-  which delegates recommendation generation to `.claude/agents/param-advisor-isce3.md`
+- metadata-first parameter optimization via `param-advisor-isce3` (NISAR/ISCE3)
+  or `param-advisor-isce2` (Sentinel/ISCE2), each delegating recommendation
+  generation to a project-level subagent
 - utility workflows such as RSLC bbox extraction and GeoTIFF export
 
 ## Who It Is For
@@ -52,9 +53,9 @@ Real-data tests require the NAS dataset and may launch actual processing workflo
 
 1. Create a project with `insar_create_project`
 2. Fill required path fields with `insar_set_runconfig_value`
-3. If parameter tuning is needed, enter `param-advisor-isce3`; it will call
-   `insar_describe_rslc`, build a compact evidence profile, and delegate
-   recommendation generation to `.claude/agents/param-advisor-isce3.md`
+3. If parameter tuning is needed, enter the engine-appropriate advisor:
+   - `param-advisor-isce3` for NISAR/ISCE3 (`insar_describe_rslc`)
+   - `param-advisor-isce2` for Sentinel/ISCE2 (`insar_describe_s1`)
 4. Apply approved whitelist-controlled changes through
    `insar_set_processing_param`
 5. Launch with `insar_run_workflow`
@@ -65,7 +66,7 @@ Real-data tests require the NAS dataset and may launch actual processing workflo
 1. Generate stack runconfigs with `insar_prepare_stack`
 2. Generate network runconfigs with `insar_prepare_network`
 3. Launch generated batches manually or through `insar_run_batch`
-4. Run MintPy with `insar_run_mintpy`
+4. Run MintPy with `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (Sentinel-1/ISCE2 stack)
 5. Poll all long-running work with `insar_get_job`
 
 ## Repository Structure

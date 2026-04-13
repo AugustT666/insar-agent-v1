@@ -929,6 +929,61 @@ output_dir/
 
 ---
 
+### `insar_run_mintpy_isce2`
+
+异步启动 MintPy，输入为一个已完成的 ISCE2/topsStack Sentinel 工作目录。该目录必须至少包含：
+
+- `reference/IW*.xml`
+- `merged/interferograms/*/filt_fine.unw`
+- `merged/interferograms/*/filt_fine.cor`
+- `merged/interferograms/*/filt_fine.unw.conncomp`
+- `merged/geom_reference/*.rdr`
+- `merged/baselines/`
+
+工具会先运行 `prep_isce.py` 准备 MintPy 所需 `.rsc` 元数据，再在 `mintpy_work_dir` 下生成/使用配置文件并调用 `smallbaselineApp.py --end velocity`。日志写入 `<mintpy_work_dir>/logs/<job_id>.log`，作业元数据持久化到 `<mintpy_work_dir>/.jobs/<job_id>.json`。
+
+该工具默认停在 `velocity`，避免把 geocode / Google Earth / HDFEOS 这些对雷达坐标 Sentinel-1 stack 并非总是成立的后处理步骤，误当成核心时序反演成功的必要条件。
+
+**参数：**
+
+| 名称 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `mintpy_work_dir` | string | 是 | MintPy 结果输出目录 |
+| `stack_work_dir` | string | 是 | 已完成的 ISCE2 stack 工作目录 |
+| `conda_env` | string | 是 | 包含 MintPy、GDAL、prep_isce.py 的 conda 环境名 |
+| `mintpy_config` | string | 否 | 可选自定义 MintPy 模板路径；留空时自动生成 ISCE2 stack 模板 |
+| `python_bin` | string | 否 | 可选 `PYTHON_BIN` 覆盖 |
+| `smallbaseline_bin` | string | 否 | 可选 `SMALLBASELINE_BIN` 覆盖 |
+| `prep_isce_bin` | string | 否 | 可选 `PREP_ISCE_BIN` 覆盖 |
+| `interaction_mode` | string | 否 | `interactive`（默认）或 `auto` |
+
+**返回：**
+```json
+{
+  "job_id": "uuid",
+  "pid": 12345,
+  "status": "running",
+  "interaction_mode": "interactive",
+  "log_path": "/work/mintpy/logs/uuid.log",
+  "submitted_at": "2026-01-01T00:00:00+00:00",
+  "command": "conda run --no-capture-output -n mintpy bash run_mintpy_isce2_stack.sh ...",
+  "mintpy_config": "/work/mintpy/isce2_stack.txt",
+  "progress_hint": "Monitor with tail -f /work/mintpy/logs/uuid.log and poll via insar_get_job(...)",
+  "poll": "insar_get_job(job_id='uuid', work_dir='/work/mintpy')",
+  "work_dir": "/work/mintpy",
+  "stack_work_dir": "/stack/workdir"
+}
+```
+
+**错误：**
+- `invalid_input`：`interaction_mode` 非法
+- `path_not_found`：`stack_work_dir`、`mintpy_config` 或所需的 stack 子目录不存在
+- `launch_failed`：子进程启动失败
+
+**实现位置：** `engines/isce2/mintpy.py::run_mintpy_isce2_stack`
+
+---
+
 ### _已移除：`insar_get_mintpy_status`_
 
 请改用 `insar_get_job(job_id=..., work_dir=<mintpy_work_dir>)`。

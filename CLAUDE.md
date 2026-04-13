@@ -29,16 +29,20 @@ Agent Client (Codex / Claude Code / etc.)
   -> insar_agent.mcp        # MCP protocol wiring, tool/resource/prompt definitions
   -> insar_agent.core       # Protocol-agnostic domain logic (Project, Job, config)
   -> insar_agent.engines.isce3  # ISCE3-specific adapter, validators, runner
+  -> insar_agent.engines.isce2  # ISCE2-specific adapter, runner, stack
   -> runtime + local conda env
 ```
 
 **`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). Invoke with the Skill tool:
-- `data-prep-nisar` — download NISAR RSLC data (ASF) and DEM (Copernicus 30m)
-- `d-insar-isce3` — single RSLC pair → GUNW product (Path A, M1-M3 tools)
-- `stack-insar-isce3` — multi-scene batch stack + network (Path B, M4 tools)
-- `param-advisor-isce3` — unified parameter-advisory workflow entry point
-- `env-setup-nisar` — ISCE3 + MCP installation guide
 - `insar-agent` — session router / entry point
+- `env-setup` — environment check & installation guide (ISCE3/ISCE2/MintPy/MCP)
+- `data-prep-nisar` — download NISAR RSLC data (ASF) and DEM (Copernicus 30m)
+- `d-insar-isce3` — single RSLC pair → GUNW product (NISAR/ISCE3, Path A)
+- `stack-insar-isce3` — multi-scene batch stack + network (NISAR/ISCE3, Path B)
+- `param-advisor-isce3` — unified parameter-advisory workflow entry point
+- `mintpy-isce3` — time-series analysis with MintPy
+- `d-insar-isce2` — single S1 pair → interferogram (Sentinel-1/ISCE2, topsApp)
+- `stack-insar-isce2` — S1 time-series stack (Sentinel-1/ISCE2, stackSentinel + MintPy)
 
 Plugin setup (run once, or after `skills/` changes):
 ```bash
