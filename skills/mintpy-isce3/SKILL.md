@@ -31,7 +31,16 @@ Path B tools operate directly on the filesystem and do not use the project regis
 - `mintpy_config`: path to MintPy smallbaselineApp config file (`.cfg` or `.txt`)
 - `dem_path`: path to DEM GeoTIFF (`.tif`) — same DEM used in ISCE3 processing
 - `conda_env`: conda environment name that contains MintPy and GDAL
-- Confirm that the chosen `conda_env` can actually run `smallbaselineApp.py`
+  **Must be a dedicated MintPy env with numpy<2 (not the ISCE3 env).**
+  If it does not exist, create it:
+  ```bash
+  conda create -n mintpy -c conda-forge python=3.11 mintpy "numpy<2" --yes
+  ```
+- Confirm that the chosen `conda_env` can actually run `smallbaselineApp.py` and import `osgeo`:
+  ```bash
+  conda run -n <conda_env> smallbaselineApp.py --version
+  conda run -n <conda_env> python -c "from osgeo import gdal; print('gdal OK')"
+  ```
 - Pair list path (optional — defaults to `pair_lists/pairs_selected.txt`)
 - Interaction mode: `interactive` (default) or `auto`
 
@@ -42,9 +51,14 @@ Path B tools operate directly on the filesystem and do not use the project regis
 - Run Step 1 (baseline plot) before Step 2 (MintPy).
 - Do not modify `mintpy_config` content. If MintPy parameters need tuning, tell the user to edit the config manually.
 - Do not continue to MintPy if the network has not actually produced GUNW products.
-- Baseline plotting and MintPy are different runtime concerns: baseline review depends on the
-  tool runtime being able to read GUNW products and plot, while MintPy execution depends on
-  the user-confirmed `conda_env`.
+- Baseline plotting and MintPy are different runtime concerns:
+  - `insar_plot_baseline` runs inside the MCP server process — requires `matplotlib` and `h5py`
+    in the **MCP server's Python env** (the base env used to launch `python3 -m insar_agent.mcp.server`).
+    If it fails with `dependency_missing: No module named 'matplotlib'`, run:
+    `pip install matplotlib h5py` in the base env, then restart Claude Code.
+  - `insar_run_mintpy` runs inside the user-specified `conda_env` — must be a dedicated
+    MintPy env with `numpy<2` (not the ISCE3 env). MintPy 1.6.x fails with numpy 2.x.
+- Do NOT pass the ISCE3 env (`isce3gpu`) as `conda_env` to `insar_run_mintpy`.
 
 ## Standard workflow (always follow this order)
 
@@ -98,6 +112,10 @@ Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>, include_logs=Tr
 or read the last lines of `log_path`. Summarise key error lines. Suggest:
 - Path issues → fix and re-run `insar_run_mintpy`
 - MintPy parameter issues → user must edit `mintpy_config` manually, then re-run
+- `ValueError: setting an array element with a sequence` → numpy 2.x in conda env;
+  recreate MintPy env with `python=3.11 "numpy<2"` from conda-forge
+- `ModuleNotFoundError: No module named 'osgeo'` → GDAL missing; use conda-forge mintpy
+  (not `pip install mintpy`) which bundles GDAL automatically
 
 ## Output requirements (report after completion)
 

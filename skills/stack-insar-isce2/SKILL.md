@@ -1,0 +1,212 @@
+---
+name: stack-insar-isce2
+description: >
+  Use for Sentinel-1 time-series InSAR processing with ISCE2 (stackSentinel.py + MintPy).
+  Invoke when the user wants to process multiple S1 scenes to produce a deformation
+  time series or velocity map.
+  Triggers on: "S1 time series", "Sentinel-1 stack", "stackSentinel", "S1 velocity",
+  "s1 time-series insar", "sentinel stack processing", "isce2 stack".
+  If Sentinel SAFE/ZIP inputs are not already organized into grouped SAFE paths,
+  invoke `data-prep-sentinel` first.
+---
+
+# Sentinel-1 Time-Series InSAR with ISCE2
+
+## Prerequisites
+
+```
+insar_check_env()
+```
+
+Confirm `envs.isce2.status == "ok"` and `envs.mintpy.status == "ok"`.
+If missing, invoke the `env-setup` skill first.
+
+---
+
+## Workflow
+
+### Step 1 — Ensure Sentinel data is prepared
+
+If the user only has raw SAFE ZIP / SAFE / burst inputs, stop and invoke:
+
+```
+data-prep-sentinel
+```
+
+Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_dir` as the handoff for this skill.
+
+---
+
+### Step 2 — Inspect a representative scene
+
+```python
+insar_describe_s1(zip_path="/mnt/.../safe/s1a_asc_rel014/S1A_IW_SLC__...SAFE")
+```
+
+Note: relative orbit, polarization, pass direction, bbox.
+
+---
+
+### Step 3 — Reuse prepared DEM and orbits
+
+Prefer the `dem_path` and `orbit_dir` returned by `data-prep-sentinel`.
+Only ask the user for replacements if they explicitly want to override them.
+The user still needs to provide:
+
+- `workspace_root`
+
+---
+
+### Step 4 — Create stack project
+
+```
+insar_create_project(
+    engine="isce2",
+    workflow="stack",
+    workspace_root="/mnt/HDD2T/August/<project>/<stack_name>",
+    name="s1-stack-<region>",
+    conda_env="isce2"
+)
+```
+
+---
+
+### Step 5 — Set stack parameters
+
+Mandatory fields:
+
+```
+insar_set_processing_param(project_id, key="slc_dir",
+    value="/mnt/.../safe/s1a_asc_rel014", justification="directory containing grouped S1 SAFE inputs for one stack")
+
+insar_set_processing_param(project_id, key="orbit_dir",
+    value="/mnt/.../orbits", justification="prepared POEORB orbit files directory")
+
+insar_set_processing_param(project_id, key="dem_file",
+    value="/mnt/.../dem/dem.tif", justification="prepared DEM path from data-prep-sentinel")
+```
+
+Key optional parameters:
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `bbox` | None | Crop to AOI: `[S, N, W, E]` |
+| `swaths` | `[1,2,3]` | Process subset for speed |
+| `num_connections` | 3 | Interferogram connections per scene |
+| `coregistration` | `"NESD"` | ESD-based; use `"geometry"` if ESD fails |
+| `range_looks` / `azimuth_looks` | 20 / 4 | Multilook factors |
+| `filter_strength` | 0.5 | Goldstein filter strength |
+| `unwrap_method` | `"snaphu"` | Unwrapping algorithm |
+
+---
+
+### Step 5.5 — Optional parameter tuning
+
+If the user wants help choosing looks, network density, coregistration mode,
+filtering, or swath/bbox tradeoffs, enter:
+
+```
+param-advisor-isce2
+```
+
+This should happen **after required fields are set and before `insar_run_workflow`**.
+The advisor flow should build a compressed evidence profile from:
+
+- `insar_get_runconfig(format='yaml')`
+- `insar_describe_s1(...)` on 1–3 representative scenes from `slc_dir`
+
+The skill then delegates recommendation generation to:
+
+- `.claude/agents/param-advisor-isce2.md`
+
+and applies accepted changes via `insar_set_processing_param` only.
+
+---
+
+### Step 6 — Run stackSentinel (prepare + execute)
+
+```
+insar_run_workflow(project_id=project_id)
+```
+
+This calls `stackSentinel.py` which:
+1. Reads the SAFE inputs from the selected grouped directory
+2. Downloads orbit files if needed
+3. Generates a series of `run_*` shell scripts in `<workspace>/run_files/`
+4. Executes those scripts in order (coregistration → interferogram → unwrap)
+
+For multi-hour stack jobs, prefer a background launcher or background shell session instead of blocking the main conversation. Always return:
+
+- the background job id or PID
+- the absolute log path
+- the exact polling command or MCP status call
+
+Monitor with `insar_get_job(job_id=job_id, project_id=project_id)`.
+Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/`.
+If you need to execute generated `run_*` scripts manually, also redirect stdout/stderr to a durable log file under `<workspace>/run_files/` and show that path to the user.
+
+> Runtime: several hours to days depending on scene count and AOI size.
+
+---
+
+### Step 7 — MintPy time-series analysis
+
+After stack processing completes:
+
+```
+insar_run_mintpy_isce2(
+    stack_work_dir="/mnt/.../sentinel-stack/...",
+    mintpy_work_dir="/mnt/.../sentinel-stack/.../mintpy",
+    conda_env="mintpy"
+)
+```
+
+MintPy can also run for a long time. Prefer background launch plus a visible log path here as well.
+
+MintPy reads the ISCE2 stack outputs and performs:
+- Network inversion → displacement time series
+- Velocity estimation
+- Tropospheric / DEM error correction (optional)
+
+---
+
+### Step 8 — Baseline network plot
+
+```
+insar_plot_baseline(project_id=project_id)
+```
+
+Shows temporal and perpendicular baseline network. Use this to assess
+network connectivity and identify problematic scene pairs.
+
+---
+
+### Step 9 — Export results
+
+```
+insar_list_outputs(project_id=project_id)
+insar_export_geotiff(project_id=project_id, product="velocity")
+```
+
+Key MintPy outputs:
+
+| File | Description |
+|------|-------------|
+| `timeseries.h5` | Displacement time series (m) |
+| `velocity.h5` | Line-of-sight velocity (m/yr) |
+| `temporalCoherence.h5` | Temporal coherence mask |
+| `geometryGeo.h5` | Incidence angle, heading, DEM |
+
+---
+
+## Hard constraints
+
+- All scenes must share the same relative orbit number.
+- If raw Sentinel inputs are not yet organized, always go through `data-prep-sentinel` first.
+- `data-prep-sentinel` is expected to prepare grouped SAFE paths, `dem_path`, and `orbit_dir`.
+- Orbit files (POEORB) must be pre-downloaded or accessible online.
+  ISCE2 can auto-download them if `fetchOrbit.py` can reach ESA servers.
+- `slc_dir` must contain only the S1 ZIPs/SAFEs for this stack (no mixed orbits).
+- MintPy must run in its own conda env (`mintpy`) — not in `isce2`.
+- Do not mix ascending and descending pass scenes in the same stack.
+- Processing must run inside `conda run -n isce2` (handled automatically by the tool).
