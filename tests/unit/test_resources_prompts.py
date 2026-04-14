@@ -35,7 +35,7 @@ def test_workflow_guide_mentions_skills():
     guide = get_workflow_guide()
     # Guide should point to skills as the guidance source
     assert "skill" in guide.lower()
-    assert "param-advisor-isce3" in guide
+    assert "param-advisor" in guide
 
 
 def test_workflow_guide_has_error_codes():
@@ -95,8 +95,8 @@ def test_process_insar_pair_interpolates_paths():
 def test_process_insar_pair_contains_constraint_reminder():
     prompt = process_insar_pair()
     assert "core processing parameters" in prompt.lower() or "Constraints reminder" in prompt
-    assert "param-advisor-isce3" in prompt
-    assert ".claude/agents/param-advisor-isce3.md" in prompt
+    assert "param-advisor" in prompt
+    assert ".claude/agents/param-advisor.md" in prompt
     assert "project-level subagent" in prompt.lower()
     assert "insar_describe_rslc" in prompt
     assert "external search" in prompt.lower()
@@ -137,8 +137,8 @@ def test_process_insar_batch_mentions_run_parallel():
     assert "run_parallel.sh" in prompt
     assert "insar_run_batch" in prompt
     assert "insar_get_job" in prompt
-    assert "param-advisor-isce3" in prompt
-    assert ".claude/agents/param-advisor-isce3.md" in prompt
+    assert "param-advisor" in prompt
+    assert ".claude/agents/param-advisor.md" in prompt
     assert "project-level subagent" in prompt.lower()
     assert "insar_describe_rslc" in prompt
     assert "external search" in prompt.lower()
@@ -176,8 +176,8 @@ def test_create_project_returns_required_fields(insar_project):
     assert "runconfig.groups.input_file_group.reference_rslc_file" in insar_project["required_fields"]
     assert "runconfig.groups.worker.gpu_enabled" not in insar_project["required_fields"]
     assert "guidance" in insar_project
-    assert "param-advisor-isce3" in insar_project["guidance"]
-    assert ".claude/agents/param-advisor-isce3.md" in insar_project["guidance"]
+    assert "param-advisor" in insar_project["guidance"]
+    assert ".claude/agents/param-advisor.md" in insar_project["guidance"]
     assert "project-level subagent" in insar_project["guidance"].lower()
     assert "insar_describe_rslc" in insar_project["guidance"]
     assert "next_step" not in insar_project

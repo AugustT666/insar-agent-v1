@@ -40,7 +40,7 @@ Agent Client (Codex / Claude Code / etc.)
 - `d-insar-isce3` — single RSLC pair → GUNW product (NISAR/ISCE3, Path A)
 - `stack-insar-isce3` — multi-scene batch stack + network (NISAR/ISCE3, Path B)
 - `param-advisor-isce3` — unified parameter-advisory workflow entry point
-- `mintpy-isce3` — time-series analysis with MintPy
+- `mintpy` — time-series analysis with MintPy across ISCE3 and ISCE2
 - `d-insar-isce2` — single S1 pair → interferogram (Sentinel-1/ISCE2, topsApp)
 - `stack-insar-isce2` — S1 time-series stack (Sentinel-1/ISCE2, stackSentinel + MintPy)
 

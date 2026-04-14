@@ -1,26 +1,26 @@
 ---
-name: param-advisor-isce3
+name: param-advisor
 description: >
-  Use when the user wants ISCE3 InSAR parameter tuning recommendations, asks
-  about multilook factors, filtering, phase unwrapping, ionosphere correction,
-  troposphere correction, or says "tune parameters", "optimize parameters",
-  "what parameters should I use", or "参数调优". This is the unified parameter
-  advisory entry point used by other insar-agent skills. Supports both
-  project-backed tuning and pure consultation mode when no project_id exists yet.
+  Use when the user wants InSAR parameter tuning recommendations for either
+  ISCE3 (NISAR/RSLC) or ISCE2 (Sentinel-1) processing. Asks about multilook
+  factors, filtering, phase unwrapping, coherence, coregistration, or says
+  "tune parameters", "optimize parameters", "参数调优". This is the unified
+  parameter advisory entry point supporting both engines. Supports both
+  project-backed tuning and pure consultation mode when no project_id exists.
 ---
 
-# 参数专家：ISCE3 参数优化统一入口
+# 参数专家：统一参数优化入口
 
 ## AUTO-TRIGGER
 
-当收到 `PARAM_ADVISOR_PROMPT` 时，根据当前 `interaction_mode` 决策：
+根据当前 `engine` (isce3 或 isce2) 和 `interaction_mode` 决策：
 
 - **interactive 模式**：进入本技能，向用户展示三选一确认，等待用户决策后再继续
 - **auto 模式**：直接进入本技能，自动接受推荐参数，无需用户确认
 
 退出差异：
-- **Path A**：调优后通过 `insar_set_processing_param(project_id, ...)` 应用，返回 d-insar-isce3 继续 `insar_run_workflow`
-- **Path B**：调优后导出 YAML，作为 `base_runconfig` 传入 `insar_prepare_stack` / `insar_prepare_network`
+- **Path A（单对 InSAR）**：调优后通过 `insar_set_processing_param(project_id, ...)` 应用，返回工作流继续 `insar_run_workflow`
+- **Path B（时序 stack/network）**：调优后导出 YAML，作为 `base_runconfig` 传入 `insar_prepare_stack` / `insar_prepare_network`
 
 ## 角色定位
 
@@ -28,15 +28,21 @@ description: >
 
 - 主会话必须先进入本 skill，再进入参数建议流程
 - 本 skill 负责收集最小上下文、组织 evidence profile、展示 diff 和收用户确认
-- 参数建议本身必须委派给 `.claude/agents/param-advisor-isce3.md`
-- 参数经验和参考规则保存在 `.claude/agents/references/param-advisor-isce3.md`
+- 参数建议本身必须委派给 `.claude/agents/param-advisor.md`
+- 参数经验和参考规则保存在 engine-specific 文件：
+  - **ISCE3**: `.claude/agents/references/param-advisor-isce3.md`
+  - **ISCE2**: `.claude/agents/references/param-advisor-isce2.md`
 
-主会话不得在当前对话里直接充当“参数专家”生成建议。
+主会话不得在当前对话里直接充当"参数专家"生成建议。
 
 ## Hard Constraints
 
-- 参数建议阶段必须先调用 `insar_describe_rslc`
-- 参数建议阶段必须调用 `.claude/agents/param-advisor-isce3.md`
+### 通用约束
+
+- 参数建议阶段必须先调用 engine-specific 的 describe 工具
+  - **ISCE3**: `insar_describe_rslc`
+  - **ISCE2**: `insar_describe_s1`（reference 和 secondary 或 stack 中 1–3 个代表场景）
+- 参数建议阶段必须调用 `.claude/agents/param-advisor.md`（传入 engine 参数）
 - 主会话不得直接调用经验规则替代 subagent
 - 传给 subagent 的内容必须是压缩后的 evidence profile，不得传完整长对话、完整 YAML、完整知识库或长 reasoning 历史
 - 参数应用只能通过 `insar_set_processing_param`
@@ -45,14 +51,28 @@ description: >
 - 必须保留三选一确认，不得代替用户自动决定
 - 若无 `project_id`，允许纯咨询模式，但不得调用 `insar_set_processing_param`
 
+### ISCE3 特定约束
+
+- 时序任务需补：
+  - `base_runconfig` 是否将传播到整条 stack/network
+  - stack 场景数 / 时间跨度 / 参考景策略
+  - network 模式（`tbase` / `conn` / 自定义 pair list）
+  - 用户当前更偏向"稳定 coherence"还是"单对分辨率/锐利度"
+
+### ISCE2 特定约束
+
+- workflow 须指定为 `tops`（单对）或 `stack`（时序）
+- stack 不强行合并成一个模板，保留 workflow-specific templates
+
 ## 职责分工
 
 ### 本 skill / 主会话负责
 
 - 读取当前任务目标和用户约束
-- 调 `insar_describe_rslc` 收集 metadata-first 证据
+- 确定 `engine` 参数（isce3 或 isce2）
+- 调 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）收集 metadata-first 证据
 - 构造压缩 evidence profile
-- 调 `.claude/agents/param-advisor-isce3.md`
+- 调 `.claude/agents/param-advisor.md`（传入 engine 参数）
 - 向用户展示建议摘要、风险摘要和 `yaml_diff_preview`
 - 执行三选一确认
 - 如用户确认，逐项调用 `insar_set_processing_param`
@@ -61,7 +81,9 @@ description: >
 ### project-level subagent 负责
 
 - 读取 evidence profile、runconfig 摘要和白名单参数摘要
-- 参考 `.claude/agents/references/param-advisor-isce3.md`
+- 参考 engine-specific reference 文件：
+  - **engine=isce3**: `.claude/agents/references/param-advisor-isce3.md`
+  - **engine=isce2**: `.claude/agents/references/param-advisor-isce2.md`
 - 输出结构化 recommendation package
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
@@ -69,6 +91,8 @@ description: >
 ## 执行流程
 
 ### Phase 1 — 证据收集
+
+#### ISCE3 路径
 
 1. 若已有 project，读取当前 runconfig 摘要
 2. 调 `insar_describe_rslc`
@@ -86,11 +110,24 @@ description: >
      - `base_runconfig` 是否将传播到整条 stack/network
      - stack 场景数 / 时间跨度 / 参考景策略
      - network 模式（`tbase` / `conn` / 自定义 pair list）
-     - 用户当前更偏向“稳定 coherence”还是“单对分辨率/锐利度”
+     - 用户当前更偏向"稳定 coherence"还是"单对分辨率/锐利度"
+
+#### ISCE2 路径
+
+压缩 evidence profile 只保留：
+
+- `project_id`（若有）
+- `workflow`: `tops` 或 `stack`
+- 当前目标摘要
+- Sentinel metadata summary（`relative_orbit`、`pass_direction`、`polarization`、`bbox`、scene count）
+- 当前参数摘要
+- 对应 template summary（`tops` 或 `stack`）
+- whitelist-controlled parameter registry summary
+- missing information
 
 ### Phase 2 — 调 subagent
 
-把 Phase 1 的压缩结果交给 `.claude/agents/param-advisor-isce3.md`。
+把 Phase 1 的压缩结果交给 `.claude/agents/param-advisor.md`，传入 `engine` 参数。
 
 subagent 返回内容至少应包含：
 
@@ -119,10 +156,10 @@ subagent 返回内容至少应包含：
 1. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 2. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 3. **落盘（防重复调优）：**
-   - **Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
+   - **Path A（ISCE3 单对或 ISCE2 tops）**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
      → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`
      → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
-   - **Path B**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
+   - **Path B（ISCE3 stack/network 或 ISCE2 stack）**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
      → 此后 `insar_prepare_stack` / `insar_prepare_network` 返回 `param_tuned_found: true`
      和 `param_tuned_base_runconfig` 路径
 4. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
@@ -136,13 +173,15 @@ subagent 返回内容至少应包含：
 
 若用户没有 `project_id`，本 skill 仍可工作：
 
-- 允许调用 `insar_describe_rslc` 和 `.claude/agents/param-advisor-isce3.md`
+- 允许调用 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）
+- 允许调用 `.claude/agents/param-advisor.md`（传入 engine 参数）
 - 允许展示建议摘要、风险和 `yaml_diff_preview`
-- 允许执行“三选一确认”说明
+- 允许执行"三选一确认"说明
 - 不调用 `insar_set_processing_param`
 - 明确告诉用户：当前是 advisory only，若要应用到实际 runconfig，需要先创建 project
 
 ## References
 
-- `.claude/agents/param-advisor-isce3.md` — project-level subagent contract
-- `.claude/agents/references/param-advisor-isce3.md` — 参数经验规则与参考知识
+- `.claude/agents/param-advisor.md` — unified project-level subagent contract
+- `.claude/agents/references/param-advisor-isce3.md` — ISCE3 参数经验规则与参考知识
+- `.claude/agents/references/param-advisor-isce2.md` — Sentinel/ISCE2 参数经验规则与参考知识

@@ -3,8 +3,6 @@ set -euo pipefail
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 SMALLBASELINE_BIN="${SMALLBASELINE_BIN:-smallbaselineApp.py}"
-PREP_ISCE_BIN="${PREP_ISCE_BIN:-prep_isce.py}"
-PREP_ISCE_ENV="${PREP_ISCE_ENV:-isce2}"
 
 WORK_DIR="${1:?mintpy work dir required}"
 STACK_DIR="${2:?stack work dir required}"
@@ -23,8 +21,8 @@ if ! command -v "$SMALLBASELINE_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v "$PREP_ISCE_BIN" >/dev/null 2>&1; then
-  echo "prep_isce executable not found in current environment: $PREP_ISCE_BIN" >&2
+if ! command -v prep_isce.py >/dev/null 2>&1; then
+  echo "prep_isce executable not found in current environment: prep_isce.py" >&2
   exit 1
 fi
 
@@ -57,21 +55,8 @@ if [ ! -f "$CUSTOM_CFG" ]; then
   exit 1
 fi
 
-ISCE_SITE_PACKAGES="$(conda run --no-capture-output -n "$PREP_ISCE_ENV" python - <<'PY'
-import sysconfig
-print(sysconfig.get_paths()['purelib'])
-PY
-)"
-ISCE_BRIDGE_DIR="$(mktemp -d "$WORK_DIR/.isce-bridge.XXXXXX")"
-trap 'rm -rf "$ISCE_BRIDGE_DIR"' EXIT
-for pkg in isce isceobj iscesys mroipac zerodop stdproc contrib; do
-  if [ -e "$ISCE_SITE_PACKAGES/$pkg" ]; then
-    ln -s "$ISCE_SITE_PACKAGES/$pkg" "$ISCE_BRIDGE_DIR/$pkg"
-  fi
-done
-
 echo "Preparing ISCE2 metadata for MintPy"
-PYTHONPATH="$ISCE_BRIDGE_DIR:$PYTHONPATH" "$PREP_ISCE_BIN" \
+prep_isce.py \
   -f "$STACK_DIR/merged/interferograms/*/filt_fine.unw" \
   -m "$META_FILE" \
   -b "$STACK_DIR/merged/baselines" \

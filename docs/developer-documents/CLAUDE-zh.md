@@ -59,7 +59,7 @@ AI 客户端（Codex / Claude Code / OpenCode 等）
 - `data-prep-nisar` — 用用户提供的 URL 列表和 AOI / bbox 下载 NISAR RSLC 与 Copernicus 30m DEM
 - `d-insar-isce3` — 单对 RSLC → GUNW 产品（Path A，M1-M3 工具）
 - `stack-insar-isce3` — 多景批量堆叠 + 干涉图网络（Path B，M4 工具）
-- `mintpy-isce3` — MintPy 时序分析（M6 工具）
+- `mintpy` — MintPy 时序分析（ISCE3 / ISCE2 统一入口）
 - `param-advisor-isce3` — 参数调优顾问（多视、解缠、电离层/对流层校正）
 - `env-setup-nisar` — ISCE3 + MCP 安装指引
 - `insar-agent` — 会话路由 / 入口

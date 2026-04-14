@@ -19,8 +19,8 @@ description: >
 - Path-type fields are set via `insar_set_runconfig_value`. Core processing parameters are set via `insar_set_processing_param`. Both tools enforce allowlists server-side.
 - For long-running processing jobs, prefer background execution with an explicit log path and status-polling plan. Show the user the log path before or immediately after launch so they can inspect progress independently.
 - When the user requests parameter tuning or provides scene/data characteristics that affect multilook, filtering, unwrapping, or atmospheric corrections, route into the engine-appropriate advisor skill.
-- NISAR / ISCE3 uses `param-advisor-isce3` with `insar_describe_rslc`.
-- Sentinel / ISCE2 uses `param-advisor-isce2` with `insar_describe_s1` and workflow-specific templates (`tops`, `stack`).
+- NISAR / ISCE3 uses `param-advisor` with `insar_describe_rslc`.
+- Sentinel / ISCE2 uses `param-advisor` with `insar_describe_s1` and workflow-specific templates (`tops`, `stack`).
 - The metadata-first entry point for parameter advice remains `insar_describe_rslc`; automatic external search is allowed only when local evidence is insufficient.
 - Do not invent workflow parameters when reference material is incomplete. Ask the user.
 
@@ -37,7 +37,7 @@ Before routing into any execution skill, confirm the cross-cutting runtime facts
 
 If the user only wants documentation or workflow review, you can defer these questions.
 If the user wants to actually process data, ask them here before routing into `d-insar-isce3`,
-`stack-insar-isce3`, or `mintpy-isce3`.
+`stack-insar-isce3`, or `mintpy`.
 
 ## Skill routing
 
@@ -46,20 +46,17 @@ Select the skill that matches the user's task and invoke it:
 | Task | Skill |
 |------|-------|
 | First-time setup, ISCE3 / ISCE2 / MCP not installed | `env-setup` |
-| Download NISAR RSLC data or prepare/download DEM | `data-prep-nisar` |
-| Prepare Sentinel-1 SAFE / burst inputs for ISCE2 | `data-prep-sentinel` |
+| Data preparation (NISAR RSLC, Sentinel SAFE, DEM, orbits) | `data-prep` |
 | Single RSLC pair → GUNW interferogram product | `d-insar-isce3` |
 | Multiple RSLC scenes → stack and/or network batch (independent, run either or both) | `stack-insar-isce3` |
 | Sentinel-1 single pair with ISCE2 | `d-insar-isce2` |
 | Sentinel-1 time-series stack with ISCE2 | `stack-insar-isce2` |
-| MintPy time-series, displacement, baseline plot | `mintpy-isce3` |
-| NISAR / ISCE3 parameter tuning | `param-advisor-isce3` |
-| Sentinel / ISCE2 parameter tuning | `param-advisor-isce2` |
+| MintPy time-series, displacement, baseline plot | `mintpy` (with engine parameter) |
+| ISCE3 parameter tuning | `param-advisor` (with engine=isce3) |
+| ISCE2 parameter tuning | `param-advisor` (with engine=isce2) |
 
 If the task spans multiple rows (e.g., data is missing AND a single pair needs processing),
-invoke `data-prep-nisar` first, then `D-InSAR-isce3`.
-For Sentinel-1, invoke `data-prep-sentinel` first whenever SAFE/ZIP or burst inputs are not
-already organized into grouped SAFE paths expected by the ISCE2 skills.
+invoke `data-prep` first to choose engine and prepare inputs, then proceed to the engine-specific workflow skill.
 
 Routing rule for runtime context:
 

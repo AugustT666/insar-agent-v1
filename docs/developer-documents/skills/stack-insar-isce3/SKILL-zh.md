@@ -165,7 +165,7 @@ bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>
 - Path B 会涉及三层配置文件：
   - `base_runconfig`：本次处理认可的 ISCE3 起始模板
   - `runconfigs/` 下的生成配置：每个 stack pair 或 network pair 各一份 YAML
-  - `mintpy_config`：后续 `mintpy-isce3` 使用的 MintPy 配置，不属于本 skill
+- `mintpy_config`：后续 `mintpy` 使用的 MintPy 配置，不属于本 skill
 - 如果 batch 状态显示结束但没有产品文件，优先检查运行环境，而不是先怀疑配对策略。
 
 ## 参考资料

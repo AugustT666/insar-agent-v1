@@ -101,12 +101,10 @@ def _write_default_template(mintpy_work_dir: Path, stack_work_dir: Path) -> Path
 def run_mintpy_isce2_stack(
     mintpy_work_dir: str | Path,
     stack_work_dir: str | Path,
-    conda_env: str,
+    conda_env: str = "isce2",
     mintpy_config: str | Path | None = None,
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
-    prep_isce_bin: str | None = None,
-    prep_isce_env: str | None = None,
 ) -> dict[str, object]:
     work_dir = Path(mintpy_work_dir)
     stack_dir = Path(stack_work_dir)
@@ -152,10 +150,6 @@ def run_mintpy_isce2_stack(
         env["PYTHON_BIN"] = python_bin
     if smallbaseline_bin:
         env["SMALLBASELINE_BIN"] = smallbaseline_bin
-    if prep_isce_bin:
-        env["PREP_ISCE_BIN"] = prep_isce_bin
-    if prep_isce_env:
-        env["PREP_ISCE_ENV"] = prep_isce_env
 
     with open(log_path, "w") as lf:
         proc = subprocess.Popen(command, stdout=lf, stderr=subprocess.STDOUT, env=env)

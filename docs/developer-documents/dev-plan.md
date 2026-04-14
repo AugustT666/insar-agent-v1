@@ -98,8 +98,8 @@
 - `engines/isce3/baseline.py` — `plot_baseline_network()`
 
 **新增 Skill：**
-- `skills/mintpy-isce3/SKILL.md` — MintPy 工作流引导（先画基线图，再启动 MintPy，轮询直到完成）
-- `skills/insar-agent/SKILL.md` 路由表更新：新增 `mintpy-isce3` 条目
+- `skills/mintpy/SKILL.md` — MintPy 工作流引导（先画基线图，再启动 MintPy，轮询直到完成）
+- `skills/insar-agent/SKILL.md` 路由表更新：新增 `mintpy` 条目
 
 **测试：** `tests/unit/test_m6_mintpy_baseline.py`（~20 个 unit tests）
 
@@ -408,6 +408,6 @@ insar-agent/
     insar-agent/       # 路由/入口 skill
     d-insar-isce3/     # Path A 单对干涉图
     stack-insar-isce3/ # Path B 批量堆叠网络
-    mintpy-isce3/      # Path B MintPy 时序分析
+mintpy/            # Path B MintPy 时序分析
     data-prep-nisar/   # 数据准备（RSLC + DEM）
 ```

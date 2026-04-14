@@ -30,4 +30,4 @@ insar_plot_baseline(
 
 - 该工具从真实 GUNW 产品中读取垂直基线，不是仅凭 pair list 画图。
 - 如果 network 没跑完，或者某些产品缺失，绘图会失败。
-- 完整的时序处理继续通过 `insar_run_mintpy` 和 `mintpy-isce3` skill 完成。
+- 完整的时序处理继续通过 `insar_run_mintpy` 和 `mintpy` skill 完成。

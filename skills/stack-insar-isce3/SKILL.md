@@ -6,7 +6,7 @@ description: >
   pairs for MintPy), or both. Invoke when the user mentions Stack-InSAR, batch processing,
   interferogram network, MintPy, time-series, multiple scenes, temporal baseline, or asks
   to process more than two RSLC files. Stack and Network are independent — either can be
-  run alone. If the DEM or RSLC files are missing, invoke data-prep-nisar first.
+  run alone. If the DEM or RSLC files are missing, invoke `data-prep` first.
 ---
 
 # Stack-InSAR: Multi-scene Batch Processing (Path B)
@@ -32,7 +32,7 @@ Each option generates shell scripts that can be launched manually or through `in
 - `data_dir`: directory containing multiple NISAR RSLC `.h5` files
 - `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, uses the built-in default `insar` template.
 - `isce3_conda_env`: conda env that contains ISCE3 and a working GDAL HDF5 plugin path
-- DEM path (`.tif`) — if missing, invoke `data-prep-nisar` first
+- DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
 - Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
@@ -47,9 +47,9 @@ Each option generates shell scripts that can be launched manually or through `in
   inherited by all pairs in the batch.
 - Do not silently choose a project-specific base runconfig. Use the user-provided template.
   If the user does not provide one, use the built-in default `insar` template exposed by MCP.
-- `param-advisor-isce3` is the only supported route for processing-parameter changes in
+- `param-advisor (engine=isce3)` is the only supported route for processing-parameter changes in
   this workflow. It must call `insar_describe_rslc`, delegate recommendation generation
-  to `.claude/agents/param-advisor-isce3.md`, present `yaml_diff_preview`, collect user
+  to `.claude/agents/param-advisor.md`, present `yaml_diff_preview`, collect user
   confirmation, apply accepted changes via `insar_set_processing_param`, then export the
   tuned YAML as the new `base_runconfig`.
 - Before the first actual execution, confirm the chosen ISCE3 runtime. If batch execution
@@ -74,15 +74,15 @@ Each option generates shell scripts that can be launched manually or through `in
 **interactive 模式：** 询问用户是否在生成 runconfigs 之前进行参数调优，等待确认。
 提供三个选项：
 1. 使用默认参数，直接继续
-2. 进入 param-advisor-isce3 进行专家调优
+2. 进入 param-advisor (engine=isce3) 进行专家调优
 3. 手动指定 base_runconfig 路径
 
-**auto 模式：** 直接进入 `param-advisor-isce3`，无需用户确认。
+**auto 模式：** 直接进入 `param-advisor (engine=isce3)`，无需用户确认。
 自动接受推荐参数，导出调优后的 YAML 作为 base_runconfig。
 
-param-advisor-isce3 调用链（Path B）：
+param-advisor (engine=isce3) 调用链（Path B）：
 - `insar_describe_rslc`（data_dir 中代表性 RSLC 的元数据）
-- `.claude/agents/param-advisor-isce3.md`（生成推荐）
+- `.claude/agents/param-advisor.md`（生成推荐）
 - interactive：展示 yaml_diff_preview，等待确认；auto：自动接受
 - 若接受：`insar_set_processing_param`（临时 project）
 - **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用
@@ -159,7 +159,7 @@ Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_
 
 ## Output requirements (report after each completed option)
 
-- Base runconfig source path, and whether `param-advisor-isce3` was used
+- Base runconfig source path, and whether `param-advisor (engine=isce3)` was used
 - If Option A ran: number of secondary scenes, reference date, `run_command`
 - If Option B ran: network mode, number of pairs, pair list path, `run_command`
 - Final GUNW output: `<output_dir>/runs/<date1>_<date2>/products/GUNW_*.h5`
@@ -170,7 +170,7 @@ Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_
 - Path B touches three config layers:
   - `base_runconfig`: the starting ISCE3 template approved for this run
   - generated pair runconfigs under `runconfigs/`: one YAML per stack pair or network pair
-  - `mintpy_config`: separate MintPy config, used later by `mintpy-isce3`, not by this skill
+  - `mintpy_config`: separate MintPy config, used later by `mintpy` (engine=isce3), not by this skill
 - A failed batch with no products is often an environment problem, not a pairing problem.
   Check the selected runtime before regenerating.
 

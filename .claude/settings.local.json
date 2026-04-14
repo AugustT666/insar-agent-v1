@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m json.tool)",
+      "Bash(echo:*)",
+      "Bash(claude --version)",
+      "Bash(npx claude:*)",
+      "Bash(node \"/home/august/.claude/plugins/marketplaces/everything-claude-code/scripts/hooks/auto-tmux-dev.js\")"
+    ]
+  }
+}

@@ -174,15 +174,15 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
 
 2.5. Optional parameter tuning:
    If the user asks about multilook, filtering, unwrapping, ionosphere/troposphere
-   corrections, or provides study-area characteristics, enter the param-advisor-isce3
-   skill here (after paths are set, before validation). That skill starts by calling
-   insar_describe_rslc(...) to build a metadata-first evidence profile, then delegates
-   recommendation generation to the project-level subagent defined in
-   .claude/agents/param-advisor-isce3.md. The subagent may consult
-   .claude/agents/references/param-advisor-isce3.md and may use automatic external search
-   only when local evidence is insufficient. The main agent may only apply
-   whitelist-controlled parameters via insar_set_processing_param after the
-   subagent returns and the user confirms the plan.
+   corrections, or provides study-area characteristics, enter the param-advisor
+   skill here with engine=isce3 (after paths are set, before validation). That skill
+   starts by calling insar_describe_rslc(...) to build a metadata-first evidence
+   profile, then delegates recommendation generation to the project-level subagent
+   defined in .claude/agents/param-advisor.md. The subagent may consult the
+   engine-specific reference asset at .claude/agents/references/param-advisor-isce{{engine}}.md
+   and may use automatic external search only when local evidence is insufficient.
+   The main agent may only apply whitelist-controlled parameters via
+   insar_set_processing_param after the subagent returns and the user confirms the plan.
 
 3. Launch workflow:
    insar_run_workflow(project_id)
@@ -200,8 +200,8 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
 
 ## Constraints reminder
 - Path fields must go through insar_set_runconfig_value
-- Whitelist-controlled processing parameters should flow through param-advisor-isce3
-- For skill-aware clients, parameter advice should come from param-advisor-isce3 plus its project-level subagent
+- Whitelist-controlled processing parameters should flow through param-advisor (engine=isce3)
+- For skill-aware clients, parameter advice should come from param-advisor plus its project-level subagent
 - Do NOT modify the runconfig YAML manually for path fields — use insar_set_runconfig_value
 """
 
@@ -244,12 +244,12 @@ to interaction_mode="auto" for minimal interruptions.
 ## Optional parameter tuning before Step 1
 
 If the user wants to tune multilook, filtering, unwrapping, or geocode output spacing,
-enter param-advisor-isce3 first using a temporary insar project. That skill must
-delegate recommendation generation to the project-level subagent defined in
-.claude/agents/param-advisor-isce3.md after calling insar_describe_rslc(...) to build
-a local metadata summary. The subagent may consult
-.claude/agents/references/param-advisor-isce3.md and may use automatic external search
-only when that evidence is insufficient, and the final recommendation must show
+enter param-advisor first using a temporary insar project and engine=isce3. That skill
+must delegate recommendation generation to the project-level subagent defined in
+.claude/agents/param-advisor.md after calling insar_describe_rslc(...) to build a
+local metadata summary. The subagent may consult the engine-specific reference asset at
+.claude/agents/references/param-advisor-isce{{engine}}.md and may use automatic external
+search only when that evidence is insufficient, and the final recommendation must show
 provenance so the user can decide what to trust.
 Export the tuned YAML and pass that file as base_runconfig for both stack and
 network preparation.
@@ -662,9 +662,10 @@ def insar_create_project(
                 "Set required path fields with insar_set_processing_param. "
                 "Use insar_describe_s1 to inspect scene metadata (orbit, polarization, coverage). "
                 "If you need to tune looks, filtering, ESD/coregistration, unwrapping, or stack connections, "
-                "enter the param-advisor-isce2 skill before validate/run. That skill must call insar_describe_s1, "
-                "then delegate recommendation generation to the project-level subagent defined in "
-                ".claude/agents/param-advisor-isce2.md before applying changes via insar_set_processing_param. "
+                "enter the param-advisor skill with engine=isce2 before validate/run. That skill must call "
+                "insar_describe_s1, then delegate recommendation generation to the project-level subagent "
+                "defined in .claude/agents/param-advisor.md before applying changes via "
+                "insar_set_processing_param. "
                 "For S1 time-series (workflow='stack'), set slc_dir to the directory containing "
                 "all S1 SAFE/ZIP files, then call insar_run_workflow to run stackSentinel.py."
             ),
@@ -706,11 +707,11 @@ def insar_create_project(
             "Set required path fields with insar_set_runconfig_value. "
             "Use insar_describe_rslc to build a metadata summary before parameter tuning. "
             "If you need to tune multilook, filtering, unwrapping, or atmospheric corrections, "
-            "enter the param-advisor-isce3 skill before validate/export/run. That skill must "
+            "enter the param-advisor skill with engine=isce3 before validate/export/run. That skill must "
             "call insar_describe_rslc, then delegate recommendation generation to the "
-            "project-level subagent defined in .claude/agents/param-advisor-isce3.md before "
-            "applying changes via insar_set_processing_param. The subagent may consult "
-            ".claude/agents/references/param-advisor-isce3.md and may use automatic "
+            "project-level subagent defined in .claude/agents/param-advisor.md before "
+            "applying changes via insar_set_processing_param. The subagent may consult the "
+            "engine-specific reference asset at .claude/agents/references/param-advisor-isce{engine}.md and may use automatic "
             "external search only when local evidence is insufficient, and the user remains "
             "responsible for accepting or rejecting those sources."
         ),
@@ -751,7 +752,7 @@ def insar_set_runconfig_value(project_id: str, key: str, value: object) -> dict:
 
     Only path-related fields and a small set of worker flags are allowed.
     Core processing parameters cannot be changed through this tool. Use
-    param-advisor-isce3 + insar_set_processing_param for whitelist-controlled
+    param-advisor (engine-selected) + insar_set_processing_param for whitelist-controlled
     tuning; all other processing keys remain locked.
 
     Pass value=None to remove the key (restore to template default).
@@ -822,7 +823,7 @@ def insar_set_processing_param(
     settings, and correction toggles. Only keys listed in the processing
     parameter registry (assets/processing_params_insar.yaml) are allowed.
 
-    Must be called by the param-advisor-isce3 skill after its project-level
+    Must be called by the param-advisor skill after its project-level
     subagent has produced an explicit recommendation package, with a specific
     justification for each change relative to the default template.
 
@@ -2124,12 +2125,10 @@ def insar_run_mintpy(
 def insar_run_mintpy_isce2(
     mintpy_work_dir: str,
     stack_work_dir: str,
-    conda_env: str,
+    conda_env: str = "isce2",
     mintpy_config: str = "",
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
-    prep_isce_bin: str | None = None,
-    prep_isce_env: str | None = None,
     interaction_mode: str = "interactive",
 ) -> dict:
     """Launch MintPy asynchronously on an ISCE2/topsStack-style Sentinel workspace.
@@ -2155,8 +2154,6 @@ def insar_run_mintpy_isce2(
             mintpy_config=mintpy_config or None,
             python_bin=python_bin,
             smallbaseline_bin=smallbaseline_bin,
-            prep_isce_bin=prep_isce_bin,
-            prep_isce_env=prep_isce_env,
         )
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
@@ -2864,9 +2861,9 @@ def insar_check_env() -> dict:
 
     # Check installed skills
     expected_skills = [
-        "env-setup", "insar-agent", "data-prep-nisar", "data-prep-sentinel",
-        "d-insar-isce3", "stack-insar-isce3", "param-advisor-isce3", "mintpy-isce3",
-        "d-insar-isce2", "stack-insar-isce2", "param-advisor-isce2",
+        "env-setup", "insar-agent", "data-prep", "data-prep-nisar", "data-prep-sentinel",
+        "d-insar-isce3", "stack-insar-isce3", "param-advisor", "mintpy",
+        "d-insar-isce2", "stack-insar-isce2",
     ]
     plugin_skills_dir = Path.home() / ".claude" / "plugins"
     installed_skills: list[str] = []

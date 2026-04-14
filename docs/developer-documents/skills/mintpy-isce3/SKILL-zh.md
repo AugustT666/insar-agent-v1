@@ -1,5 +1,5 @@
 ---
-name: mintpy-isce3
+name: mintpy
 description: >
   当用户希望在已经完成的 ISCE3 干涉图网络上运行 MintPy 时序分析，
   或希望可视化时空基线网络时使用。

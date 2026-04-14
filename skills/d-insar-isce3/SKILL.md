@@ -6,7 +6,7 @@ description: >
   paths, mentions D-InSAR, interferogram, coherence map, unwrapped phase, GUNW, or
   asks to "process a pair". Also invoke when the user has finished data preparation
   and has two RSLC files ready. If the DEM or RSLC files are missing, invoke
-  data-prep-nisar first.
+  `data-prep` first.
 ---
 
 # D-InSAR: Single RSLC Pair → GUNW (Path A)
@@ -15,7 +15,7 @@ description: >
 
 - Reference RSLC path (`.h5`)
 - Secondary RSLC path (`.h5`)
-- DEM path (`.tif`) — if missing, invoke `data-prep-nisar` first
+- DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Workspace / output directory (absolute path)
 - Conda environment name — run `conda env list` and let user choose from ISCE-related envs
 
@@ -24,9 +24,9 @@ description: >
 - Default to `interaction_mode="interactive"`.
 - At the start, tell the user they can switch to `interaction_mode="auto"` if they want
   the AI to keep going with minimal interruptions.
-- **interactive**: At Step 2.5, pause and ask the user whether to run param-advisor-isce3.
+- **interactive**: At Step 2.5, pause and ask the user whether to run param-advisor (engine=isce3).
   Wait for confirmation before proceeding.
-- **auto**: At Step 2.5, automatically enter param-advisor-isce3 without asking.
+- **auto**: At Step 2.5, automatically enter param-advisor (engine=isce3) without asking.
   Skip only if the user has explicitly said to use default parameters.
 
 ## Hard constraints
@@ -35,12 +35,12 @@ description: >
 - If workflow parameters are unclear, ask the user — do not invent them.
 - Core processing parameters (multilook, filtering, unwrapping, thresholds) cannot be changed
   through `insar_set_runconfig_value`. If the user wants to tune them, this workflow must
-  invoke `param-advisor-isce3` **between Step 2 and Step 3** (after setting paths,
+  invoke `param-advisor (engine=isce3)` **between Step 2 and Step 3** (after setting paths,
   before launch).
 - Always start from the default runconfig template — `insar_create_project` loads it automatically.
 - If `insar_set_runconfig_value` returns `key_not_allowed`, do NOT attempt workarounds. Tell the
   user that only whitelist-controlled processing parameters may be changed through
-  `param-advisor-isce3` + `insar_set_processing_param`.
+  `param-advisor (engine=isce3)` + `insar_set_processing_param`.
 
 ## Standard workflow (always follow this order)
 
@@ -73,14 +73,14 @@ description: >
    **interactive 模式：** 询问用户是否进入参数调优，等待确认后再继续。
    提供三个选项：
    1. 使用默认参数，直接运行
-   2. 进入 param-advisor-isce3 进行专家调优
+   2. 进入 param-advisor (engine=isce3) 进行专家调优
    3. 手动指定参数值
 
-   **auto 模式：** 直接进入 `param-advisor-isce3`，无需用户确认。
+   **auto 模式：** 直接进入 `param-advisor (engine=isce3)`，无需用户确认。
 
-   param-advisor-isce3 调用链：
+   param-advisor (engine=isce3) 调用链：
    - `insar_describe_rslc(reference_rslc, secondary_rslc, project_id)`
-   - `.claude/agents/param-advisor-isce3.md`（生成推荐 + yaml_diff_preview）
+   - `.claude/agents/param-advisor.md`（生成推荐 + yaml_diff_preview）
    - interactive：展示 diff，等待用户三选一确认；auto：自动接受推荐
    - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置
@@ -108,7 +108,7 @@ description: >
    insar_get_job(job_id, project_id, include_logs=True)
    ```
    Summarize the key error lines. Suggest path-only fixes. For whitelist-controlled
-   processing issues, re-enter `param-advisor-isce3`.
+   processing issues, re-enter `param-advisor (engine=isce3)`.
 
 6. **List outputs**
    ```

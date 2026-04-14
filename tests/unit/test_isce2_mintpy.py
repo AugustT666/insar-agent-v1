@@ -67,7 +67,7 @@ class TestRunMintpyISCE2Stack:
             run_mintpy_isce2_stack(
                 mintpy_work_dir=str(tmp_path / "mintpy"),
                 stack_work_dir=str(tmp_path / "no_such_stack"),
-                conda_env="mintpy",
+                conda_env="isce2",
             )
 
     def test_missing_script_raises(self, tmp_path: Path) -> None:
@@ -77,7 +77,7 @@ class TestRunMintpyISCE2Stack:
                 run_mintpy_isce2_stack(
                     mintpy_work_dir=str(tmp_path / "mintpy"),
                     stack_work_dir=str(stack),
-                    conda_env="mintpy",
+                    conda_env="isce2",
                 )
 
     def test_job_json_written_on_launch(self, tmp_path: Path) -> None:
@@ -92,7 +92,7 @@ class TestRunMintpyISCE2Stack:
             result = run_mintpy_isce2_stack(
                 mintpy_work_dir=str(tmp_path / "mintpy"),
                 stack_work_dir=str(stack),
-                conda_env="mintpy",
+                conda_env="isce2",
             )
 
         job_file = tmp_path / "mintpy" / ".jobs" / f"{result['job_id']}.json"
@@ -107,7 +107,7 @@ class TestRunMintpyISCE2Stack:
         assert "mintpy.troposphericDelay.method = no" in template
         assert "mintpy.topographicResidual = no" in template
 
-    def test_launch_passes_prep_isce_env_override(self, tmp_path: Path) -> None:
+    def test_launch_does_not_set_removed_bridge_env_overrides(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")
         fake_script = tmp_path / "run_mintpy_isce2_stack.sh"
         fake_script.write_text("#!/bin/bash\n", encoding="utf-8")
@@ -119,12 +119,12 @@ class TestRunMintpyISCE2Stack:
             run_mintpy_isce2_stack(
                 mintpy_work_dir=str(tmp_path / "mintpy"),
                 stack_work_dir=str(stack),
-                conda_env="mintpy",
-                prep_isce_env="isce2",
+                conda_env="isce2",
             )
 
         _, kwargs = mock_popen.call_args
-        assert kwargs["env"]["PREP_ISCE_ENV"] == "isce2"
+        assert "PREP_ISCE_ENV" not in kwargs["env"]
+        assert "PREP_ISCE_BIN" not in kwargs["env"]
 
 
 class TestInsarRunMintpyISCE2:
@@ -132,7 +132,6 @@ class TestInsarRunMintpyISCE2:
         result = insar_run_mintpy_isce2(
             mintpy_work_dir=str(tmp_path / "mintpy"),
             stack_work_dir=str(tmp_path / "no_such_stack"),
-            conda_env="mintpy",
         )
         assert result["error"] == "path_not_found"
 
@@ -150,7 +149,6 @@ class TestInsarRunMintpyISCE2:
             result = insar_run_mintpy_isce2(
                 mintpy_work_dir=str(tmp_path / "mintpy"),
                 stack_work_dir=str(stack),
-                conda_env="mintpy",
                 interaction_mode="auto",
             )
 
@@ -159,7 +157,7 @@ class TestInsarRunMintpyISCE2:
         assert "insar_get_job" in result["poll"]
         assert str(tmp_path / "mintpy") in result["poll"]
 
-    def test_success_passes_prep_env_override(self, tmp_path: Path) -> None:
+    def test_tool_uses_isce2_default_and_no_removed_bridge_args(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")
         fake = {
             "job_id": "job-1",
@@ -169,13 +167,13 @@ class TestInsarRunMintpyISCE2:
             "submitted_at": "2026-01-01T00:00:00+00:00",
             "mintpy_config": "/tmp/isce2_stack.txt",
         }
+
         with patch("insar_agent.mcp.server.run_mintpy_isce2_stack", return_value=fake) as mock_run:
             insar_run_mintpy_isce2(
                 mintpy_work_dir=str(tmp_path / "mintpy"),
                 stack_work_dir=str(stack),
-                conda_env="mintpy",
-                prep_isce_env="isce2",
             )
 
         _, kwargs = mock_run.call_args
-        assert kwargs["prep_isce_env"] == "isce2"
+        assert kwargs["conda_env"] == "isce2"
+        assert "prep_isce_bin" not in kwargs

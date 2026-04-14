@@ -30,7 +30,7 @@ description: >
 
 如果用户当前只想看文档或评审流程，可以暂缓这些问题。
 如果用户要真正处理数据，则应在这里先确认，再切入
-`d-insar-isce3`、`stack-insar-isce3` 或 `mintpy-isce3`。
+`d-insar-isce3`、`stack-insar-isce3` 或 `mintpy`。
 
 ## Skill 路由
 
@@ -42,7 +42,7 @@ description: >
 | 下载 NISAR RSLC 或准备 / 下载 DEM | `data-prep-nisar` |
 | 单对 RSLC 生成 GUNW | `d-insar-isce3` |
 | 多景 RSLC 生成干涉图网络（batch） | `stack-insar-isce3` |
-| MintPy 时序分析、位移、基线图 | `mintpy-isce3` |
+| MintPy 时序分析、位移、基线图 | `mintpy` |
 | 任何调参与参数建议需求 | `param-advisor-isce3` |
 
 如果任务跨多行，例如“数据还没准备好，但还要做单对处理”，先走 `data-prep-nisar`，再走 `d-insar-isce3`。

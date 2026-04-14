@@ -17,7 +17,7 @@ The insar-agent project requires the following components:
 | Component | Conda env | Purpose | Required |
 |-----------|-----------|---------|----------|
 | ISCE3 (GPU or CPU) | `isce3gpu` | NISAR L-band InSAR (GUNW, GSLC) | 按需 |
-| MintPy | `mintpy` | Time-series InSAR analysis | 按需 |
+| MintPy | `mintpy`（ISCE3） / `isce2`（Sentinel） | Time-series InSAR analysis | 按需 |
 | ISCE2 | `isce2` | Sentinel-1 C-band InSAR (topsApp, stackSentinel) | 按需 |
 | insar-agent | base / project venv | MCP server + skills | 必须 |
 | Claude Code plugin | Claude settings | Skill routing + MCP registration | 必须 |
@@ -62,13 +62,21 @@ conda create -n isce3 -c conda-forge \
     python=3.11 isce3 snaphu h5py gdal numpy scipy matplotlib pysolid ruamel.yaml -y
 ```
 
-### MintPy（需要时序分析时安装，必须独立 env）
+### MintPy（按引擎区分安装方式）
 
+ISCE3 / NISAR 时序分析：
 ```bash
 conda create -n mintpy -c conda-forge python=3.11 mintpy "numpy<2" -y
 ```
 
 > 不要装进 `isce3gpu`——MintPy ≤1.6.x 与 numpy 2.x 不兼容。
+
+ISCE2 / Sentinel 时序分析：
+```bash
+conda install -n isce2 -c conda-forge mintpy -y
+```
+
+> Sentinel 的 MintPy 直接跑在 `isce2` env 里，不再使用单独的 bridge 或额外 `mintpy` env。
 
 ### ISCE2（处理 Sentinel-1 数据时安装）
 

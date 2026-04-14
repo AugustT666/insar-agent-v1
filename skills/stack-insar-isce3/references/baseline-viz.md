@@ -32,4 +32,4 @@ If the user wants to change pair selection after reviewing the figure, go back t
 - The tool reads perpendicular baseline from the real GUNW products.
 - If the network has not finished, or products are missing, plotting will fail.
 - Full time-series processing continues through `insar_run_mintpy` and the
-  `mintpy-isce3` skill.
+  `mintpy` skill (engine=isce3).

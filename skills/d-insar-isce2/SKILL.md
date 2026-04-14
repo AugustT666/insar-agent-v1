@@ -7,10 +7,28 @@ description: >
   Triggers on: "S1 interferogram", "Sentinel-1 DInSAR", "topsApp", "isce2 process",
   "S1 pair", "sentinel deformation", "C-band interferogram".
   If Sentinel SAFE/ZIP inputs are not already organized into grouped SAFE paths,
-  invoke `data-prep-sentinel` first.
+  invoke `data-prep` first.
 ---
 
 # Sentinel-1 D-InSAR with ISCE2 (Single Pair)
+
+## Required confirmations (ask only if missing)
+
+- Reference and secondary Sentinel-1 SAFE paths (or SAFE ZIP files)
+- DEM path (`.tif`) — if missing, invoke `data-prep` first
+- Precise orbit directory (`.orb` files) — if missing, can be downloaded via `data-prep`
+- Workspace / output directory (absolute path)
+- Conda environment name — run `conda env list` and let user choose from isce2-related envs
+
+## Execution modes
+
+- Default to `interaction_mode="interactive"`.
+- At the start, tell the user they can switch to `interaction_mode="auto"` if they want
+  the AI to keep going with minimal interruptions.
+- **interactive**: At Step 4.5, pause and ask the user whether to run param-advisor (engine=isce2).
+  Wait for confirmation before proceeding.
+- **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking.
+  Skip only if the user has explicitly said to use default parameters.
 
 ## Prerequisites
 
@@ -31,10 +49,10 @@ Confirm `envs.isce2.status == "ok"`. If missing, invoke the `env-setup` skill fi
 If the user only has raw SAFE ZIP / SAFE / burst inputs, stop and invoke:
 
 ```
-data-prep-sentinel
+data-prep
 ```
 
-Use the returned `grouped_safe_paths`, `dem_path`, and `orbit_dir` as the handoff for this skill.
+Select `engine=sentinel` and use the returned `grouped_safe_paths`, `dem_path`, and `orbit_dir` as the handoff.
 
 ---
 
@@ -57,7 +75,7 @@ Confirm:
 
 ### Step 3 — Reuse prepared DEM and orbits
 
-Prefer the `dem_path` and `orbit_dir` returned by `data-prep-sentinel`.
+Prefer the `dem_path` and `orbit_dir` returned by `data-prep`.
 Only ask the user for replacements if they explicitly want to override them.
 The user still needs to provide:
 
@@ -96,7 +114,7 @@ insar_set_processing_param(project_id, key="orbit_dir",
     value="/mnt/.../orbits", justification="prepared POEORB orbit files directory")
 
 insar_set_processing_param(project_id, key="dem_file",
-    value="/mnt/.../dem/dem.tif", justification="prepared DEM path from data-prep-sentinel")
+    value="/mnt/.../dem/dem.tif", justification="prepared DEM path from data-prep")
 ```
 
 Optional parameters (change only if needed):
@@ -113,13 +131,13 @@ Optional parameters (change only if needed):
 
 ---
 
-### Step 5.5 — Optional parameter tuning
+### Step 4.5 — Optional parameter tuning
 
 If the user wants help choosing looks, filtering, ESD, swaths, or unwrapping settings,
 enter:
 
 ```
-param-advisor-isce2
+param-advisor (engine=isce2)
 ```
 
 This should happen **after required path fields are set and before `insar_run_workflow`**.
@@ -131,13 +149,13 @@ The advisor flow must build a metadata-first evidence profile using:
 
 The skill then delegates recommendation generation to:
 
-- `.claude/agents/param-advisor-isce2.md`
+- `.claude/agents/param-advisor.md`
 
 and applies accepted changes via `insar_set_processing_param` only.
 
 ---
 
-### Step 6 — Run workflow
+### Step 5 — Run workflow
 
 ```
 insar_run_workflow(project_id=project_id)
@@ -150,7 +168,7 @@ ISCE2 will:
 
 ---
 
-### Step 7 — Monitor progress
+### Step 6 — Monitor progress
 
 ```
 insar_get_job(job_id=job_id, project_id=project_id)
@@ -168,7 +186,7 @@ Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/
 
 ---
 
-### Step 8 — Inspect outputs
+### Step 7 — Inspect outputs
 
 ```
 insar_list_outputs(project_id=project_id)
@@ -190,8 +208,8 @@ Key output files (located under `workspace_root/`):
 
 - Reference and secondary must be from the same relative orbit (same track).
 - Do NOT mix ascending and descending pass scenes.
-- If raw Sentinel inputs are not yet organized, always go through `data-prep-sentinel` first.
-- `data-prep-sentinel` is expected to prepare grouped SAFE paths, `dem_path`, and `orbit_dir`.
+- If raw Sentinel inputs are not yet organized, always go through `data-prep` first with `engine=sentinel`.
+- `data-prep` is expected to prepare grouped SAFE paths, `dem_path`, and `orbit_dir`.
 - `orbit_dir` must contain the correct POEORB files. ISCE2 downloads them
   automatically if `do_download_orbit` is enabled and internet is available.
 - Processing must run inside `conda run -n isce2` — never run `topsApp.py` directly
@@ -211,7 +229,7 @@ Key output files (located under `workspace_root/`):
 
 **Solutions**:
 1. **Auto-Retry (Default)**: The MCP tool automatically retries orbit downloads with exponential backoff (3 attempts, 2–8 second delays). Check logs to see if the retry succeeds.
-2. **Pre-Download Orbits**: Use `data-prep-sentinel` with `download_orbits=True` and `orbit_username`/`orbit_password` before workflow launch.
+2. **Pre-Download Orbits**: Use `data-prep` with `engine=sentinel` and `download_orbits=True` before workflow launch.
 3. **Provide Orbit Directory**: If orbits are already cached, set `orbit_dir` to the directory containing `.EOF` files and omit `download_orbits`.
 4. **Check Credentials**: Verify dataspace.copernicus.eu credentials are correct (in `~/.netrc` or via `orbit_username`/`orbit_password`).
 
@@ -270,7 +288,7 @@ Key output files (located under `workspace_root/`):
 
 **Solutions**:
 1. **Check Job Status**: Run `insar_get_job(job_id=...)` to see if job is `failed`, `timeout`, or still `running`.
-2. **Inspect Raw Logs**: View full topsApp output at the log path from Step 7:
+2. **Inspect Raw Logs**: View full topsApp output at the log path from Step 6:
    ```bash
    tail -200 /path/to/workspace_root/.insar_logs/isce2_*.log
    ```
@@ -311,7 +329,7 @@ For reference (Intel i7 with 32 GB RAM, NVMe storage):
 All processing logs are saved under `<workspace_root>/.insar_logs/`:
 
 - `isce2_<job_id>.log` — Main ISCE2 process output (text format)
-- `sentinel_prep_<job_id>.log` — Data preparation log (if data-prep-sentinel was used)
+- `sentinel_prep_<job_id>.log` — Data preparation log (if data-prep was used)
 - `sentinel_orbit_<job_id>.log` — Orbit download log with retry messages
 
 To stream logs in real time during processing:
