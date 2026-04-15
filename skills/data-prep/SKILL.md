@@ -25,6 +25,17 @@ to engine-specific implementations based on the detected or selected engine:
 - 委派给相应的 engine-specific data-prep 子 skill
 - 不直接执行数据下载或准备逻辑
 
+## Capability Matrix
+
+| 模块 | data-prep-nisar | data-prep-sentinel |
+|------|----------------|--------------------|
+| 场景下载 | `insar_download_rslc` | `insar_download_scene` |
+| 场景元数据检查 | `insar_describe_rslc` | `insar_describe_s1` |
+| DEM 下载 | `insar_download_dem`（独立 Part B） | `insar_download_dem` 直调或 `insar_prepare_sentinel_data(download_dem=True)` |
+| 辅助数据 | N/A（state vectors 在 HDF 内） | orbits via `insar_prepare_sentinel_data(download_orbits=True)` |
+| 目录约定 | `<project>/rslc/`, `<project>/dem/` | `<project>/safe/`, `<project>/dem/`, `<project>/orbits/` |
+| 服务器资源建议 | `nproc` + `free -h` + `df -h` | 同样先做 `nproc` + `free -h` + `df -h` |
+
 ## Unified Workflow
 
 ### Step 1 — Determine Engine and Data Source

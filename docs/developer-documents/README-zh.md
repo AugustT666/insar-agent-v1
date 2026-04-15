@@ -8,7 +8,7 @@
 
 - Path A：单对参考景/次级景 RSLC 生成 `GUNW`
 - Path B：多景 stack 准备、干涉图网络生成、MintPy 时序分析
-- metadata-first 参数优化：通过 `param-advisor-isce3` skill 调用 `.claude/agents/param-advisor-isce3.md`
+- metadata-first 参数优化：通过 `param-advisor` skill 调用 `.claude/agents/param-advisor.md`
 - 辅助工具：RSLC bbox 提取、GUNW 导出 GeoTIFF 与 PNG browse 图
 
 ## 适用对象
@@ -47,9 +47,9 @@ pytest -m real_data tests/integration -q
 
 1. 用 `insar_create_project` 创建项目
 2. 用 `insar_set_runconfig_value` 填写必需路径字段
-3. 如果需要调参，进入 `param-advisor-isce3`
+3. 如果需要调参，进入 `param-advisor`
    - 该 skill 会先调用 `insar_describe_rslc`
-   - 然后把建议生成委派给 `.claude/agents/param-advisor-isce3.md`
+   - 然后把建议生成委派给 `.claude/agents/param-advisor.md`
 4. 用 `insar_set_processing_param` 应用经确认的白名单参数
 5. 用 `insar_run_workflow` 启动处理
 6. 用 `insar_get_job` 轮询状态

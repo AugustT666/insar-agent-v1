@@ -26,6 +26,17 @@ description: >
 - Whether precise orbit download is needed
 - Download URLs and proxy settings, if scene download is still needed
 
+## Capability Matrix
+
+| 模块 | 当前做法 | 备注 |
+|------|---------|------|
+| 场景下载 | `insar_download_scene` | 仅在用户仍需下载 Sentinel 数据时使用 |
+| 场景元数据检查 | `insar_describe_s1` | 作为代表场景检查步骤 |
+| DEM 下载 | `insar_prepare_sentinel_data(download_dem=True)` 或 `insar_download_dem` | 允许只准备 DEM |
+| 辅助数据 | `insar_prepare_sentinel_data(download_orbits=True)` | 轨道文件写入 `orbits/` |
+| 目录约定 | `safe/`, `dem/`, `orbits/` | 全部位于 `project_root` 之下 |
+| 服务器资源建议 | `nproc` + `free -h` + `df -h` | 在下载或批量预处理前先检查 |
+
 ## Hard constraints
 
 - Use `insar_download_scene` only when the user still needs to download Sentinel data.
@@ -52,6 +63,18 @@ insar_download_scene(
     proxy=None,
 )
 ```
+
+### Step 1.5 — Server info check
+
+Before downloading or unpacking large Sentinel inputs, run and summarize:
+
+```bash
+nproc
+free -h
+df -h <project_root>
+```
+
+Use that result to recommend whether to keep the default worker count or reduce concurrency.
 
 ### Step 2 — Prepare grouped SAFE, DEM, and orbits
 
@@ -90,6 +113,30 @@ Grouped SAFE paths are organized under:
 - `safe/s1a_asc_rel014/`
 - `safe/s1a_desc_rel079/`
 - `safe/s1c_asc_rel014/`
+
+### Step 2.5 — Inspect representative scene
+
+Before handing Sentinel inputs to `d-insar-isce2` or `stack-insar-isce2`, inspect one representative scene:
+
+```python
+insar_describe_s1(zip_path="/path/to/S1A_IW_SLC__...SAFE")
+```
+
+Capture at least: relative orbit, pass direction, polarization, acquisition time, and bbox.
+
+### Alternative — DEM only
+
+If the Sentinel scenes are already organized and the only missing asset is a DEM, you may skip
+`insar_prepare_sentinel_data` and fetch the DEM directly:
+
+```python
+insar_download_dem(
+    output_path="/path/to/project-root/dem/copernicus_30.tif",
+    aoi_path="/path/to/study_area.shp",  # or bbox=[min_lon, min_lat, max_lon, max_lat]
+)
+```
+
+Use the same AOI / bbox that will be passed to the ISCE2 workflow.
 
 ### Step 3 — Hand those paths to ISCE2
 

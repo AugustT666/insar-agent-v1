@@ -86,9 +86,9 @@ See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for ful
 
 1. Create a project
 2. Set required path fields
-3. If tuning is needed, enter the engine-appropriate advisor skill:
-   - NISAR / ISCE3: `param-advisor-isce3` → `insar_describe_rslc` → `.claude/agents/param-advisor-isce3.md`
-   - Sentinel / ISCE2: `param-advisor-isce2` → `insar_describe_s1` → `.claude/agents/param-advisor-isce2.md`
+3. If tuning is needed, enter the unified advisor skill with the engine selected:
+   - NISAR / ISCE3: `param-advisor` + `engine=isce3` → `insar_describe_rslc` → `.claude/agents/param-advisor.md`
+   - Sentinel / ISCE2: `param-advisor` + `engine=isce2` → `insar_describe_s1` → `.claude/agents/param-advisor.md`
 4. Apply approved whitelist-controlled parameters through
    `insar_set_processing_param`
 5. Run `insar_run_workflow`
@@ -108,9 +108,9 @@ See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for ful
 
 Parameter optimization is intentionally split:
 
-- `skills/param-advisor-isce3/SKILL.md` and `skills/param-advisor-isce2/SKILL.md` gather evidence, show diff, and handle user confirmation
-- `.claude/agents/param-advisor-isce3.md` and `.claude/agents/param-advisor-isce2.md` produce the structured recommendation package
-- `.claude/agents/references/param-advisor-isce3.md` and `.claude/agents/references/param-advisor-isce2.md` store advisory heuristics and workflow templates
+- `skills/param-advisor/SKILL.md` gathers evidence, shows diff, and handles user confirmation for both engines
+- `.claude/agents/param-advisor.md` produces the structured recommendation package
+- `.claude/agents/references/param-advisor-isce{engine}.md` stores advisory heuristics and workflow templates per engine
 - `insar_set_processing_param` applies only whitelist-controlled changes
 
 This keeps detailed reasoning out of the main conversation while preserving a

@@ -10,9 +10,9 @@ Current support is centered on `ISCE3` and NISAR RSLC data:
 
 - Path A: single reference/secondary RSLC pair -> `GUNW`
 - Path B: multi-scene stack preparation -> interferogram network -> MintPy
-- metadata-first parameter optimization via `param-advisor-isce3` (NISAR/ISCE3)
-  or `param-advisor-isce2` (Sentinel/ISCE2), each delegating recommendation
-  generation to a project-level subagent
+- metadata-first parameter optimization via `param-advisor` with `engine=isce3`
+  (NISAR/ISCE3) or `engine=isce2` (Sentinel/ISCE2), delegating recommendation
+  generation to a unified project-level subagent
 - utility workflows such as RSLC bbox extraction and GeoTIFF export
 
 ## Who It Is For
@@ -53,9 +53,9 @@ Real-data tests require the NAS dataset and may launch actual processing workflo
 
 1. Create a project with `insar_create_project`
 2. Fill required path fields with `insar_set_runconfig_value`
-3. If parameter tuning is needed, enter the engine-appropriate advisor:
-   - `param-advisor-isce3` for NISAR/ISCE3 (`insar_describe_rslc`)
-   - `param-advisor-isce2` for Sentinel/ISCE2 (`insar_describe_s1`)
+3. If parameter tuning is needed, enter `param-advisor` with the engine-specific mode:
+   - `engine=isce3` for NISAR/ISCE3 (`insar_describe_rslc`)
+   - `engine=isce2` for Sentinel/ISCE2 (`insar_describe_s1`)
 4. Apply approved whitelist-controlled changes through
    `insar_set_processing_param`
 5. Launch with `insar_run_workflow`

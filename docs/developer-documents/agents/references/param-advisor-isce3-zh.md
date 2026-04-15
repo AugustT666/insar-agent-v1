@@ -1,6 +1,6 @@
 # Param Advisor ISCE3 参考资产
 
-本文档存放 `.claude/agents/param-advisor-isce3.md` 使用的参数建议 heuristics 与证据模式。
+本文档存放 `.claude/agents/param-advisor.md` 使用的参数建议 heuristics 与证据模式。
 它是参考资产，不是 subagent contract。
 
 ## Evidence Profile 指引

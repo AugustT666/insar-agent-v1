@@ -22,9 +22,9 @@ description: >
 - 所有 ISCE3 操作必须通过 `insar_*` MCP 工具完成，不直接运行 conda/python 命令。
 - 如果 workflow 参数不清楚，就问用户，不要自行猜测。
 - multilook、滤波、解缠、阈值等核心处理参数不能通过 `insar_set_runconfig_value` 修改。
-  如果用户要调这些参数，必须在 Step 2 和 Step 3 之间切入 `param-advisor-isce3`。
+  如果用户要调这些参数，必须在 Step 2 和 Step 3 之间切入 `param-advisor`。
 - 必须从默认 runconfig 模板开始；`insar_create_project` 会自动加载。
-- 如果 `insar_set_runconfig_value` 返回 `key_not_allowed`，不要尝试旁路方案。明确告诉用户：只有白名单处理参数才能通过 `param-advisor-isce3` + `insar_set_processing_param` 修改。
+- 如果 `insar_set_runconfig_value` 返回 `key_not_allowed`，不要尝试旁路方案。明确告诉用户：只有白名单处理参数才能通过 `param-advisor` + `insar_set_processing_param` 修改。
 
 ## 标准流程（始终按此顺序）
 
@@ -58,10 +58,10 @@ description: >
 
 2.5. **（可选）参数调优**
 
-如果用户要改处理参数，就进入 `param-advisor-isce3`。该 skill 负责：
+如果用户要改处理参数，就进入 `param-advisor`。该 skill 负责：
 
 - 调 `insar_describe_rslc`
-- 调 `.claude/agents/param-advisor-isce3.md`
+- 调 `.claude/agents/param-advisor.md`
 - 展示参数 diff 与三选一确认
 - 如用户接受建议，调用 `insar_set_processing_param`
 - 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
@@ -99,7 +99,7 @@ description: >
    insar_get_job(job_id, project_id, include_logs=True)
    ```
 
-   提炼关键报错行。优先建议路径级修复；如果是白名单处理参数问题，则重新进入 `param-advisor-isce3`。
+   提炼关键报错行。优先建议路径级修复；如果是白名单处理参数问题，则重新进入 `param-advisor`。
 
 6. **列出输出**
 

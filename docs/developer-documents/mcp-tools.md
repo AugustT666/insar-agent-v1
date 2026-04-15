@@ -208,11 +208,11 @@ Prompts 是任务模板。调用后可获得预填好的分步操作说明。
   "required_fields": [
     "runconfig.groups.input_file_group.reference_rslc_file"
   ],
-  "guidance": "Set required path fields with insar_set_runconfig_value. Use insar_describe_rslc to build a metadata summary before parameter tuning. If you need to tune multilook, filtering, unwrapping, or atmospheric corrections, enter the param-advisor-isce3 skill before validate/export/run; that skill delegates recommendation generation to .claude/agents/param-advisor-isce3.md and applies changes via insar_set_processing_param."
+  "guidance": "Set required path fields with insar_set_runconfig_value. Use insar_describe_rslc to build a metadata summary before parameter tuning. If you need to tune multilook, filtering, unwrapping, or atmospheric corrections, enter the param-advisor skill before validate/export/run; that skill delegates recommendation generation to .claude/agents/param-advisor.md and applies changes via insar_set_processing_param."
 }
 ```
 
-对于支持 skill 的客户端，这段 guidance 是一个插件契约：参数建议应通过 `param-advisor-isce3` skill 流转。该 skill 会先调用 `insar_describe_rslc`，然后把建议生成委派给 `.claude/agents/param-advisor-isce3.md` 中定义的项目级 subagent，并可参考 `.claude/agents/references/param-advisor-isce3.md` 中的 advisory heuristics。`insar_create_project` 只返回必填路径字段；可选的 worker/logging 字段仍可通过 `insar_set_runconfig_value` 设置，但不属于 `required_fields`。
+对于支持 skill 的客户端，这段 guidance 是一个插件契约：参数建议应通过 `param-advisor` skill 流转。该 skill 会先调用 `insar_describe_rslc`，然后把建议生成委派给 `.claude/agents/param-advisor.md` 中定义的项目级 subagent，并可参考 `.claude/agents/references/param-advisor.md` 中的 advisory heuristics。`insar_create_project` 只返回必填路径字段；可选的 worker/logging 字段仍可通过 `insar_set_runconfig_value` 设置，但不属于 `required_fields`。
 
 **错误：**
 - `engine_not_found`
@@ -309,9 +309,9 @@ Prompts 是任务模板。调用后可获得预填好的分步操作说明。
 
 ### `insar_set_processing_param`
 
-设置受白名单控制的 processing parameter。这个工具设计上应由 `param-advisor-isce3` 调用，而不是作为自由形式 YAML 编辑的替代品。
+设置受白名单控制的 processing parameter。这个工具设计上应由 `param-advisor` 调用，而不是作为自由形式 YAML 编辑的替代品。
 
-对于支持 skill 的客户端，`param-advisor-isce3` 应先调用 `insar_describe_rslc`，然后从 `.claude/agents/param-advisor-isce3.md` 定义的项目级 subagent 获取建议，并使用 `.claude/agents/references/param-advisor-isce3.md` 作为 advisory knowledge asset，之后再调用此工具。MCP 不会验证这个委派链路；它只校验参数更新本身。
+对于支持 skill 的客户端，`param-advisor` 应先调用 `insar_describe_rslc`，然后从 `.claude/agents/param-advisor.md` 定义的项目级 subagent 获取建议，并使用 `.claude/agents/references/param-advisor.md` 作为 advisory knowledge asset，之后再调用此工具。MCP 不会验证这个委派链路；它只校验参数更新本身。
 
 **行为说明：**
 - 执行类型校验、范围校验、枚举校验，以及对列表形参数的简单结构校验。
@@ -753,7 +753,7 @@ output_dir/
 - 尽量直接从 HDF5 中读取可观测事实
 - 对 sensor、band、时间戳、极化、轨道方向等字段，在必要时退回到文件名推断
 - 若提供 `project_id`，会附带当前 processing-parameter snapshot
-- 设计目标是在 `param-advisor-isce3` 内部执行，作为 subagent 建议生成之前的证据构建步骤
+- 设计目标是在 `param-advisor` 内部执行，作为 subagent 建议生成之前的证据构建步骤
 
 **错误：**
 - `invalid_input`：`reference_rslc` 为空
@@ -950,11 +950,10 @@ output_dir/
 |------|------|------|------|
 | `mintpy_work_dir` | string | 是 | MintPy 结果输出目录 |
 | `stack_work_dir` | string | 是 | 已完成的 ISCE2 stack 工作目录 |
-| `conda_env` | string | 是 | 包含 MintPy、GDAL、prep_isce.py 的 conda 环境名 |
+| `conda_env` | string | 是 | 包含 MintPy、GDAL、prep_isce.py 的 conda 环境名；Sentinel 路径默认使用 `isce2` |
 | `mintpy_config` | string | 否 | 可选自定义 MintPy 模板路径；留空时自动生成 ISCE2 stack 模板 |
 | `python_bin` | string | 否 | 可选 `PYTHON_BIN` 覆盖 |
 | `smallbaseline_bin` | string | 否 | 可选 `SMALLBASELINE_BIN` 覆盖 |
-| `prep_isce_bin` | string | 否 | 可选 `PREP_ISCE_BIN` 覆盖 |
 | `interaction_mode` | string | 否 | `interactive`（默认）或 `auto` |
 
 **返回：**
@@ -966,7 +965,7 @@ output_dir/
   "interaction_mode": "interactive",
   "log_path": "/work/mintpy/logs/uuid.log",
   "submitted_at": "2026-01-01T00:00:00+00:00",
-  "command": "conda run --no-capture-output -n mintpy bash run_mintpy_isce2_stack.sh ...",
+  "command": "conda run --no-capture-output -n isce2 bash run_mintpy_isce2_stack.sh ...",
   "mintpy_config": "/work/mintpy/isce2_stack.txt",
   "progress_hint": "Monitor with tail -f /work/mintpy/logs/uuid.log and poll via insar_get_job(...)",
   "poll": "insar_get_job(job_id='uuid', work_dir='/work/mintpy')",

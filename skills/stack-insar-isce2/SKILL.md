@@ -196,14 +196,15 @@ For advanced tuning of MintPy parameters, the user can edit the MintPy config fi
 
 ---
 
-### Step 8 — Baseline network plot
+### Step 8 — Optional baseline inspection
 
-```
-insar_plot_baseline(project_id=project_id)
-```
+For ISCE2 stacks, baseline products are typically prepared by topsStack itself under
+`<stack_work_dir>/merged/baselines/` and `baselines_txt/`. Do **not** call the
+ISCE3-only `insar_plot_baseline(network_dir=...)` tool here.
 
-Shows temporal and perpendicular baseline network. Use this to assess
-network connectivity and identify problematic scene pairs.
+If the user wants to inspect baseline connectivity, point them to the generated
+baseline text products inside the stack work directory or continue through the unified
+`mintpy` skill, which treats ISCE2 baseline plotting as optional.
 
 ---
 

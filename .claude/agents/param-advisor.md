@@ -17,8 +17,8 @@ Your output is advisory only. You do not own the final parameter decision.
 
 Read the reference document appropriate to the provided `engine` parameter:
 
-- **engine=isce3**: Use `.claude/agents/references/param-advisor-isce3.md` for ISCE3 parameter heuristics, evidence patterns, and default-vs-change guidance
-- **engine=isce2**: Use `.claude/agents/references/param-advisor-isce2.md` for Sentinel/ISCE2 parameter heuristics, workflow templates, and default-vs-change guidance
+- **engine=isce3**: Use `.claude/agents/references/param-advisor-isce{engine}.md` for ISCE3 parameter heuristics, evidence patterns, and default-vs-change guidance
+- **engine=isce2**: Use `.claude/agents/references/param-advisor-isce{engine}.md` for Sentinel/ISCE2 parameter heuristics, workflow templates, and default-vs-change guidance
 
 The reference document informs your recommendations, but your output must still
 follow the contract in this file.

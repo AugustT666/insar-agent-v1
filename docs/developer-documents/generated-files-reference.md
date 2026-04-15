@@ -40,7 +40,7 @@
   skills/
     d-insar-isce3/SKILL.md          ← Path A 技能指令：单对工作流步骤、交互/自动模式、param-advisor 调用链
     stack-insar-isce3/SKILL.md      ← Path B 技能指令：批量工作流步骤、Step 0 参数调优、handoff 处理
-    param-advisor-isce3/SKILL.md    ← 参数调优统一入口：AUTO-TRIGGER、三选一确认、落盘规则
+    param-advisor/SKILL.md    ← 参数调优统一入口：AUTO-TRIGGER、三选一确认、落盘规则
     data-prep-nisar/SKILL.md        ← RSLC 下载和 DEM 准备
     env-setup-nisar/SKILL.md        ← ISCE3 + MCP 安装指南
     insar-agent/SKILL.md            ← 会话路由入口
@@ -50,11 +50,11 @@
                                       insar_prepare_stack / insar_prepare_network
                                       调用前注入 PARAM_ADVISOR_PROMPT，触发参数调优询问）
     agents/
-      param-advisor-isce3.md        ← 参数专家 subagent 合约（不与用户对话，只输出
+      param-advisor.md        ← 参数专家 subagent 合约（不与用户对话，只输出
                                       结构化 recommendation package）
       behavior-tester.md            ← 行为测试 agent（模拟首次用户观察工作流合规性）
       references/
-        param-advisor-isce3.md      ← 参数经验规则知识库（multilook/filter/unwrap 等
+        param-advisor.md      ← 参数经验规则知识库（multilook/filter/unwrap 等
                                       启发式规则，subagent 读取后生成建议）
 ```
 
@@ -234,7 +234,7 @@ Path B 分两步，每步产生一个独立的输出目录，结构相似但内�
 
 ### 2.4 参数调优落盘文件
 
-参数调优（`param-advisor-isce3`）完成后会在特定路径写入快照文件，用于后续会话跳过重复调优。
+参数调优（`param-advisor`）完成后会在特定路径写入快照文件，用于后续会话跳过重复调优。
 
 | 路径 | 适用路径 | 创建方式 | 作用 |
 |------|----------|----------|------|
@@ -368,9 +368,9 @@ insar_set_runconfig_value() × 6
   → 更新 .insar_agent/project.json (runconfig 字段)
 
 [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
-  → (可选) param-advisor-isce3 技能
+  → (可选) param-advisor 技能
     → insar_describe_rslc()      ← 读取 RSLC metadata，不写文件
-    → 调用 .claude/agents/param-advisor-isce3.md subagent
+    → 调用 .claude/agents/param-advisor.md subagent
     → insar_set_processing_param() × N
       → 更新 .insar_agent/project.json
     → insar_export_runconfig(output_dir="<workspace>/param_tuned")
@@ -390,9 +390,9 @@ insar_run_workflow()
 
 ```
 [Step 0] [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
-  → (可选) param-advisor-isce3 技能（Path B 模式）
+  → (可选) param-advisor 技能（Path B 模式）
     → insar_describe_rslc()
-    → .claude/agents/param-advisor-isce3.md subagent
+    → .claude/agents/param-advisor.md subagent
     → insar_set_processing_param()（临时 project）
     → 写入 <data_dir>/base_runconfig_param_tuned.yaml
 

@@ -84,9 +84,9 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 
 1. 创建项目
 2. 设置必填路径字段
-3. 如需调参，进入 `param-advisor-isce3`
+3. 如需调参，进入 `param-advisor`
    - 该 skill 会调用 `insar_describe_rslc`
-   - 然后把建议生成委派给 `.claude/agents/param-advisor-isce3.md`
+   - 然后把建议生成委派给 `.claude/agents/param-advisor.md`
 4. 通过 `insar_set_processing_param` 应用经确认的白名单参数
 5. 运行 `insar_run_workflow`
 6. 用 `insar_get_job` 轮询
@@ -105,9 +105,9 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 
 参数优化被有意拆成三层：
 
-- `skills/param-advisor-isce3/SKILL.md`：收集证据、展示 diff、处理用户确认
-- `.claude/agents/param-advisor-isce3.md`：生成结构化建议包
-- `.claude/agents/references/param-advisor-isce3.md`：保存 advisory heuristics 与证据模式
+- `skills/param-advisor/SKILL.md`：收集证据、展示 diff、处理用户确认
+- `.claude/agents/param-advisor.md`：生成结构化建议包
+- `.claude/agents/references/param-advisor.md`：保存 advisory heuristics 与证据模式
 - `insar_set_processing_param`：只负责应用白名单参数
 
 这样可以把细粒度推理留在主对话之外，同时保留可见的 diff 与用户确认步骤。

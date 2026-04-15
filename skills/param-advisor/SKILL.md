@@ -30,8 +30,8 @@ description: >
 - 本 skill 负责收集最小上下文、组织 evidence profile、展示 diff 和收用户确认
 - 参数建议本身必须委派给 `.claude/agents/param-advisor.md`
 - 参数经验和参考规则保存在 engine-specific 文件：
-  - **ISCE3**: `.claude/agents/references/param-advisor-isce3.md`
-  - **ISCE2**: `.claude/agents/references/param-advisor-isce2.md`
+  - **ISCE3**: `.claude/agents/references/param-advisor-isce{engine}.md`
+  - **ISCE2**: `.claude/agents/references/param-advisor-isce{engine}.md`
 
 主会话不得在当前对话里直接充当"参数专家"生成建议。
 
@@ -82,8 +82,8 @@ description: >
 
 - 读取 evidence profile、runconfig 摘要和白名单参数摘要
 - 参考 engine-specific reference 文件：
-  - **engine=isce3**: `.claude/agents/references/param-advisor-isce3.md`
-  - **engine=isce2**: `.claude/agents/references/param-advisor-isce2.md`
+  - **engine=isce3**: `.claude/agents/references/param-advisor-isce{engine}.md`
+  - **engine=isce2**: `.claude/agents/references/param-advisor-isce{engine}.md`
 - 输出结构化 recommendation package
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
@@ -156,12 +156,15 @@ subagent 返回内容至少应包含：
 1. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 2. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 3. **落盘（防重复调优）：**
-   - **Path A（ISCE3 单对或 ISCE2 tops）**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
+   - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
      → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`
      → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
-   - **Path B（ISCE3 stack/network 或 ISCE2 stack）**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
+   - **ISCE3 Path B**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
      → 此后 `insar_prepare_stack` / `insar_prepare_network` 返回 `param_tuned_found: true`
      和 `param_tuned_base_runconfig` 路径
+   - **ISCE2（当前限制）**：除非后续 MCP 明确补齐支持（unless MCP support is added），否则不要假设当前会返回可复用的
+     `param_tuned_found` / `param_tuned_config` 信号。当前文案应说明**始终重新调优**，
+     或在用户明确接受默认参数时直接继续；不要宣称今天已经能自动复用。
 4. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
 
 如果用户选择默认参数：
@@ -183,5 +186,4 @@ subagent 返回内容至少应包含：
 ## References
 
 - `.claude/agents/param-advisor.md` — unified project-level subagent contract
-- `.claude/agents/references/param-advisor-isce3.md` — ISCE3 参数经验规则与参考知识
-- `.claude/agents/references/param-advisor-isce2.md` — Sentinel/ISCE2 参数经验规则与参考知识
+- `.claude/agents/references/param-advisor-isce{engine}.md` — engine-specific 参数经验规则与参考知识

@@ -1,6 +1,6 @@
 # insar-agent 交互工作流展示
 
-本文展示用户、Claude Code（AI）、`param-advisor-isce3` skill、其 project-level subagent，以及 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
+本文展示用户、Claude Code（AI）、`param-advisor` skill、其 project-level subagent，以及 insar-agent MCP 服务多方协作完成 NISAR InSAR 处理的完整交互过程。
 
 ---
 
@@ -226,7 +226,7 @@ MCP → Claude: {error: "key_not_allowed"}
 Claude → 用户：
   "multilook 参数属于核心处理参数，MCP 服务器禁止通过工具修改。
    这类参数会影响处理精度和可复现性。
-   如果这个参数在白名单里，我可以切到 param-advisor-isce3 skill 流程；
+   如果这个参数在白名单里，我可以切到 param-advisor skill 流程；
    否则只能离开当前 MCP 工作流，在外部手动管理 YAML。"
 ```
 
@@ -310,7 +310,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 **核心原则：**
 - Skills 是工作流步骤和顺序的唯一来源。MCP 工具只执行动作、返回事实性结果。
 - Claude **只修改路径类字段**（input、output、DEM、scratch 路径）
-- 所有核心处理参数必须走 `param-advisor-isce3` → `.claude/agents/param-advisor-isce3.md` → `insar_set_processing_param` 白名单路径；
+- 所有核心处理参数必须走 `param-advisor` → `.claude/agents/param-advisor.md` → `insar_set_processing_param` 白名单路径；
   主对话不得直接产出参数建议，也不应通过手工改导出的 YAML 规避 MCP 约束
 - MCP 服务器是最终执行层，`key_not_allowed` 错误无法绕过
 
@@ -328,8 +328,8 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 | Skill 路由 | `skills/insar-agent/SKILL.md` | 任务 → skill 映射表 |
 | Path A Skill | `skills/d-insar-isce3/SKILL.md` | 单对流程步骤约束 |
 | Path B Skill | `skills/stack-insar-isce3/SKILL.md` | 批量流程步骤约束 |
-| 参数顾问 Skill | `skills/param-advisor-isce3/SKILL.md` | metadata-first 参数调优编排 |
-| 参数顾问 Reference | `.claude/agents/references/param-advisor-isce3.md` | 经验规则与参考知识 |
+| 参数顾问 Skill | `skills/param-advisor/SKILL.md` | metadata-first 参数调优编排 |
+| 参数顾问 Reference | `.claude/agents/references/param-advisor.md` | 经验规则与参考知识 |
 | 数据准备 Skill | `skills/data-prep-nisar/SKILL.md` | DEM + RSLC 准备流程 |
 | 环境安装 Skill | `skills/env-setup-nisar/SKILL.md` | ISCE3 + MCP 安装指引（占位） |
 

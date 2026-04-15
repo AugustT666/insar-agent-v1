@@ -1,5 +1,5 @@
 ---
-name: param-advisor-isce3
+name: param-advisor
 description: >
   当用户需要 ISCE3 InSAR 参数建议，询问 multilook、滤波、phase unwrap、
   ionosphere correction、troposphere correction，或直接说“调参”“参数优化”
@@ -15,15 +15,15 @@ description: >
 
 - 主会话必须先进入本 skill，再进入参数建议流程
 - 本 skill 负责收集最小上下文、组织 evidence profile、展示 diff、获取用户确认
-- 参数建议本身必须委派给 `.claude/agents/param-advisor-isce3.md`
-- 参数经验与参考规则保存在 `.claude/agents/references/param-advisor-isce3.md`
+- 参数建议本身必须委派给 `.claude/agents/param-advisor.md`
+- 参数经验与参考规则保存在 `.claude/agents/references/param-advisor.md`
 
 主会话不得在当前对话中直接扮演“参数专家”给出最终建议。
 
 ## 硬约束
 
 - 参数建议阶段必须先调用 `insar_describe_rslc`
-- 参数建议阶段必须调用 `.claude/agents/param-advisor-isce3.md`
+- 参数建议阶段必须调用 `.claude/agents/param-advisor.md`
 - 主会话不得直接绕过 subagent 去套用经验规则
 - 传给 subagent 的内容必须是压缩后的 evidence profile，不得传完整长对话、完整 YAML、完整知识库或长 reasoning 历史
 - 参数应用只能通过 `insar_set_processing_param`
@@ -39,7 +39,7 @@ description: >
 - 读取当前任务目标与用户约束
 - 调 `insar_describe_rslc` 收集 metadata-first 证据
 - 构造压缩 evidence profile
-- 调 `.claude/agents/param-advisor-isce3.md`
+- 调 `.claude/agents/param-advisor.md`
 - 向用户展示建议摘要、风险摘要与 `yaml_diff_preview`
 - 执行三选一确认
 - 若用户确认，逐项调用 `insar_set_processing_param`
@@ -48,7 +48,7 @@ description: >
 ### project-level subagent 负责
 
 - 读取 evidence profile、runconfig 摘要与白名单参数摘要
-- 参考 `.claude/agents/references/param-advisor-isce3.md`
+- 参考 `.claude/agents/references/param-advisor.md`
 - 输出结构化 recommendation package
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
@@ -77,7 +77,7 @@ description: >
 
 ### Phase 2 — 调 subagent
 
-把 Phase 1 的压缩结果交给 `.claude/agents/param-advisor-isce3.md`。
+把 Phase 1 的压缩结果交给 `.claude/agents/param-advisor.md`。
 
 subagent 返回内容至少应包含：
 
@@ -116,7 +116,7 @@ subagent 返回内容至少应包含：
 
 若用户没有 `project_id`，本 skill 仍可工作：
 
-- 允许调用 `insar_describe_rslc` 与 `.claude/agents/param-advisor-isce3.md`
+- 允许调用 `insar_describe_rslc` 与 `.claude/agents/param-advisor.md`
 - 允许展示建议摘要、风险和 `yaml_diff_preview`
 - 允许说明“三选一确认”
 - 不调用 `insar_set_processing_param`
@@ -124,5 +124,5 @@ subagent 返回内容至少应包含：
 
 ## 参考
 
-- `.claude/agents/param-advisor-isce3.md`：project-level subagent contract
-- `.claude/agents/references/param-advisor-isce3.md`：参数经验规则与参考知识
+- `.claude/agents/param-advisor.md`：project-level subagent contract
+- `.claude/agents/references/param-advisor.md`：参数经验规则与参考知识

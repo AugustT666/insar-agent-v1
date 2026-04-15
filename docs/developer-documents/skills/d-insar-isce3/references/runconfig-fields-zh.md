@@ -32,5 +32,5 @@ insar_set_runconfig_value(project_id, key, value)
 
 - 其余 runconfig keys 都属于核心处理参数，例如 multilook、滤波、解缠。
 - 这些参数被 `ALLOWED_SET_FIELDS` 锁定；如果试图通过 MCP 直接设置，会返回 `key_not_allowed`。
-- 如果需要改白名单处理参数，应进入 `param-advisor-isce3`，再由 `insar_set_processing_param` 应用。
+- 如果需要改白名单处理参数，应进入 `param-advisor`，再由 `insar_set_processing_param` 应用。
 - 当前权威字段列表也可以通过 MCP 资源 `insar://allowed-fields/insar` 获取。

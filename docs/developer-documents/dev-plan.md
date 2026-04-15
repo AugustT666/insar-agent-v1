@@ -142,9 +142,9 @@
 **目标：** 在保留项目级 subagent 的前提下，把参数专家输入从 runconfig/文件名推断扩展为元数据优先（metadata-first）流程，并允许在证据不足时自动补充外部搜索。
 
 **实现范围：**
-- `param-advisor-isce3` 保留为统一参数优化入口与薄编排层
-- 项目级 agent：`.claude/agents/param-advisor-isce3.md`
-- agent 同级 reference 资产：`.claude/agents/references/param-advisor-isce3.md`
+- `param-advisor` 保留为统一参数优化入口与薄编排层
+- 项目级 agent：`.claude/agents/param-advisor.md`
+- agent 同级 reference 资产：`.claude/agents/references/param-advisor.md`
 - 新增 `insar_describe_rslc`：汇总 RSLC 本地元数据、时间基线、bbox 和当前 processing context
 - `insar_create_project().guidance` 与 `process_insar_pair/process_insar_batch` 明确写出 metadata-first + subagent requirement
 - 权威文档与开发文档统一术语：plugin contract vs MCP contract
@@ -162,8 +162,8 @@
 
 **已完成：**
 - 参数专家工作流从早期 worker 形态收口为项目级 subagent：
-  - `.claude/agents/param-advisor-isce3.md`
-  - `.claude/agents/references/param-advisor-isce3.md`
+  - `.claude/agents/param-advisor.md`
+  - `.claude/agents/references/param-advisor.md`
 - `insar_describe_rslc` 建立 metadata-first 路径，参数建议不再主要依赖文件名猜测
 - `docs/archive/knowledge-base/` 作为历史材料归档入口正式落位
 - `mcp-tools.md`、`workflow-showcase.md`、`mcp-knowledge-base-mapping.md` 等开发文档改为围绕 skill-aware client / subagent contract 叙述
@@ -224,7 +224,7 @@
   - `interaction_mode="interactive"`：关键中间产物必须暂停交付用户检查
   - `interaction_mode="auto"`：AI 尽量连续执行，但持续暴露 `log_path`、`poll`、输出路径
 - Path B 的 `base_runconfig` 现已支持留空回退到 MCP 内置默认 `insar` 模板
-- `param-advisor-isce3` 已补充对时序任务的上下文约束：一份调参后的模板可能传播到整条 stack / network，建议应偏保守、稳健、可复现
+- `param-advisor` 已补充对时序任务的上下文约束：一份调参后的模板可能传播到整条 stack / network，建议应偏保守、稳健、可复现
 
 ---
 
@@ -251,7 +251,7 @@
   - 支持 `base_runconfig` 留空回退到内置 `insar` 模板
   - 证据：代码实现 + 单元测试（`tests/unit/test_m4_stack_network.py`）
 - 参数专家对 Path B 的上下文约束已进入 skill / subagent contract
-  - 证据：文档约束（`skills/param-advisor-isce3/SKILL.md`、`.claude/agents/*.md`）
+  - 证据：文档约束（`skills/param-advisor/SKILL.md`、`.claude/agents/*.md`）
 
 ### 能力完成度矩阵
 
@@ -344,7 +344,7 @@
 ### P4 — 参数与 ancillary 能力继续演进
 
 1. 继续补齐 troposphere / ionosphere ancillary 准备路径
-2. 给 `param-advisor-isce3` 加入 ancillary-aware gating
+2. 给 `param-advisor` 加入 ancillary-aware gating
 3. 评估“每次参数建议都必须 web search”的约束是否需要进一步收敛为 metadata-first 优先策略
 
 ### P5 — DEM 能力补强（参考历史脚本，但按当前架构迁移）

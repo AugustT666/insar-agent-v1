@@ -60,3 +60,18 @@ def test_project_level_isce2_param_advisor_agent_exists_and_declares_contract():
     assert "advisory_only" in lowered
     assert "provenance" in lowered
     assert "param-advisor-isce{engine}.md" in agent
+
+
+def test_isce2_workflow_skills_expose_execution_modes_and_conservative_param_reuse_text():
+    pair_skill = (REPO_ROOT / "skills" / "d-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
+    stack_skill = (REPO_ROOT / "skills" / "stack-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
+    advisor_skill = (REPO_ROOT / "skills" / "param-advisor" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "Execution modes" in pair_skill
+    assert "interaction_mode=\"interactive\"" in pair_skill or "interaction_mode=\"auto\"" in pair_skill
+    assert "Execution modes" in stack_skill
+    assert "interaction_mode=\"interactive\"" in stack_skill or "interaction_mode=\"auto\"" in stack_skill
+
+    assert "始终重新调优" in advisor_skill or "re-run param-advisor" in advisor_skill.lower()
+    assert "param_tuned_found" in advisor_skill
+    assert "MCP 已支持" in advisor_skill or "unless mcp support is added" in advisor_skill.lower()

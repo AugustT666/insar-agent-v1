@@ -265,7 +265,7 @@ def test_insar_download_dem_supports_isce2_backend(tmp_path, monkeypatch):
     (tmp_path / ".insar_logs").mkdir()
     calls = {}
 
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, capture_output, text, timeout, env=None):
         calls["command"] = command
         output = tmp_path / "dem" / "isce2.dem.wgs84"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -298,7 +298,7 @@ def test_insar_download_dem_retries_isce2_backend_failures(tmp_path, monkeypatch
     (tmp_path / ".insar_logs").mkdir()
     calls = {"count": 0}
 
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, capture_output, text, timeout, env=None):
         calls["count"] += 1
         output = tmp_path / "dem" / "isce2.dem.wgs84"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -446,17 +446,27 @@ def test_prepare_sentinel_data_fails_fast_without_orbit_credentials(tmp_path, mo
 def test_prepare_sentinel_data_skill_routing_text():
     repo = Path("/home/august/insar-agent")
     prep_skill = (repo / "skills" / "data-prep-sentinel" / "SKILL.md").read_text(encoding="utf-8")
+    unified_prep_skill = (repo / "skills" / "data-prep" / "SKILL.md").read_text(encoding="utf-8")
+    nisar_prep_skill = (repo / "skills" / "data-prep-nisar" / "SKILL.md").read_text(encoding="utf-8")
     router_skill = (repo / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
     pair_skill = (repo / "skills" / "d-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
     stack_skill = (repo / "skills" / "stack-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
 
+    assert "Capability Matrix" in unified_prep_skill
+    assert "data-prep-sentinel" in unified_prep_skill
+    assert "data-prep-nisar" in unified_prep_skill
+    assert "insar_describe_s1" in prep_skill
+    assert "Step 2.5 — Inspect representative scene" in prep_skill
+    assert "Alternative — DEM only" in prep_skill
+    assert "Server info check" in prep_skill
     assert "DEM" in prep_skill
     assert "orbit" in prep_skill
-    assert "data-prep-sentinel" in router_skill
-    assert "data-prep-sentinel" in pair_skill
-    assert "data-prep-sentinel" in stack_skill
+    assert "data-prep" in router_skill
+    assert "data-prep" in pair_skill
+    assert "data-prep" in stack_skill
     assert "dem_path" in pair_skill
     assert "orbit_dir" in stack_skill
+    assert "Server info check" in nisar_prep_skill
 
 
 def test_retry_with_backoff_succeeds_on_first_attempt(tmp_path, monkeypatch):

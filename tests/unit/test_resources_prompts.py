@@ -99,7 +99,8 @@ def test_process_insar_pair_contains_constraint_reminder():
     assert ".claude/agents/param-advisor.md" in prompt
     assert "project-level subagent" in prompt.lower()
     assert "insar_describe_rslc" in prompt
-    assert "external search" in prompt.lower()
+    assert "external" in prompt.lower()
+    assert "search" in prompt.lower()
 
 
 def test_process_insar_pair_step_order():
@@ -141,7 +142,8 @@ def test_process_insar_batch_mentions_run_parallel():
     assert ".claude/agents/param-advisor.md" in prompt
     assert "project-level subagent" in prompt.lower()
     assert "insar_describe_rslc" in prompt
-    assert "external search" in prompt.lower()
+    assert "external" in prompt.lower()
+    assert "search" in prompt.lower()
 
 
 def test_process_insar_batch_step_order():

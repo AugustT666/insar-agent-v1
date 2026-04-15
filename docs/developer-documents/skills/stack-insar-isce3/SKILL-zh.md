@@ -38,13 +38,13 @@ Path B 工具直接面向文件系统工作，不使用项目注册表。
 - 基础 runconfig 中的核心处理参数（multilook、解缠等）会被 stack 中的所有 pair 继承。
 - 不要擅自替用户选择项目专用的 base runconfig。只有在用户认可时，才可把
   用户自带模板作为本次处理模板。若用户未提供，则使用 MCP 内置默认 `insar` 模板。
-- 如果用户想调整这些参数，必须在**步骤 1 之前**先通过临时项目进入 `param-advisor-isce3`。
-- `param-advisor-isce3` 是本工作流里调整 processing 参数的唯一正规入口。
+- 如果用户想调整这些参数，必须在**步骤 1 之前**先通过临时项目进入 `param-advisor`。
+- `param-advisor` 是本工作流里调整 processing 参数的唯一正规入口。
   它必须先调 `insar_describe_rslc`，再把建议生成委派给
-  `.claude/agents/param-advisor-isce3.md`，向用户展示 `yaml_diff_preview`，
+  `.claude/agents/param-advisor.md`，向用户展示 `yaml_diff_preview`，
   收到确认后通过 `insar_set_processing_param` 应用参数，并导出调整后的 YAML
   作为新的 `base_runconfig`。
-- 不要自动触发 `param-advisor-isce3`。只有用户明确要调参，或明确要求给出参数建议时，
+- 不要自动触发 `param-advisor`。只有用户明确要调参，或明确要求给出参数建议时，
   才进入这一步。
 - 第一次真正执行前，必须确认 ISCE3 运行环境；如果 batch 执行使用 `python_bin`
   覆盖，它必须来自已确认的 `isce3_conda_env`。
@@ -59,11 +59,11 @@ Path B 工具直接面向文件系统工作，不使用项目注册表。
 只有当用户想调整 multilook、滤波、解缠、电离层/对流层校正等 processing
 参数时，才执行这一步。
 
-- 在生成 stack / network runconfig 之前进入 `param-advisor-isce3`
+- 在生成 stack / network runconfig 之前进入 `param-advisor`
 - 使用一个临时 project 承载当前 runconfig 状态
 - 固定调用链为：
-  `param-advisor-isce3` → `insar_describe_rslc` →
-  `.claude/agents/param-advisor-isce3.md` → 用户查看 diff 并确认 →
+  `param-advisor` → `insar_describe_rslc` →
+  `.claude/agents/param-advisor.md` → 用户查看 diff 并确认 →
   `insar_set_processing_param`
 - 如果用户接受建议，就导出调整后的 YAML，并把它作为步骤 1 和步骤 2 共用的
   新 `base_runconfig`
@@ -154,7 +154,7 @@ bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>
 
 ## 每一步完成后需要汇报的内容
 
-- `base_runconfig` 来源路径，以及是否使用了 `param-advisor-isce3`
+- `base_runconfig` 来源路径，以及是否使用了 `param-advisor`
 - 步骤 1：次级景数量、参考日期、待执行的 `run_command`
 - 步骤 2：网络模式、pair 数量、pair list 路径、待执行的 `run_command`
 - 最终输出结构：`<network_output_dir>/runs/<date1>_<date2>/products/GUNW_*.h5`

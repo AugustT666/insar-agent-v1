@@ -4,7 +4,7 @@
 **Project**: insar-agent
 **Date Completed**: April 14, 2026
 **Scope**: 6 coordinated changes reducing skill routing complexity from 11 to 9 entries
-**Status**: ✅ ALL CHANGES COMPLETE AND VERIFIED
+**Status**: ✅ Changes applied; final runnable verification still depends on a Python environment with pytest available
 
 ---
 

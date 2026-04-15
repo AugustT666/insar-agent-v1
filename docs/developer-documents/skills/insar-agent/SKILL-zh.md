@@ -14,8 +14,8 @@ description: >
 - 所有 ISCE3 操作都通过 `insar_*` MCP 工具完成，不直接运行 ISCE3 shell 命令。
 - Skills 定义做什么、按什么顺序做；MCP 工具只负责执行动作并返回事实结果。
 - 路径字段通过 `insar_set_runconfig_value` 设置；核心处理参数通过 `insar_set_processing_param` 设置。两者都由服务器侧 allowlist 约束。
-- 用户一旦提出调参诉求，或给出会影响 multilook、滤波、解缠、大气校正的场景信息，就应切入 `param-advisor-isce3`。
-- `param-advisor-isce3` 是统一参数建议入口，负责 `insar_describe_rslc`、项目级 subagent 委派、diff 展示和用户确认。
+- 用户一旦提出调参诉求，或给出会影响 multilook、滤波、解缠、大气校正的场景信息，就应切入 `param-advisor`。
+- `param-advisor` 是统一参数建议入口，负责 `insar_describe_rslc`、项目级 subagent 委派、diff 展示和用户确认。
 - 参数建议的 metadata-first 入口始终是 `insar_describe_rslc`；只有在本地证据不足时才允许自动外部搜索。
 - 参考资料不完整时不要发明 workflow 参数，直接向用户确认。
 
@@ -38,14 +38,14 @@ description: >
 
 | 任务 | Skill |
 |------|-------|
-| 初次安装，ISCE3 或 MCP 尚未安装 | `env-setup-nisar` |
-| 下载 NISAR RSLC 或准备 / 下载 DEM | `data-prep-nisar` |
+| 初次安装，ISCE3 / ISCE2 / MCP 尚未安装 | `env-setup` |
+| 数据准备（NISAR 或 Sentinel） | `data-prep` |
 | 单对 RSLC 生成 GUNW | `d-insar-isce3` |
 | 多景 RSLC 生成干涉图网络（batch） | `stack-insar-isce3` |
 | MintPy 时序分析、位移、基线图 | `mintpy` |
-| 任何调参与参数建议需求 | `param-advisor-isce3` |
+| 任何调参与参数建议需求 | `param-advisor` |
 
-如果任务跨多行，例如“数据还没准备好，但还要做单对处理”，先走 `data-prep-nisar`，再走 `d-insar-isce3`。
+如果任务跨多行，例如“数据还没准备好，但还要做单对处理”，先走 `data-prep`，再走对应的 engine-specific workflow skill。
 
 关于运行时上下文的边界：
 

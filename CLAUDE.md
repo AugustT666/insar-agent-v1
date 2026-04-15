@@ -39,7 +39,7 @@ Agent Client (Codex / Claude Code / etc.)
 - `data-prep-nisar` — download NISAR RSLC data (ASF) and DEM (Copernicus 30m)
 - `d-insar-isce3` — single RSLC pair → GUNW product (NISAR/ISCE3, Path A)
 - `stack-insar-isce3` — multi-scene batch stack + network (NISAR/ISCE3, Path B)
-- `param-advisor-isce3` — unified parameter-advisory workflow entry point
+- `param-advisor` — unified parameter-advisory workflow entry point for ISCE3 and ISCE2
 - `mintpy` — time-series analysis with MintPy across ISCE3 and ISCE2
 - `d-insar-isce2` — single S1 pair → interferogram (Sentinel-1/ISCE2, topsApp)
 - `stack-insar-isce2` — S1 time-series stack (Sentinel-1/ISCE2, stackSentinel + MintPy)
@@ -51,9 +51,9 @@ claude plugin install insar-agent-skills@insar-agent
 ```
 
 For skill-aware clients, parameter advisory follows a plugin contract rather
-than an MCP contract. The `param-advisor-isce3` skill must call
-`insar_describe_rslc`, then delegate recommendation generation to the project
-subagent defined in `.claude/agents/param-advisor-isce3.md`. That subagent is
+than an MCP contract. The `param-advisor` skill must call the engine-appropriate
+describe tool, then delegate recommendation generation to the project subagent
+defined in `.claude/agents/param-advisor.md`. That subagent is
 advisory-only, cites evidence, and may use models such as `gpt-5.3-codex`
 depending on the host client. MCP tools do not enforce whether the subagent was
 spawned; they only validate and apply the requested changes.

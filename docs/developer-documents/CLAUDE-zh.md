@@ -60,7 +60,7 @@ AI 客户端（Codex / Claude Code / OpenCode 等）
 - `d-insar-isce3` — 单对 RSLC → GUNW 产品（Path A，M1-M3 工具）
 - `stack-insar-isce3` — 多景批量堆叠 + 干涉图网络（Path B，M4 工具）
 - `mintpy` — MintPy 时序分析（ISCE3 / ISCE2 统一入口）
-- `param-advisor-isce3` — 参数调优顾问（多视、解缠、电离层/对流层校正）
+- `param-advisor` — 参数调优顾问（多视、解缠、电离层/对流层校正）
 - `env-setup-nisar` — ISCE3 + MCP 安装指引
 - `insar-agent` — 会话路由 / 入口
 
@@ -70,7 +70,7 @@ claude plugin marketplace add /home/august/insar-agent --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
-对 skill-aware 客户端，参数专家采用三层结构：`skills/param-advisor-isce3/SKILL.md` 是统一参数优化入口，`.claude/agents/param-advisor-isce3.md` 是项目级 subagent contract，`.claude/agents/references/param-advisor-isce3.md` 存放经验规则与参考知识。主会话先进入 `param-advisor-isce3`，由它调用 `insar_describe_rslc` 汇总本地可观测事实，再委派给 subagent 生成建议；若本地证据不足，才允许补充外部搜索并返回 provenance。MCP 工具无法协议级验证这一点；它们只负责白名单和参数校验。
+对 skill-aware 客户端，参数专家采用三层结构：`skills/param-advisor/SKILL.md` 是统一参数优化入口，`.claude/agents/param-advisor.md` 是项目级 subagent contract，`.claude/agents/references/param-advisor.md` 存放经验规则与参考知识。主会话先进入 `param-advisor`，由它调用 `insar_describe_rslc` 汇总本地可观测事实，再委派给 subagent 生成建议；若本地证据不足，才允许补充外部搜索并返回 provenance。MCP 工具无法协议级验证这一点；它们只负责白名单和参数校验。
 
 ---
 

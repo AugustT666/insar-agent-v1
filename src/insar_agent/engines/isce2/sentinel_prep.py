@@ -484,7 +484,11 @@ def _download_orbits_for_scenes(
         log(f"RUN {_redact_command(command)}")
         # Wrap subprocess.run with retry logic
         def run_with_timeout():
-            return subprocess.run(command, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                message = result.stderr.strip() or result.stdout.strip() or "orbit download failed"
+                raise RuntimeError(message)
+            return result
         
         def on_retry_log(attempt: int, exc: Exception) -> None:
             log(f"RETRY attempt {attempt} after transient failure: {exc}")
@@ -515,16 +519,6 @@ def _download_orbits_for_scenes(
             for line in result.stderr.splitlines():
                 if line.strip():
                     log(line)
-        if result.returncode != 0:
-            failed.append(
-                {
-                    "scene_id": scene.scene_id,
-                    "safe_path": scene.safe_path,
-                    "command": command,
-                    "message": result.stderr.strip() or result.stdout.strip() or "orbit download failed",
-                }
-            )
-
     after = {path.name for path in orbit_dir.glob("*.EOF")}
     return len(after - before), failed
 
