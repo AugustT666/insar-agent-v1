@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>insar-agent — AI-driven InSAR Processing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --paper:       #faf9f5;
+            --paper-2:     #f5f4f1;
+            --paper-3:     #e8e6dc;
+            --ink:         #141413;
+            --ink-muted:   rgba(20,20,19,.62);
+            --ink-dim:     rgba(20,20,19,.36);
+            --orange:      #d97757;
+            --orange-deep: #c46847;
+            --orange-soft: rgba(217,119,87,.08);
+            --orange-bdr:  rgba(217,119,87,.28);
+            --blue:        #5a8fc0;
+            --blue-soft:   rgba(90,143,192,.07);
+            --blue-bdr:    rgba(90,143,192,.28);
+            --green:       #6a7e4e;
+            --green-soft:  rgba(106,126,78,.07);
+            --green-bdr:   rgba(106,126,78,.28);
+            --gold:        #a07a14;
+            --gold-soft:   rgba(160,122,20,.07);
+            --gold-bdr:    rgba(160,122,20,.26);
+            --r:           10px;
+            --r-lg:        18px;
+            --r-xl:        26px;
+            --sh:          0 1px 4px rgba(0,0,0,.05), 0 1px 0 rgba(255,255,255,.75) inset;
+            --sh-lg:       0 4px 24px rgba(0,0,0,.07), 0 1px 0 rgba(255,255,255,.8) inset;
+            --ease:        cubic-bezier(.25,.46,.45,.94);
+            /* Lora: elegant editorial serif — matches Claude/Anthropic display style */
+            --serif:   'Lora', Georgia, 'Times New Roman', serif;
+            /* Inter: clean sans-serif for UI labels, badges, meta */
+            --sans:    'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            /* Poppins: UI emphasis */
+            --heading: 'Poppins', system-ui, sans-serif;
+            --mono:    ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+            --wrap:    1200px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: .01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .01ms !important;
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { background: var(--paper); color: var(--ink); }
+
+        body {
+            font-family: var(--sans);
+            line-height: 1.7;
+            background:
+                radial-gradient(ellipse 90% 50% at 50% -5%, rgba(217,119,87,.07) 0%, transparent 100%),
+                var(--paper);
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .wrap {
+            width: min(var(--wrap), calc(100vw - 2.5rem));
+            margin: 0 auto;
+        }
+
+        /* ══════════════════════════════════════
+           HERO
+        ══════════════════════════════════════ */
+        .hero { padding: 5.5rem 0 4.5rem; }
+
+        .hero-tag {
+            display: inline-flex;
+            align-items: center; gap: .5rem;
+            padding: .38rem .9rem;
+            border: 1px solid var(--paper-3); border-radius: 999px;
+            font-family: var(--mono); font-size: .75rem; color: var(--ink-muted);
+            background: rgba(255,255,255,.65); margin-bottom: 1.5rem;
+        }
+
+        .hero-tag::before {
+            content: ''; width: 6px; height: 6px;
+            border-radius: 50%; background: var(--orange); flex-shrink: 0;
+        }
+
+        /* Lora serif at large size — Claude/Anthropic editorial style */
+        .hero h1 {
+            font-family: var(--serif);
+            font-size: clamp(3.4rem, 8.5vw, 7.2rem);
+            font-weight: 400;
+            line-height: .97;
+            letter-spacing: -.02em;
+            color: var(--ink);
+            margin-bottom: 1.4rem;
+        }
+
+        /* Bilingual description */
+        .hero-lead { margin-bottom: 2.25rem; max-width: 38em; }
+
+        .lead-zh {
+            display: block;
+            font-family: var(--sans); font-size: 1.12rem; font-weight: 500;
+            color: rgba(20,20,19,.82); line-height: 1.6; margin-bottom: .45rem;
+        }
+
+        .lead-en {
+            display: block;
+            font-family: var(--serif); font-style: italic;
+            font-size: .98rem; color: var(--ink-muted); line-height: 1.55;
+        }
+
+        .hero-meta {
+            display: flex; align-items: center; gap: 1.5rem;
+            flex-wrap: wrap; margin-bottom: 2rem;
+        }
+
+        .meta-author { display: flex; align-items: center; gap: .65rem; }
+
+        .meta-avatar {
+            width: 2.35rem; height: 2.35rem; border-radius: 50%;
+            background: linear-gradient(135deg, var(--orange) 0%, #e8a878 100%);
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--heading); font-size: .82rem; font-weight: 700;
+            color: #fff; flex-shrink: 0;
+        }
+
+        .meta-info strong {
+            display: block; font-family: var(--sans);
+            font-size: .9rem; font-weight: 600; line-height: 1.2;
+        }
+
+        .meta-info span { font-size: .78rem; color: var(--ink-muted); }
+
+        .meta-div { width: 1px; height: 2rem; background: var(--paper-3); }
+
+        .badge-row { display: flex; gap: .6rem; flex-wrap: wrap; }
+
+        .badge {
+            display: inline-flex; align-items: center; gap: .42rem;
+            padding: .4rem .82rem;
+            border: 1px solid var(--paper-3); border-radius: 999px;
+            font-family: var(--sans); font-size: .78rem; font-weight: 600;
+            background: rgba(255,255,255,.72);
+        }
+
+        .bd { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .bd-o { background: var(--orange); }
+        .bd-b { background: var(--blue); }
+        .bd-g { background: var(--green); }
+
+        /* ══════════════════════════════════════
+           SECTION UTILITIES
+        ══════════════════════════════════════ */
+        .sec-lbl {
+            font-family: var(--mono); font-size: .72rem;
+            letter-spacing: .1em; text-transform: uppercase;
+            color: var(--ink-dim); margin-bottom: .45rem;
+        }
+
+        /* Section titles also use Lora for editorial consistency */
+        .sec-title {
+            font-family: var(--serif); font-size: clamp(1.9rem, 4vw, 2.85rem);
+            font-weight: 600; letter-spacing: -.02em; margin-bottom: .65rem;
+        }
+
+        .sec-desc { font-size: 1.02rem; color: var(--ink-muted); max-width: 46em; }
+
+        .section-sep { border: none; border-top: 1px solid var(--paper-3); }
+
+        /* ══════════════════════════════════════
+           TOPOLOGY
+        ══════════════════════════════════════ */
+        .topo-section { padding: 3.5rem 0 5rem; }
+        .topo-hdr { margin-bottom: 2.5rem; }
+
+        .topo-shell {
+            background: linear-gradient(175deg, rgba(255,255,255,.88) 0%, rgba(245,244,241,.94) 100%);
+            border: 1px solid var(--paper-3); border-radius: var(--r-xl);
+            padding: 1.75rem; box-shadow: var(--sh-lg);
+        }
+
+        /* User */
+        .topo-user { display: flex; justify-content: center; margin-bottom: .5rem; }
+
+        .user-node { display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+
+        .user-icon {
+            width: 3.4rem; height: 3.4rem; border-radius: 50%;
+            background: linear-gradient(135deg, rgba(217,119,87,.12), rgba(255,255,255,.85));
+            border: 1.5px solid var(--orange-bdr);
+            display: flex; align-items: center; justify-content: center; font-size: 1.45rem;
+        }
+
+        .user-name { font-family: var(--sans); font-size: .88rem; font-weight: 600; }
+        .user-sub  { font-family: var(--mono); font-size: .68rem; color: var(--ink-dim); }
+
+        /* Vertical connectors */
+        .vert-conn { display: flex; flex-direction: column; align-items: center; }
+
+        .conn-line { width: 1.5px; background: linear-gradient(to bottom, var(--paper-3), rgba(20,20,19,.15)); }
+
+        .conn-pill {
+            font-family: var(--mono); font-size: .66rem; color: var(--ink-dim);
+            background: var(--paper); border: 1px solid var(--paper-3);
+            border-radius: 999px; padding: .12rem .5rem; white-space: nowrap;
+        }
+
+        .conn-arrow { font-size: .75rem; color: var(--ink-dim); line-height: 1; }
+
+        /* AI + Client row */
+        .ai-row {
+            display: flex; justify-content: center; align-items: center;
+            gap: .5rem; margin-bottom: .5rem;
+        }
+
+        .ai-card, .client-card {
+            display: flex; align-items: center; gap: .7rem;
+            padding: .8rem 1.1rem; border-radius: var(--r-lg); border: 1.5px solid;
+        }
+
+        .ai-card {
+            background: linear-gradient(135deg, var(--orange-soft), rgba(255,255,255,.82));
+            border-color: var(--orange-bdr);
+        }
+
+        .client-card { background: rgba(255,255,255,.72); border-color: var(--paper-3); }
+
+        .n-icon {
+            width: 2.15rem; height: 2.15rem; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem; flex-shrink: 0;
+        }
+
+        .n-icon-o { background: rgba(217,119,87,.14); }
+        .n-icon-n { background: rgba(20,20,19,.07); }
+
+        .n-text strong {
+            display: block; font-family: var(--sans);
+            font-size: .87rem; font-weight: 600; line-height: 1.2;
+        }
+
+        .n-text span { font-family: var(--mono); font-size: .72rem; color: var(--ink-muted); }
+
+        .bidir { color: rgba(20,20,19,.22); font-size: .85rem; padding: 0 .1rem; }
+
+        /* Plugin frame */
+        .plugin-frame {
+            border: 1.5px solid rgba(20,20,19,.12);
+            border-radius: var(--r-xl); padding: 1.4rem;
+            background: rgba(255,255,255,.38); position: relative;
+        }
+
+        .plugin-label {
+            position: absolute; top: -.7rem; left: 1.4rem;
+            font-family: var(--sans); font-size: .74rem; font-weight: 600;
+            color: var(--orange-deep);
+            background: var(--paper-2); padding: .1rem .65rem;
+            border: 1px solid rgba(217,119,87,.22); border-radius: 999px;
+        }
+
+        /*
+         * Plugin inner: 2-column grid
+         * Left:  Skills System
+         * Right: horizontal flow  [Tools List] <- [MCP Server] <- [Software]
+         */
+        .plugin-inner {
+            display: grid;
+            grid-template-columns: 1fr 1.7fr;
+            gap: 1rem;
+            align-items: start;
+            margin-bottom: .9rem;
+        }
+
+        /* --- Skills column --- */
+        .skills-box {
+            background: linear-gradient(160deg, rgba(160,122,20,.07), rgba(255,255,255,.55));
+            border: 1.5px solid var(--gold-bdr); border-radius: var(--r-lg);
+            padding: 1.1rem;
+        }
+
+        .skills-header {
+            font-family: var(--sans); font-size: .82rem; font-weight: 700;
+            color: var(--gold); margin-bottom: .22rem;
+        }
+
+        .skills-desc {
+            font-family: var(--mono); font-size: .69rem; color: var(--ink-muted);
+            line-height: 1.45; margin-bottom: .85rem;
+        }
+
+        .skill-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .38rem; }
+
+        .sk {
+            padding: .42rem .55rem;
+            border: 1px solid var(--gold-bdr); border-radius: 7px;
+            background: rgba(160,122,20,.06);
+            font-family: var(--mono); font-size: .68rem; color: rgba(20,20,19,.72);
+            line-height: 1.35;
+        }
+
+        .sk.entry { background: rgba(160,122,20,.14); color: var(--gold); font-weight: 600; }
+        .sk.wide  { grid-column: span 2; }
+
+        /* Featured: d-insar-isce3 */
+        .sk-featured {
+            grid-column: span 2;
+            border: 1.5px solid rgba(90,143,192,.32); border-radius: 9px;
+            background: linear-gradient(160deg, rgba(90,143,192,.07), rgba(255,255,255,.62));
+            overflow: hidden;
+        }
+
+        .sk-feat-hdr {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: .45rem .65rem .3rem;
+            font-family: var(--sans); font-size: .76rem; font-weight: 700; color: var(--blue);
+            border-bottom: 1px solid rgba(90,143,192,.15);
+        }
+
+        .sk-feat-badge {
+            font-family: var(--mono); font-size: .6rem; font-weight: 400;
+            background: rgba(90,143,192,.12); color: var(--blue);
+            padding: .05rem .38rem; border-radius: 4px;
+        }
+
+        .sk-feat-desc {
+            font-family: var(--mono); font-size: .67rem; color: var(--ink-muted);
+            padding: .28rem .65rem .3rem; border-bottom: 1px solid rgba(90,143,192,.12);
+        }
+
+        .sk-feat-steps { padding: .35rem .65rem .55rem; display: grid; gap: .22rem; }
+
+        .sk-step {
+            display: flex; align-items: flex-start; gap: .38rem;
+            font-family: var(--mono); font-size: .67rem; color: rgba(20,20,19,.72); line-height: 1.3;
+        }
+
+        .sk-step-n {
+            flex-shrink: 0; width: 1.1rem; height: 1.1rem;
+            background: rgba(90,143,192,.12); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: .58rem; color: var(--blue); font-weight: 700; margin-top: .05rem;
+        }
+
+        .sk-step-hint {
+            font-family: var(--mono); font-size: .6rem;
+            color: rgba(160,122,20,.8); background: rgba(160,122,20,.07);
+            border: 1px solid rgba(160,122,20,.2); border-radius: 4px; padding: 0 .3rem;
+        }
+
+        /* ---
+         * Right column: horizontal flow (flex row, right-to-left data)
+         *   [Tools List]  <-(tools输出)-  [MCP Server]  <-(源码封装)-  [Software]
+         * --- */
+        .mcp-flow {
+            display: flex;
+            align-items: center;
+            gap: 0;
+        }
+
+        /* Tools List — starts at top, natural height */
+        .tools-col {
+            flex: 1.05;
+            align-self: stretch;
+            display: flex;
+        }
+
+        .tools-box {
+            flex: 1;
+            background: linear-gradient(160deg, var(--blue-soft), rgba(255,255,255,.65));
+            border: 1.5px solid var(--blue-bdr); border-radius: var(--r-lg);
+            padding: .85rem .95rem;
+        }
+
+        .tools-title {
+            font-family: var(--sans); font-size: .8rem; font-weight: 700;
+            color: var(--blue); margin-bottom: .55rem;
+        }
+
+        .tool-item {
+            font-family: var(--mono); font-size: .69rem;
+            color: rgba(20,20,19,.7); line-height: 1.75;
+        }
+
+        .tool-item::before { content: '→ '; color: var(--blue); opacity: .55; }
+
+        /* Horizontal arrow connector (left-pointing: data flows right→left) */
+        .flow-conn {
+            flex: none;
+            display: flex; flex-direction: column; align-items: center;
+            gap: .2rem; padding: 0 .5rem; min-width: 3.2rem;
+        }
+
+        .fc-line {
+            width: 100%; height: 1.5px; position: relative;
+        }
+
+        /* Arrow from MCP to Tools (blue gradient, arrowhead on left) */
+        .fc-line.blue {
+            background: linear-gradient(to left, var(--blue-bdr), rgba(90,143,192,.5));
+        }
+
+        /* Arrow from Software to MCP (green-to-blue, arrowhead on left) */
+        .fc-line.green {
+            background: linear-gradient(to left, var(--green-bdr), var(--blue-bdr));
+        }
+
+        .fc-line::before {
+            content: '';
+            position: absolute; left: -1px; top: 50%;
+            transform: translateY(-50%);
+            border: 4px solid transparent;
+            border-right-color: var(--blue); opacity: .75;
+        }
+
+        .fc-lbl {
+            font-family: var(--mono); font-size: .6rem;
+            color: var(--ink-dim); white-space: nowrap;
+        }
+
+        /* MCP Server box */
+        .mcp-box {
+            flex: 0.78;
+            background: linear-gradient(160deg, var(--blue-soft), rgba(255,255,255,.72));
+            border: 1.5px solid var(--blue-bdr); border-radius: var(--r-lg);
+            padding: .9rem .8rem; text-align: center;
+        }
+
+        .mcp-title { font-family: var(--sans); font-size: .85rem; font-weight: 700; color: var(--blue); }
+        .mcp-sub   { font-family: var(--mono); font-size: .67rem; color: var(--ink-muted); margin-bottom: .5rem; }
+
+        .mcp-bars { display: flex; gap: 3px; justify-content: center; }
+        .mcp-bars span { height: 5px; border-radius: 3px; background: var(--blue); }
+        .mcp-bars span:nth-child(1) { width: 22px; opacity: .8; }
+        .mcp-bars span:nth-child(2) { width: 16px; opacity: .5; }
+        .mcp-bars span:nth-child(3) { width: 11px; opacity: .3; }
+
+        /* Software stack */
+        .sw-stack {
+            flex: 1;
+            display: grid; gap: .35rem;
+            align-self: center;
+        }
+
+        .sw-chip {
+            padding: .48rem .72rem;
+            background: linear-gradient(135deg, var(--green-soft), rgba(255,255,255,.72));
+            border: 1.5px solid var(--green-bdr); border-radius: 9px;
+            font-family: var(--sans); font-size: .79rem; font-weight: 600;
+        }
+
+        .sw-sub {
+            display: block; font-family: var(--mono);
+            font-size: .65rem; color: var(--ink-muted); font-weight: 400; margin-top: .04rem;
+        }
+
+        .sw-chip.sw-dim { background: rgba(20,20,19,.02); border-color: rgba(20,20,19,.09); }
+
+        /* Conda env bar — full-width, centered */
+        .conda-bar {
+            padding: .78rem 1.2rem;
+            background: rgba(20,20,19,.025); border: 1px solid var(--paper-3);
+            border-radius: var(--r);
+            display: flex; align-items: center; justify-content: center; gap: .7rem;
+        }
+
+        .conda-icon {
+            width: 1.9rem; height: 1.9rem; border-radius: 7px;
+            background: rgba(20,20,19,.07);
+            display: flex; align-items: center; justify-content: center;
+            font-size: .85rem; flex-shrink: 0;
+        }
+
+        .conda-text strong {
+            display: block; font-family: var(--sans);
+            font-size: .82rem; font-weight: 600;
+        }
+
+        .conda-text span {
+            font-family: var(--mono); font-size: .67rem; color: var(--ink-muted);
+        }
+
+        /* ══════════════════════════════════════
+           CHAT DEMO
+        ══════════════════════════════════════ */
+        .demo-section { padding: 3.5rem 0 5rem; }
+        .demo-hdr { margin-bottom: 2.5rem; }
+
+        .chat-outer { max-width: 52rem; margin: 0 auto; position: relative; }
+
+        .chat-window {
+            background: linear-gradient(175deg, rgba(255,255,255,.88), rgba(250,249,245,.72));
+            border: 1px solid var(--paper-3); border-radius: var(--r-xl);
+            padding: 2rem 1.8rem; box-shadow: var(--sh-lg);
+            display: flex; flex-direction: column; gap: 1.05rem;
+        }
+
+        .chat-row { display: flex; flex-direction: column; opacity: 0; will-change: transform, opacity; }
+
+        .chat-row.visible { animation: chatIn .45s var(--ease) forwards; }
+
+        @keyframes chatIn {
+            from { opacity: 0; transform: translateY(7px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .msg-user {
+            align-self: flex-end; background: var(--paper-3);
+            padding: .78rem 1.1rem; border-radius: 17px 17px 4px 17px;
+            max-width: 82%; font-size: .97rem; font-family: var(--sans);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
+        }
+
+        .msg-ai {
+            align-self: flex-start; max-width: 92%;
+            font-size: .97rem; color: rgba(20,20,19,.82); font-family: var(--sans);
+        }
+
+        .msg-ai.muted { color: var(--ink-muted); font-size: .92rem; }
+
+        .tool-group { display: flex; flex-direction: column; gap: .32rem; align-self: flex-start; }
+
+        .status-chip {
+            display: inline-flex; align-items: center; gap: .5rem;
+            padding: .36rem .78rem;
+            background: rgba(255,255,255,.75); border: 1px solid var(--paper-3);
+            border-radius: 8px;
+            font-family: var(--mono); font-size: .77rem; color: var(--ink-muted);
+        }
+
+        .status-chip strong { color: var(--ink); font-weight: 500; }
+        .status-chip.gold-chip { border-color: var(--gold-bdr); background: var(--gold-soft); }
+        .status-chip.gold-chip strong { color: var(--gold); }
+
+        .si { color: var(--orange); font-size: .9rem; line-height: 1; }
+        .si.gold { color: var(--gold); }
+        .si.spin { animation: spin 1.2s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        .subagent-card {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: .68rem 1rem;
+            background: linear-gradient(90deg, rgba(160,122,20,.07), transparent);
+            border-left: 2.5px solid rgba(160,122,20,.42);
+            border-radius: 4px 10px 10px 4px;
+            width: 100%; max-width: 38rem;
+        }
+
+        .subagent-left {
+            display: flex; align-items: center; gap: .65rem;
+            font-family: var(--mono); font-size: .77rem; color: rgba(20,20,19,.7);
+        }
+
+        .subagent-status {
+            font-family: var(--mono); font-size: .7rem;
+            text-transform: uppercase; letter-spacing: .07em;
+            color: var(--gold); font-weight: 700;
+        }
+
+        .bg-job {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: .72rem 1rem;
+            background: linear-gradient(90deg, rgba(90,143,192,.07), transparent);
+            border-left: 2.5px solid rgba(90,143,192,.42);
+            border-radius: 4px 10px 10px 4px;
+            width: 100%; max-width: 38rem;
+        }
+
+        .bg-job-left {
+            display: flex; align-items: center; gap: .65rem;
+            font-family: var(--mono); font-size: .77rem; color: rgba(20,20,19,.7);
+        }
+
+        .bg-job-status {
+            font-family: var(--mono); font-size: .7rem;
+            text-transform: uppercase; letter-spacing: .07em;
+            color: var(--blue); font-weight: 700;
+        }
+
+        .code-block {
+            margin-top: .55rem; padding: .65rem .9rem;
+            background: rgba(20,20,19,.04); border: 1px solid var(--paper-3);
+            border-radius: 9px;
+            font-family: var(--mono); font-size: .76rem; color: rgba(20,20,19,.7);
+            overflow-x: auto; white-space: nowrap;
+        }
+
+        .replay-btn {
+            position: absolute; top: 1rem; right: 1rem;
+            display: flex; align-items: center; gap: .3rem;
+            padding: .35rem .72rem;
+            border: 1px solid var(--paper-3); border-radius: 999px;
+            background: rgba(255,255,255,.82);
+            font-family: var(--mono); font-size: .7rem; color: var(--ink-muted);
+            cursor: pointer;
+            transition: border-color 160ms var(--ease), color 160ms var(--ease), background 160ms var(--ease);
+        }
+
+        .replay-btn:hover {
+            border-color: var(--orange-bdr); color: var(--orange-deep);
+            background: rgba(217,119,87,.07);
+        }
+
+        /* ══════════════════════════════════════
+           LAN / FOOTER
+        ══════════════════════════════════════ */
+        .lan-section { padding: 3.5rem 0 5.5rem; }
+
+        .lan-card {
+            max-width: 46rem; margin: 0 auto;
+            background: linear-gradient(145deg, rgba(255,255,255,.92), rgba(245,244,241,.96));
+            border: 1px solid var(--paper-3); border-radius: var(--r-xl);
+            padding: 2rem 2.5rem; box-shadow: var(--sh-lg);
+            display: flex; align-items: center; gap: 2rem;
+        }
+
+        .lan-icon {
+            width: 3.6rem; height: 3.6rem; border-radius: var(--r-lg);
+            background: linear-gradient(135deg, var(--orange-soft), rgba(255,255,255,.82));
+            border: 1.5px solid var(--orange-bdr);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; flex-shrink: 0;
+        }
+
+        .lan-body { flex: 1; }
+
+        .lan-body h3 {
+            font-family: var(--serif); font-size: 1.12rem; font-weight: 600;
+            margin-bottom: .18rem;
+        }
+
+        .lan-body p { font-size: .88rem; color: var(--ink-muted); margin-bottom: .85rem; }
+
+        .lan-url {
+            display: inline-flex; align-items: center; gap: .5rem;
+            padding: .58rem 1.15rem;
+            background: var(--ink); color: var(--paper);
+            border-radius: 999px;
+            font-family: var(--mono); font-size: .82rem; font-weight: 500;
+            transition: opacity 180ms var(--ease), transform 180ms var(--ease);
+        }
+
+        .lan-url:hover { opacity: .82; transform: translateY(-1px); }
+
+        .footer-credit {
+            text-align: center; margin-top: 2.75rem;
+            font-family: var(--mono); font-size: .75rem; color: var(--ink-dim);
+        }
+
+        /* ══════════════════════════════════════
+           RESPONSIVE
+        ══════════════════════════════════════ */
+        @media (max-width: 900px) {
+            .plugin-inner { grid-template-columns: 1fr; }
+            .mcp-flow { flex-direction: column; align-items: stretch; gap: .6rem; }
+            .flow-conn { flex-direction: row; min-width: unset; padding: .2rem 0; }
+            .fc-line { height: 1.5rem; width: 1.5px; }
+            .fc-line::before {
+                left: 50%; top: auto; bottom: -1px;
+                transform: translateX(-50%);
+                border: 4px solid transparent;
+                border-top-color: var(--blue);
+                border-right-color: transparent;
+            }
+            .tools-col { align-self: auto; }
+        }
+
+        @media (max-width: 660px) {
+            .hero { padding: 3.5rem 0 3rem; }
+            .hero-meta { gap: 1rem; }
+            .ai-row { flex-direction: column; }
+            .lan-card { flex-direction: column; align-items: flex-start; gap: 1.25rem; padding: 1.5rem; }
+            .chat-window { padding: 1.5rem 1.25rem; }
+            .sw-stack { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- HERO -->
+<header>
+<div class="wrap">
+<div class="hero">
+
+    <div class="hero-tag">insar-agent · MCP Plugin</div>
+
+    <h1>insar-agent</h1>
+
+    <div class="hero-lead">
+        <span class="lead-zh">AI 驱动的 InSAR 处理框架——从原始 SAR 数据到地表形变图，只需一段对话即可完成全流程编排。</span>
+        <span class="lead-en">AI-driven InSAR processing — from raw SAR data to deformation maps, orchestrated by a single conversation.</span>
+    </div>
+
+    <div class="hero-meta">
+        <div class="meta-author">
+            <div class="meta-avatar">田</div>
+            <div class="meta-info">
+                <strong>田小龙</strong>
+                <span>中国矿业大学 · 导师：陈宇</span>
+            </div>
+        </div>
+        <div class="meta-div"></div>
+        <div class="badge-row">
+            <span class="badge"><span class="bd bd-o"></span>24 MCP Tools</span>
+            <span class="badge"><span class="bd bd-b"></span>12 Skills</span>
+            <span class="badge"><span class="bd bd-g"></span>Dual Engine (ISCE2 + ISCE3)</span>
+        </div>
+    </div>
+
+</div>
+</div>
+</header>
+
+<main>
+
+<!-- TOPOLOGY -->
+<hr class="section-sep">
+<section class="topo-section">
+<div class="wrap">
+
+    <div class="topo-hdr">
+        <div class="sec-lbl">Architecture</div>
+        <h2 class="sec-title">系统架构拓扑</h2>
+        <p class="sec-desc">
+            从用户自然语言到 InSAR 处理结果，整条链路由 AI 全程编排——
+            Skills 负责工作流路由，MCP 将软件源码能力转化为标准化 tools list 供 AI 直接调用。
+        </p>
+    </div>
+
+    <div class="topo-shell">
+
+        <!-- User -->
+        <div class="topo-user">
+            <div class="user-node">
+                <div class="user-icon">🧑‍💻</div>
+                <div class="user-name">用户 (User)</div>
+                <div class="user-sub">domain expert</div>
+            </div>
+        </div>
+
+        <!-- User to AI connector -->
+        <div class="vert-conn" style="height:2.8rem; justify-content:center; gap:.15rem;">
+            <div class="conn-line" style="height:.55rem;"></div>
+            <div class="conn-pill">自然语言</div>
+            <div class="conn-line" style="height:.55rem;"></div>
+            <div class="conn-arrow">▼</div>
+        </div>
+
+        <!-- AI + Agent Client -->
+        <div class="ai-row">
+            <div class="ai-card">
+                <div class="n-icon n-icon-o">🧠</div>
+                <div class="n-text">
+                    <strong>AI / 大模型</strong>
+                    <span>Claude · ChatGPT</span>
+                </div>
+            </div>
+            <div class="bidir">⇔</div>
+            <div class="client-card">
+                <div class="n-icon n-icon-n">⚙️</div>
+                <div class="n-text">
+                    <strong>Agent Client</strong>
+                    <span>Claude Code / OpenCode</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI to Plugin connector -->
+        <div class="vert-conn" style="height:2.8rem; justify-content:center; gap:.15rem;">
+            <div class="conn-line" style="height:.55rem;"></div>
+            <div class="conn-pill">加载插件 · skill 路由 · tool 调用</div>
+            <div class="conn-line" style="height:.55rem;"></div>
+            <div class="conn-arrow">▼</div>
+        </div>
+
+        <!-- Plugin frame -->
+        <div class="plugin-frame">
+            <span class="plugin-label">insar-agent 插件</span>
+
+            <!-- 2-column grid: Skills | [Tools <- MCP <- Software] -->
+            <div class="plugin-inner">
+
+                <!-- COL 1: Skills System -->
+                <div class="skills-box">
+                    <div class="skills-header">⭐ Skills System（总路由）</div>
+                    <div class="skills-desc">判断数据类型与任务意图，路由到对应 workflow skill</div>
+
+                    <div class="skill-grid">
+                        <div class="sk entry wide">insar-agent（入口 skill）</div>
+                        <div class="sk">env-setup<br>skill</div>
+                        <div class="sk">d-insar-<br>isce2 skill</div>
+
+                        <!-- Featured d-insar-isce3 -->
+                        <div class="sk-featured">
+                            <div class="sk-feat-hdr">
+                                d-insar-isce3 skill
+                                <span class="sk-feat-badge">重点示例</span>
+                            </div>
+                            <div class="sk-feat-desc">NISAR 单对 D-InSAR 全流程编排</div>
+                            <div class="sk-feat-steps">
+                                <div class="sk-step">
+                                    <span class="sk-step-n">1</span>
+                                    <span>insar_create_project</span>
+                                </div>
+                                <div class="sk-step">
+                                    <span class="sk-step-n">2</span>
+                                    <span>insar_set_runconfig_value <em style="opacity:.65;">×6</em></span>
+                                </div>
+                                <div class="sk-step">
+                                    <span class="sk-step-n">3</span>
+                                    <span>param-advisor <span class="sk-step-hint">可选</span></span>
+                                </div>
+                                <div class="sk-step">
+                                    <span class="sk-step-n">4</span>
+                                    <span>insar_run_workflow</span>
+                                </div>
+                                <div class="sk-step">
+                                    <span class="sk-step-n">5</span>
+                                    <span>轮询 insar_get_job → list_outputs</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sk">stack-insar-<br>isce3 skill</div>
+                        <div class="sk">stack-insar-<br>isce2 skill</div>
+                        <div class="sk">data-prep<br>skill</div>
+                        <div class="sk">mintpy<br>skill</div>
+                        <div class="sk entry wide">param-advisor subagent</div>
+                    </div>
+                </div>
+
+                <!-- COL 2: Horizontal flow [Tools] <- [MCP] <- [Software] -->
+                <!-- Data flows right-to-left: Software -> MCP -> Tools List -> AI calls -->
+                <div class="mcp-flow">
+
+                    <!-- Tools List (leftmost — AI calls these) -->
+                    <div class="tools-col">
+                        <div class="tools-box">
+                            <div class="tools-title">🔧 Tools List <span style="font-family:var(--mono);font-size:.68rem;font-weight:400;color:var(--ink-muted);">— AI 可调用</span></div>
+                            <div class="tool-item">insar_create_project</div>
+                            <div class="tool-item">insar_set_runconfig_value</div>
+                            <div class="tool-item">insar_run_workflow</div>
+                            <div class="tool-item">insar_get_job</div>
+                            <div class="tool-item">insar_list_outputs</div>
+                            <div class="tool-item">insar_prepare_stack</div>
+                            <div class="tool-item">insar_run_batch</div>
+                            <div class="tool-item">insar_run_mintpy</div>
+                            <div class="tool-item">insar_describe_rslc</div>
+                            <div class="tool-item">insar_set_processing_param</div>
+                            <div class="tool-item" style="opacity:.5;">… 共 24 个</div>
+                        </div>
+                    </div>
+
+                    <!-- Arrow: MCP -> Tools (points left) -->
+                    <div class="flow-conn">
+                        <div class="fc-line blue"></div>
+                        <div class="fc-lbl">tools 输出</div>
+                    </div>
+
+                    <!-- MCP Server (center) -->
+                    <div class="mcp-box">
+                        <div class="mcp-title">MCP Server</div>
+                        <div class="mcp-sub">FastMCP · stdio</div>
+                        <div class="mcp-bars">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+
+                    <!-- Arrow: Software -> MCP (points left) -->
+                    <div class="flow-conn">
+                        <div class="fc-line green"></div>
+                        <div class="fc-lbl">源码封装</div>
+                    </div>
+
+                    <!-- Software Stack (rightmost — source of capabilities) -->
+                    <div class="sw-stack">
+                        <div class="sw-chip">ISCE2<span class="sw-sub">Sentinel-1 / topsStack</span></div>
+                        <div class="sw-chip">ISCE3<span class="sw-sub">NISAR / D-InSAR / GUNW</span></div>
+                        <div class="sw-chip">MintPy<span class="sw-sub">时序反演 / SBAS</span></div>
+                        <div class="sw-chip sw-dim">GAMMA / …<span class="sw-sub">可扩展后端</span></div>
+                    </div>
+
+                </div><!-- /mcp-flow -->
+
+            </div><!-- /plugin-inner -->
+
+            <!-- conda env bar — full width, centered -->
+            <div class="conda-bar">
+                <div class="conda-icon">🐍</div>
+                <div class="conda-text">
+                    <strong>conda env 运行环境</strong>
+                    <span>后台执行 · 日志采集 · 状态轮询 · 结果回传</span>
+                </div>
+            </div>
+
+        </div><!-- /plugin-frame -->
+
+    </div><!-- /topo-shell -->
+
+</div>
+</section>
+
+<!-- CHAT DEMO -->
+<hr class="section-sep">
+<section class="demo-section">
+<div class="wrap">
+
+    <div class="demo-hdr">
+        <div class="sec-lbl">Interactive Demo</div>
+        <h2 class="sec-title">与 AI 对话，一键启动处理流程</h2>
+        <p class="sec-desc">
+            无需手写脚本——用自然语言告诉 AI 你的数据和目标，
+            insar-agent 自动配置参数、调用工具、后台运行。
+        </p>
+    </div>
+
+    <div class="chat-outer">
+        <div class="chat-window" id="demo-chat">
+
+            <div class="chat-row">
+                <div class="msg-user">帮我跑一对 NISAR 数据（/data/rslc）的 D-InSAR 工作流。</div>
+            </div>
+
+            <div class="chat-row fast-reveal">
+                <div class="msg-ai">没问题，我来为你配置并启动 ISCE3 的 D-InSAR 流程。</div>
+            </div>
+
+            <div class="chat-row fast-reveal tool-group">
+                <div class="status-chip"><span class="si">◎</span> Reading skill <strong>insar-agent</strong></div>
+                <div class="status-chip"><span class="si">◎</span> Reading skill <strong>d-insar-isce3</strong></div>
+            </div>
+
+            <div class="chat-row fast-reveal tool-group">
+                <div class="status-chip"><span class="si">↳</span> Used <strong>insar_create_project</strong></div>
+                <div class="status-chip"><span class="si">↳</span> Used <strong>insar_set_runconfig_value</strong></div>
+            </div>
+
+            <div class="chat-row">
+                <div class="msg-ai muted">检测到复杂地形区域，启动参数专家对场景特性进行分析…</div>
+            </div>
+
+            <div class="chat-row fast-reveal tool-group">
+                <div class="status-chip gold-chip"><span class="si gold">◎</span> Reading skill <strong>param-advisor</strong></div>
+                <div class="status-chip"><span class="si">↳</span> Used <strong>insar_describe_rslc</strong></div>
+            </div>
+
+            <div class="chat-row fast-reveal">
+                <div class="subagent-card">
+                    <div class="subagent-left">
+                        <span class="si gold spin">◒</span>
+                        <span>Subagent: <strong>param-advisor</strong> — 分析场景元数据，生成参数建议</span>
+                    </div>
+                    <span class="subagent-status">Analyzing</span>
+                </div>
+            </div>
+
+            <div class="chat-row fast-reveal tool-group">
+                <div class="status-chip"><span class="si">↳</span> Used <strong>insar_set_processing_param</strong></div>
+            </div>
+
+            <div class="chat-row slow-reveal tool-group">
+                <div class="status-chip"><span class="si">↳</span> Used <strong>insar_run_workflow</strong></div>
+            </div>
+
+            <div class="chat-row">
+                <div class="bg-job">
+                    <div class="bg-job-left">
+                        <span class="si spin">◒</span>
+                        <span>Background Job: <strong>isce3-d-insar</strong></span>
+                    </div>
+                    <span class="bg-job-status">Running</span>
+                </div>
+            </div>
+
+            <div class="chat-row">
+                <div class="msg-ai">
+                    工作流已在后台成功启动，参数已由专家模型优化。实时监控日志：
+                    <div class="code-block"><code>tail -f /home/august/insar-agent/workspace/proj_8f2a/logs/isce3.log</code></div>
+                </div>
+            </div>
+
+        </div>
+        <button class="replay-btn" id="replay-btn">↻ 重播</button>
+    </div>
+
+</div>
+</section>
+
+<!-- LAN ENTRY -->
+<hr class="section-sep">
+<section class="lan-section">
+<div class="wrap">
+
+    <div class="sec-lbl" style="text-align:center; margin-bottom:1.5rem;">Access</div>
+
+    <div class="lan-card">
+        <div class="lan-icon">🌐</div>
+        <div class="lan-body">
+            <h3>局域网入口</h3>
+            <p>在同一局域网内，通过浏览器直接访问 insar-agent 的 Web 界面</p>
+            <a class="lan-url" href="http://10.100.170.117:4096/" target="_blank" rel="noopener">
+                ↗ &nbsp;10.100.170.117:4096
+            </a>
+        </div>
+    </div>
+
+    <div class="footer-credit">田小龙 · 中国矿业大学 · 导师：陈宇</div>
+
+</div>
+</section>
+
+</main>
+
+<script>
+(function () {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const rows = Array.from(document.querySelectorAll('.chat-row'));
+    const btn  = document.getElementById('replay-btn');
+    let tid = null, i = 0;
+
+    if (reduced) { rows.forEach(r => r.classList.add('visible')); return; }
+
+    function clear() {
+        clearTimeout(tid);
+        rows.forEach(r => r.classList.remove('visible'));
+        i = 0;
+    }
+
+    function next() {
+        if (i >= rows.length) {
+            tid = setTimeout(() => { clear(); tid = setTimeout(next, 900); }, 5000);
+            return;
+        }
+        rows[i].classList.add('visible');
+        const delay = rows[i].classList.contains('fast-reveal') ? 400
+                    : rows[i].classList.contains('slow-reveal') ? 1500
+                    : 850;
+        i++;
+        tid = setTimeout(next, delay);
+    }
+
+    btn.addEventListener('click', () => { clear(); tid = setTimeout(next, 300); });
+    tid = setTimeout(next, 700);
+})();
+</script>
+
+</body>
+</html>
