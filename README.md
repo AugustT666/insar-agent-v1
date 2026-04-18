@@ -1,41 +1,39 @@
 # insar-agent
 
-`insar-agent` is an MCP-first InSAR orchestration project. It exposes a stable
-tool surface for agent clients and keeps the processing logic in reusable Python
-modules instead of client-specific plugins or ad hoc shell workflows.
+`insar-agent` is an MCP-first InSAR orchestration project. It exposes a stable tool surface for agent clients and keeps the processing logic in reusable Python modules instead of client-specific plugins or ad hoc shell workflows.
 
-## What It Does
+It is built as a dual-engine orchestrator, supporting both **NISAR/ISCE3** and **Sentinel-1/ISCE2** data streams.
 
-Current support is centered on `ISCE3` and NISAR RSLC data:
+## Capabilities
 
-- Path A: single reference/secondary RSLC pair -> `GUNW`
-- Path B: multi-scene stack preparation -> interferogram network -> MintPy
-- metadata-first parameter optimization via `param-advisor` with `engine=isce3`
-  (NISAR/ISCE3) or `engine=isce2` (Sentinel/ISCE2), delegating recommendation
-  generation to a unified project-level subagent
-- utility workflows such as RSLC bbox extraction and GeoTIFF export
+The system exposes a rich MCP and plugin surface tailored for automated workflows:
+
+- **24 MCP Tools**: Covering discovery, project management, config tuning, execution, batch processing, data preparation, and export.
+- **2 MCP Resources**: Serving hard workflow constraints (`insar://workflow-guide`) and schema rules (`insar://allowed-fields/{workflow}`).
+- **2 MCP Prompts**: Pre-built instructions for single-pair and batch processing.
+- **11 Plugin Skills**: Providing domain guidance for data preparation, parameter advisory, environment setup, and path execution.
+- **Dual-Engine Execution**: Native support for both `isce3` (NISAR) and `isce2` (Sentinel-1) processing graphs.
+- **Runtime Support Layer**: Abstracted workspace layout, logging, and Conda environment orchestration.
 
 ## Who It Is For
 
-- AI-agent clients that need a compact, well-scoped MCP interface
-- developers turning real InSAR operating knowledge into reusable tooling
-- advanced users who want reproducible ISCE3 workflow orchestration without
-  baking logic into a single host application
+- AI-agent clients that need a compact, well-scoped MCP interface.
+- Developers turning real InSAR operating knowledge into reusable tooling.
+- Advanced users who want reproducible ISCE3/ISCE2 workflow orchestration without baking logic into a single host application.
 
 ## Quick Start
 
 ```bash
-cd /home/august/insar-agent
 pip install -e ".[dev]"
 
-PYTHONPATH=src python -m insar_agent describe
-PYTHONPATH=src python -m insar_agent doctor
-PYTHONPATH=src python -m insar_agent.mcp.server --describe
-PYTHONPATH=src python -m insar_agent.mcp.server --stdio
-```
+# Inspect the active MCP surface and runtime environment
+insar-agent describe          # JSON summary of tools/resources/prompts
+insar-agent doctor            # conda env and dependency checks
 
-`insar-mcp-server` runs over stdio. `--describe` prints the active MCP surface;
-`--stdio` starts the server for external clients.
+# Inspect or launch the MCP server
+insar-mcp-server --describe   # print tool signatures
+insar-mcp-server --stdio      # start stdio server for agent clients
+```
 
 ## Tests
 
@@ -49,58 +47,42 @@ Real-data tests require the NAS dataset and may launch actual processing workflo
 
 ## Typical Workflows
 
-### Single Pair
+### D-InSAR (Path A)
 
-1. Create a project with `insar_create_project`
-2. Fill required path fields with `insar_set_runconfig_value`
-3. If parameter tuning is needed, enter `param-advisor` with the engine-specific mode:
-   - `engine=isce3` for NISAR/ISCE3 (`insar_describe_rslc`)
-   - `engine=isce2` for Sentinel/ISCE2 (`insar_describe_s1`)
-4. Apply approved whitelist-controlled changes through
-   `insar_set_processing_param`
-5. Launch with `insar_run_workflow`
-6. Poll with `insar_get_job`
+1. Create a project with `insar_create_project`.
+2. Fill required path fields with `insar_set_runconfig_value`.
+3. If parameter tuning is needed, enter `param-advisor` to review metadata (`insar_describe_rslc` or `insar_describe_s1`).
+4. Apply approved whitelist-controlled changes through `insar_set_processing_param`.
+5. Launch with `insar_run_workflow`.
+6. Poll completion with `insar_get_job`.
+7. Verify generated products with `insar_list_outputs`.
 
-### Batch Stack / Time Series
+### Stack InSAR (Path B)
 
-1. Generate stack runconfigs with `insar_prepare_stack`
-2. Generate network runconfigs with `insar_prepare_network`
-3. Launch generated batches manually or through `insar_run_batch`
-4. Run MintPy with `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (Sentinel-1/ISCE2 stack)
-5. Poll all long-running work with `insar_get_job`
+1. Generate stack runconfigs with `insar_prepare_stack`.
+2. Generate network runconfigs with `insar_prepare_network`.
+3. Launch generated batches through `insar_run_batch`.
+4. Poll batch completion with `insar_get_job`.
+5. Run MintPy with `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (Sentinel-1/ISCE2 stack).
+6. Poll all long-running MintPy tasks with `insar_get_job`.
 
 ## Repository Structure
 
 ```text
 insar-agent/
-  docs/                 architecture, API reference, archive, developer notes
-  examples/             reserved place for future sanitized example runconfigs
-  skills/               workflow guidance for skill-aware hosts
-  src/insar_agent/      core models, MCP server, ISCE3 engine code
-  tests/                unit and integration coverage
+  docs/                 Architecture, API reference, archive, developer notes
+  examples/             Reserved place for future sanitized example runconfigs
+  skills/               Workflow guidance for skill-aware hosts
+  src/insar_agent/      Core models, MCP server, ISCE3 & ISCE2 engine code, runtime logic
+  tests/                Unit and integration coverage
 ```
 
-Historical source materials that informed the current implementation live under
-`docs/archive/knowledge-base/`. They are retained for traceability, not as the
-current source of truth.
+Historical source materials that informed the current implementation live under `docs/archive/knowledge-base/`. They are retained for traceability, not as the current source of truth.
 
 ## Primary Docs
 
-- `docs/architecture.md`: system overview, execution modes, and core data model
-- `docs/mcp-tools.md`: tools, resources, prompts, and behavior contracts
-- `docs/agent-guide.md`: hard workflow constraints served as
-  `insar://workflow-guide`
-- `CLAUDE.md`: developer-facing collaboration guide for Claude Code and Codex
-- `docs/developer-documents/dev-plan.md`: internal progress and planned work
-
-## Current Status
-
-The current active surface is:
-
-- 17 FastMCP tools
-- 2 resources
-- 2 prompts
-- real-data validation paths for ISCE3 and MintPy-adjacent workflows
-
-For exact tool behavior, treat `docs/mcp-tools.md` and the live `--describe`
-output as authoritative.
+- `docs/architecture.md`: System overview, layer boundaries, and core data model.
+- `docs/mcp-tools.md`: Tools, resources, prompts, and behavior contracts.
+- `docs/agent-guide.md`: Hard workflow constraints served as `insar://workflow-guide`.
+- `CLAUDE.md`: Developer-facing collaboration guide for Claude Code and Codex.
+- `docs/developer-documents/dev-plan.md`: Internal progress and planned work.

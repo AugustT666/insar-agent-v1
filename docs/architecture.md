@@ -1,47 +1,48 @@
 # Architecture
 
-`insar-agent` is an MCP-first InSAR orchestration project. Its job is to turn
-real processing knowledge into a compact tool surface for agent clients while
-keeping domain logic reusable and host-agnostic.
+`insar-agent` is an MCP-first InSAR orchestration project. Its job is to turn real processing knowledge into a compact tool surface for agent clients while keeping domain logic reusable and host-agnostic. It supports a dual-engine design, orchestrating both NISAR (ISCE3) and Sentinel-1 (ISCE2) processing graphs.
 
 ## System Layers
 
 ```text
-Agent Client
-  -> MCP tools / resources / prompts
-  -> insar_agent.mcp
-  -> insar_agent.core
-  -> insar_agent.engines.isce3
-  -> local runtime + conda environments
+User / AI Model
+  -> Agent Client (Claude Code, OpenCode, etc.)
+  -> Plugin Skills & Subagents (Advisory & Workflow Routing)
+  -> MCP Tools / Resources / Prompts
+  -> insar_agent.mcp (FastMCP stdio server)
+  -> insar_agent.core (Protocol-agnostic project/job models)
+  ├──> insar_agent.engines.isce3 (NISAR execution)
+  └──> insar_agent.engines.isce2 (Sentinel-1 execution)
+  -> insar_agent.runtime (Workspace, logging, env detection)
+  -> Local Conda Environments / External Processors
 ```
 
-### `insar_agent.mcp`
+### Responsibility Split
 
-- Owns the FastMCP stdio server entry point
-- Registers tools, resources, and prompts
-- Delegates all domain logic to `core` and `engines`
-- Carries no workflow-specific business logic beyond orchestration wiring
+#### `insar_agent.mcp`
+- Owns the FastMCP stdio server entry point.
+- Registers tools, resources, and prompts.
+- Delegates all domain logic to `core`, `engines`, and `runtime`.
+- Carries no workflow-specific business logic beyond orchestration wiring.
 
-### `insar_agent.core`
+#### `insar_agent.core`
+- Protocol-agnostic persistence for projects, configs, sessions, and jobs.
+- Shared by CLI and MCP entry points.
+- Defines the unified `Job` model used by single-pair, batch, and MintPy flows across all engines.
 
-- Protocol-agnostic project, config, session, and job persistence
-- Shared by CLI and MCP entry points
-- Defines the long-running job model used by single-pair and batch flows
+#### `insar_agent.engines` (Dual-Engine)
+- **`isce3`**: NISAR specific behavior. Default runconfig loading, workflow command construction, stack/network generation, GeoTIFF export, and RSLC metadata summarization.
+- **`isce2`**: Sentinel-1 specific behavior. Sentinel data preparation, ISCE2 topsStack launch support, and Sentinel-1 metadata summarization.
+- Both engines support MintPy launch configuration tailored to their outputs.
 
-### `insar_agent.engines.isce3`
+#### `insar_agent.runtime`
+- Workspace layout definitions.
+- Conda environment execution and detection (`conda run`).
+- Process logging and exit-code capture helpers.
 
-- All ISCE3-specific behavior
-- Default runconfig loading and validation
-- Workflow command construction
-- Stack and network generation
-- MintPy launch support (ISCE3/GUNW + ISCE2/topsStack)
-- GeoTIFF export and RSLC metadata summarization
-
-### `insar_agent.runtime`
-
-- Workspace layout
-- Conda environment detection
-- Logging helpers
+#### Plugin Skill Layer & Subagents
+- Workflow narrative, tool routing, and constraints live in the `skills/` directory as Markdown documents.
+- Parameter advisory logic delegates to `.claude/agents/param-advisor.md` to prevent context pollution in the main conversation.
 
 ## MCP Tool Design Principles
 
@@ -55,72 +56,57 @@ MCP tool count directly affects agent decision depth — fewer, more semantic to
 
 ## MCP Surface
 
-See [developer-documents/mcp-tools.md](developer-documents/mcp-tools.md) for full signatures and payloads.
+The current MCP surface exposes **24 tools**, 2 resources, and 2 prompts.
 
 ### Resources
-
 - `insar://workflow-guide`
 - `insar://allowed-fields/{workflow}`
 
 ### Prompts
-
 - `process_insar_pair`
 - `process_insar_batch`
 
-### Tools
-
-- Discovery: `insar_discover`, `insar_get_project`
-- Config: `insar_create_project`, `insar_get_runconfig`,
-  `insar_set_runconfig_value`, `insar_set_processing_param`,
-  `insar_describe_rslc`
-- Execution: `insar_run_workflow`, `insar_get_job`, `insar_list_outputs`
-- Stack/network: `insar_prepare_stack`, `insar_prepare_network`,
-  `insar_run_batch`
-- Data prep: `insar_download_rslc`, `insar_download_dem`
-- MintPy: `insar_run_mintpy`, `insar_run_mintpy_isce2`, `insar_plot_baseline`
-- Utilities: `insar_export_geotiff`
+### Tools (24 Total)
+- **Discovery**: `insar_discover`, `insar_check_env`
+- **Project**: `insar_create_project`, `insar_get_project`
+- **Config**: `insar_get_runconfig`, `insar_set_runconfig_value`, `insar_set_processing_param`, `insar_export_runconfig`
+- **Execution**: `insar_run_workflow`, `insar_get_job`, `insar_list_outputs`
+- **Stack/Batch**: `insar_prepare_stack`, `insar_prepare_network`, `insar_run_batch`
+- **Time-series**: `insar_run_mintpy`, `insar_run_mintpy_isce2`, `insar_plot_baseline`
+- **Data/NISAR**: `insar_describe_rslc`, `insar_download_rslc`, `insar_download_dem`
+- **Data/Sentinel**: `insar_describe_s1`, `insar_download_scene`, `insar_prepare_sentinel_data`
+- **Export**: `insar_export_geotiff`
 
 ## Execution Modes
 
-### Path A: Single pair
+### Path A: D-InSAR (Single Pair)
+1. `insar_create_project`
+2. `insar_set_runconfig_value`
+3. Parameter tuning consultation:
+   - NISAR/ISCE3: `param-advisor` skill → calls `insar_describe_rslc` → delegates to `param-advisor` subagent.
+   - Sentinel/ISCE2: `param-advisor` skill → calls `insar_describe_s1` → delegates to `param-advisor` subagent.
+4. `insar_set_processing_param`
+5. `insar_run_workflow`
+6. `insar_get_job`
+7. `insar_list_outputs`
 
-1. Create a project
-2. Set required path fields
-3. If tuning is needed, enter the unified advisor skill with the engine selected:
-   - NISAR / ISCE3: `param-advisor` + `engine=isce3` → `insar_describe_rslc` → `.claude/agents/param-advisor.md`
-   - Sentinel / ISCE2: `param-advisor` + `engine=isce2` → `insar_describe_s1` → `.claude/agents/param-advisor.md`
-4. Apply approved whitelist-controlled parameters through
-   `insar_set_processing_param`
-5. Run `insar_run_workflow`
+### Path B: Stack InSAR (Batch / Time Series)
+1. `insar_prepare_stack`
+2. `insar_prepare_network`
+3. `insar_run_batch`
+4. Poll `insar_get_job`
+5. `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (ISCE2/topsStack)
 6. Poll `insar_get_job`
-7. Inspect outputs with `insar_list_outputs`
 
-### Path B: Batch stack / network
+## Parameter Optimization Boundary
 
-1. Generate stack runconfigs with `insar_prepare_stack`
-2. Generate network runconfigs with `insar_prepare_network`
-3. Run generated batches manually or through `insar_run_batch`
-4. Poll batch progress with `insar_get_job(batch_dir=...)`
-5. Run MintPy with `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (ISCE2/topsStack)
-6. Poll MintPy progress with `insar_get_job(work_dir=...)`
+Parameter optimization is intentionally split between the MCP server and the host agent's plugin contract:
 
-### Parameter optimization boundary
+- `skills/param-advisor/SKILL.md` gathers evidence and handles user confirmation for both engines.
+- `.claude/agents/param-advisor.md` produces the structured recommendation package using historical templates and advisory heuristics.
+- `insar_set_processing_param` acts as the strict MCP enforcement layer, applying only whitelist-controlled changes.
 
-Parameter optimization is intentionally split:
-
-- `skills/param-advisor/SKILL.md` gathers evidence, shows diff, and handles user confirmation for both engines
-- `.claude/agents/param-advisor.md` produces the structured recommendation package
-- `.claude/agents/references/param-advisor-isce{engine}.md` stores advisory heuristics and workflow templates per engine
-- `insar_set_processing_param` applies only whitelist-controlled changes
-
-This keeps detailed reasoning out of the main conversation while preserving a
-visible diff-and-confirmation step for the user.
-
-For skill-aware clients, this split is part of the plugin contract: skills own
-the advisory workflow and subagent boundary, while MCP tools stay focused on
-validated execution. The MCP contract remains narrower: the server exposes
-resources, prompts, and tools, but does not enforce whether the host client
-actually spawns a subagent before applying parameter changes.
+This keeps detailed reasoning out of the main conversation while preserving a visible diff-and-confirmation step for the user. The plugin contract owns advisory reasoning and user-facing confirmation flow, while the MCP contract stays focused on validated execution and state mutation.
 
 ## Core Data Model
 
@@ -129,7 +115,7 @@ All domain objects are defined in `src/insar_agent/core/`.
 - **Project** — one processing workspace + runconfig state. Persisted at `{workspace_root}/.insar_agent/project.json`.
 - **Job** — one `insar_run_workflow` execution. Persisted at `{workspace_root}/.insar_agent/jobs/{job_id}.json`. `insar_get_job` uses an exit-code sidecar for finalization; falls back to log heuristics if unavailable.
 - **BatchJob** — one async `run_parallel.sh` execution. Persisted at `{batch_dir}/.insar_agent/jobs/{job_id}.json`.
-- **WorkflowTemplate** — in-memory description of a supported engine workflow (from `engines/isce3/defaults.py`).
+- **WorkflowTemplate** — in-memory description of a supported engine workflow.
 - **Artifact** — output metadata returned by `insar_list_outputs`.
 
 ## Workspace Layout

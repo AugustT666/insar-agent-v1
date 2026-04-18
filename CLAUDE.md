@@ -14,35 +14,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-pytest                                              # run default test suite (excludes real_data)
-pytest -m real_data tests/integration -q            # run real-data tests explicitly
-pytest tests/unit/test_smoke.py::test_name         # run a single test
 pip install -e ".[dev]"                             # install with dev deps
+pytest                                              # default suite; excludes real_data marker
+pytest -m real_data tests/integration -q            # real-data tests (need NAS dataset)
+pytest tests/unit/test_smoke.py::test_name          # single test
+pytest --cov=src --cov-report=term-missing          # coverage
+ruff check src tests                                # lint (dev dep)
+mypy src                                            # type check (dev dep)
+
+insar-agent describe                                # active MCP surface (JSON)
+insar-agent doctor                                  # runtime / conda env checks (JSON)
+insar-mcp-server --describe                         # inspect MCP tools/resources/prompts
+insar-mcp-server --stdio                            # launch stdio server for agent clients
 ```
 
-`pytest` resolves `src/` automatically. Use `PYTHONPATH=src python -m insar_agent.mcp.server --stdio` to run the MCP server directly.
+Console scripts (`insar-agent`, `insar-mcp-server`) are wired in `pyproject.toml` and available after `pip install -e`. `pytest` resolves `src/` via `pythonpath` config; when running modules without install use `PYTHONPATH=src python -m insar_agent.mcp.server --stdio`.
 
 ## Architecture
 
 ```
 Agent Client (Codex / Claude Code / etc.)
-  -> insar_agent.mcp        # MCP protocol wiring, tool/resource/prompt definitions
-  -> insar_agent.core       # Protocol-agnostic domain logic (Project, Job, config)
-  -> insar_agent.engines.isce3  # ISCE3-specific adapter, validators, runner
-  -> insar_agent.engines.isce2  # ISCE2-specific adapter, runner, stack
-  -> runtime + local conda env
+  -> insar_agent.mcp            # FastMCP stdio server; tool/resource/prompt wiring only
+  -> insar_agent.core           # Protocol-agnostic: Project, Job, BatchJob, config, session
+  -> insar_agent.engines.isce3  # NISAR/ISCE3: adapter, validator, runner, stack, network,
+                                #   dem, bbox, geotiff, rslc_metadata, mintpy, param_advisor
+  -> insar_agent.engines.isce2  # Sentinel-1/ISCE2: adapter, runner, sentinel_prep,
+                                #   stack, mintpy, param_advisor, validator, defaults
+  -> insar_agent.runtime        # workspace layout, conda env detection, logging
+  -> local conda environment(s) invoked via `conda run`
 ```
 
-**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). Invoke with the Skill tool:
-- `insar-agent` — session router / entry point
-- `env-setup` — environment check & installation guide (ISCE3/ISCE2/MintPy/MCP)
-- `data-prep-nisar` — download NISAR RSLC data (ASF) and DEM (Copernicus 30m)
-- `d-insar-isce3` — single RSLC pair → GUNW product (NISAR/ISCE3, Path A)
-- `stack-insar-isce3` — multi-scene batch stack + network (NISAR/ISCE3, Path B)
-- `param-advisor` — unified parameter-advisory workflow entry point for ISCE3 and ISCE2
-- `mintpy` — time-series analysis with MintPy across ISCE3 and ISCE2
-- `d-insar-isce2` — single S1 pair → interferogram (Sentinel-1/ISCE2, topsApp)
-- `stack-insar-isce2` — S1 time-series stack (Sentinel-1/ISCE2, stackSentinel + MintPy)
+Core persistence lives under `{workspace_root}/.insar_agent/project.json` and `.insar_agent/jobs/{job_id}.json`; batch and MintPy jobs persist beside their own output roots (see `docs/architecture.md` §Workspace Layout).
+
+**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). The `insar-agent` skill is the session entry point; the others cover env setup, data prep, Path A/B for each engine, MintPy, and param advisory. Invoke via the Skill tool; definitions live under `skills/<name>/SKILL.md`.
 
 Plugin setup (run once, or after `skills/` changes):
 ```bash

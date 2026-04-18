@@ -1,0 +1,673 @@
+/* ============================================================================
+   Claude Design System for insar-agent D-InSAR Workflow Demo
+   Anthropic MCP Apps Design Guidelines (https://claude.com/docs/connectors/building/mcp-apps/design-guidelines)
+   ============================================================================ */
+
+/* ============================================================================
+   1. COLOR TOKENS (Light/Dark Mode)
+   ============================================================================ */
+
+:root {
+    /* Light Mode - Warm Earth Tones */
+    --color-bg-primary: #FFFFFF;
+    --color-bg-secondary: #FAF9F5;
+    --color-bg-tertiary: #F5F3F0;
+    --color-text-primary: #1A1A1A;
+    --color-text-secondary: #565656;
+    --color-text-tertiary: #999999;
+    --color-border: rgba(26, 26, 26, 0.1);
+    --color-border-hover: rgba(26, 26, 26, 0.2);
+
+    /* Semantic Colors - Light Mode */
+    --color-info-bg: #D6E4F6;
+    --color-info-border: #0066CC;
+    --color-info-text: #003D99;
+    --color-success-bg: #D4F1DC;
+    --color-success-border: #22863A;
+    --color-success-text: #165B33;
+    --color-warning-bg: #FFF3CD;
+    --color-warning-border: #E0A800;
+    --color-warning-text: #856404;
+    --color-error-bg: #FFE5E5;
+    --color-error-border: #D73A49;
+    --color-error-text: #86181D;
+
+    /* User Message - Light Mode */
+    --color-user-bg: #0066CC;
+    --color-user-text: #FFFFFF;
+
+    /* Interactive States - Light Mode */
+    --color-focus-outline: #0066CC;
+    --color-hover-bg: #F0EEEB;
+
+    /* Typography */
+    --font-family-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+    --font-family-mono: "ui-monospace", "Menlo", "Monaco", "Courier New", monospace;
+    --font-weight-normal: 400;
+    --font-weight-semibold: 600;
+
+    /* Spacing (8px Grid) */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+    --spacing-3xl: 64px;
+
+    /* Typography Scale */
+    --font-size-caption: 12px;
+    --font-size-body: 16px;
+    --font-size-heading: 24px;
+    --line-height-tight: 1.25;
+    --line-height-normal: 1.4;
+
+    /* Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* Shadow (None - using borders/colors instead) */
+    --shadow-none: none;
+}
+
+/* Dark Mode Override */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-bg-primary: #1A1A1A;
+        --color-bg-secondary: #262624;
+        --color-bg-tertiary: #30302E;
+        --color-text-primary: #ECECEC;
+        --color-text-secondary: #B0B0B0;
+        --color-text-tertiary: #808080;
+        --color-border: rgba(236, 236, 236, 0.15);
+        --color-border-hover: rgba(236, 236, 236, 0.25);
+
+        /* Semantic Colors - Dark Mode */
+        --color-info-bg: #1E3A5F;
+        --color-info-border: #4B9EFF;
+        --color-info-text: #B3D9FF;
+        --color-success-bg: #1B3A24;
+        --color-success-border: #4CAF50;
+        --color-success-text: #90EE90;
+        --color-warning-bg: #4D3A00;
+        --color-warning-border: #FFB800;
+        --color-warning-text: #FFD966;
+        --color-error-bg: #5C1A1A;
+        --color-error-border: #FF6B6B;
+        --color-error-text: #FF9999;
+
+        /* User Message - Dark Mode */
+        --color-user-bg: #0055BB;
+        --color-user-text: #FFFFFF;
+
+        /* Interactive States - Dark Mode */
+        --color-focus-outline: #4B9EFF;
+        --color-hover-bg: #3A3A38;
+    }
+}
+
+/* Explicit Dark Mode Toggle (for theme button) */
+body.dark-mode {
+    --color-bg-primary: #1A1A1A;
+    --color-bg-secondary: #262624;
+    --color-bg-tertiary: #30302E;
+    --color-text-primary: #ECECEC;
+    --color-text-secondary: #B0B0B0;
+    --color-text-tertiary: #808080;
+    --color-border: rgba(236, 236, 236, 0.15);
+    --color-border-hover: rgba(236, 236, 236, 0.25);
+    --color-info-bg: #1E3A5F;
+    --color-info-border: #4B9EFF;
+    --color-info-text: #B3D9FF;
+    --color-success-bg: #1B3A24;
+    --color-success-border: #4CAF50;
+    --color-success-text: #90EE90;
+    --color-warning-bg: #4D3A00;
+    --color-warning-border: #FFB800;
+    --color-warning-text: #FFD966;
+    --color-error-bg: #5C1A1A;
+    --color-error-border: #FF6B6B;
+    --color-error-text: #FF9999;
+    --color-user-bg: #0055BB;
+    --color-user-text: #FFFFFF;
+    --color-focus-outline: #4B9EFF;
+    --color-hover-bg: #3A3A38;
+}
+
+body.light-mode {
+    --color-bg-primary: #FFFFFF;
+    --color-bg-secondary: #FAF9F5;
+    --color-bg-tertiary: #F5F3F0;
+    --color-text-primary: #1A1A1A;
+    --color-text-secondary: #565656;
+    --color-text-tertiary: #999999;
+    --color-border: rgba(26, 26, 26, 0.1);
+    --color-border-hover: rgba(26, 26, 26, 0.2);
+    --color-info-bg: #D6E4F6;
+    --color-info-border: #0066CC;
+    --color-info-text: #003D99;
+    --color-success-bg: #D4F1DC;
+    --color-success-border: #22863A;
+    --color-success-text: #165B33;
+    --color-warning-bg: #FFF3CD;
+    --color-warning-border: #E0A800;
+    --color-warning-text: #856404;
+    --color-error-bg: #FFE5E5;
+    --color-error-border: #D73A49;
+    --color-error-text: #86181D;
+    --color-user-bg: #0066CC;
+    --color-user-text: #FFFFFF;
+    --color-focus-outline: #0066CC;
+    --color-hover-bg: #F0EEEB;
+}
+
+/* ============================================================================
+   2. RESET & BASE STYLES
+   ============================================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-normal);
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-primary);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* ============================================================================
+   3. TYPOGRAPHY SYSTEM
+   ============================================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+    font-size: var(--font-size-heading);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-tight);
+    margin: var(--spacing-lg) 0 var(--spacing-md) 0;
+}
+
+p {
+    margin: var(--spacing-md) 0;
+}
+
+ol, ul {
+    margin: var(--spacing-md) 0;
+    padding-left: var(--spacing-lg);
+}
+
+li {
+    margin: var(--spacing-sm) 0;
+}
+
+code {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body);
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+}
+
+/* ============================================================================
+   4. APP LAYOUT
+   ============================================================================ */
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: var(--color-bg-primary);
+}
+
+.app-header {
+    background-color: var(--color-bg-secondary);
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--spacing-md);
+    flex-shrink: 0;
+}
+
+.header-content {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.app-header h1 {
+    font-size: var(--font-size-heading);
+    margin: 0;
+}
+
+/* ============================================================================
+   5. CHAT CONTAINER & MESSAGE STYLES
+   ============================================================================ */
+
+.chat-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-lg);
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.message {
+    margin: var(--spacing-lg) 0;
+    display: flex;
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* User Message - Asymmetric Right-Aligned */
+.user-message {
+    justify-content: flex-end;
+}
+
+.user-message p {
+    background-color: var(--color-user-bg);
+    color: var(--color-user-text);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+    max-width: 70%;
+    margin: 0;
+}
+
+/* Assistant Message - Left-Aligned, Transparent */
+.assistant-message {
+    justify-content: flex-start;
+}
+
+.assistant-message p {
+    max-width: 100%;
+    margin: var(--spacing-md) 0;
+}
+
+.assistant-message ol,
+.assistant-message ul {
+    max-width: 100%;
+}
+
+/* ============================================================================
+   6. SKILL READING STEP
+   ============================================================================ */
+
+.skill-reading-step {
+    background-color: var(--color-bg-tertiary);
+    border-left: 3px solid var(--color-info-border);
+    padding: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+    border-radius: var(--radius-sm);
+}
+
+.skill-reading-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.skill-icon {
+    font-size: 16px;
+}
+
+.skill-name {
+    font-size: var(--font-size-body);
+}
+
+.skill-reading-detail {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+    color: var(--color-text-secondary);
+}
+
+/* ============================================================================
+   7. TOOL CALL ROWS
+   ============================================================================ */
+
+.tool-call-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    background-color: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-sm);
+    margin: var(--spacing-md) 0;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.tool-call-row:hover {
+    background-color: var(--color-hover-bg);
+    border-color: var(--color-border-hover);
+}
+
+.tool-status-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+/* Running State - Pulsing Spinner */
+.tool-status-indicator.running .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--color-info-border);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Pending State - Static Dot */
+.tool-status-indicator.pending .pending-dot {
+    font-size: 12px;
+    color: var(--color-text-tertiary);
+}
+
+/* Success State */
+.tool-status-indicator.success {
+    color: var(--color-success-border);
+}
+
+.tool-call-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    flex: 1;
+}
+
+.tool-label {
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+}
+
+.tool-status {
+    font-size: var(--font-size-caption);
+    color: var(--color-text-secondary);
+}
+
+/* ============================================================================
+   8. BACKGROUND JOB INDICATOR
+   ============================================================================ */
+
+.background-job-indicator {
+    background-color: var(--color-info-bg);
+    border-left: 3px solid var(--color-info-border);
+    padding: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+    border-radius: var(--radius-sm);
+}
+
+.job-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-info-text);
+    margin-bottom: var(--spacing-md);
+}
+
+.job-spinner {
+    display: inline-block;
+    width: 20px;
+    text-align: center;
+    animation: spin 1s linear infinite;
+}
+
+.job-label {
+    font-size: var(--font-size-body);
+}
+
+.job-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.job-status-line,
+.job-log-line {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-caption);
+    color: var(--color-info-text);
+}
+
+.job-status-label,
+.job-log-label {
+    font-weight: var(--font-weight-semibold);
+}
+
+.job-status-value {
+    color: var(--color-info-text);
+}
+
+.job-log-path {
+    font-family: var(--font-family-mono);
+    background-color: rgba(0, 0, 0, 0.1);
+    color: var(--color-info-text);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    flex: 1;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.copy-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    font-size: 14px;
+    color: var(--color-info-text);
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.copy-button:hover {
+    opacity: 1;
+}
+
+.copy-button:focus {
+    outline: 2px solid var(--color-focus-outline);
+    outline-offset: 2px;
+}
+
+/* ============================================================================
+   9. POLLING UPDATES
+   ============================================================================ */
+
+.polling-updates {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.polling-update {
+    font-size: var(--font-size-caption);
+    color: var(--color-info-text);
+    font-style: italic;
+    opacity: 0.8;
+    animation: fadeIn 0.3s ease-out;
+    margin: var(--spacing-sm) 0;
+}
+
+/* ============================================================================
+   10. THEME TOGGLE BUTTON
+   ============================================================================ */
+
+.theme-toggle {
+    background-color: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.theme-toggle:hover {
+    background-color: var(--color-hover-bg);
+    border-color: var(--color-border-hover);
+}
+
+.theme-toggle:focus {
+    outline: 2px solid var(--color-focus-outline);
+    outline-offset: 2px;
+}
+
+.theme-icon {
+    display: inline-block;
+}
+
+/* ============================================================================
+   11. ACCESSIBILITY & INTERACTIVE STATES
+   ============================================================================ */
+
+button {
+    font-family: inherit;
+}
+
+button:focus-visible {
+    outline: 2px solid var(--color-focus-outline);
+    outline-offset: 2px;
+}
+
+a {
+    color: var(--color-info-border);
+    text-decoration: underline;
+    transition: opacity 0.2s;
+}
+
+a:hover {
+    opacity: 0.8;
+}
+
+a:focus-visible {
+    outline: 2px solid var(--color-focus-outline);
+    outline-offset: 2px;
+}
+
+/* ============================================================================
+   12. MOBILE RESPONSIVENESS
+   ============================================================================ */
+
+@media (max-width: 600px) {
+    .app-header {
+        padding: var(--spacing-md);
+    }
+
+    .header-content {
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+
+    .chat-container {
+        padding: var(--spacing-md);
+        max-width: 100%;
+    }
+
+    .user-message p {
+        max-width: 90%;
+    }
+
+    .tool-call-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .tool-call-content {
+        width: 100%;
+    }
+
+    .job-status-line,
+    .job-log-line {
+        flex-wrap: wrap;
+    }
+
+    .job-log-path {
+        max-width: 100%;
+    }
+
+    .theme-toggle {
+        width: 44px;
+        height: 44px;
+    }
+}
+
+/* ============================================================================
+   13. SCROLLBAR STYLING (Optional, for modern browsers)
+   ============================================================================ */
+
+.chat-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chat-container::-webkit-scrollbar-track {
+    background-color: var(--color-bg-secondary);
+}
+
+.chat-container::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 4px;
+}
+
+.chat-container::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-border-hover);
+}
+
+/* ============================================================================
+   14. PRINT STYLES (Optional)
+   ============================================================================ */
+
+@media print {
+    .theme-toggle {
+        display: none;
+    }
+
+    .app-container {
+        height: auto;
+    }
+
+    .chat-container {
+        overflow: visible;
+    }
+}
