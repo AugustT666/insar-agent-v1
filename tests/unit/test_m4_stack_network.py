@@ -5,7 +5,6 @@ import csv
 from pathlib import Path
 
 import pytest
-import yaml
 
 from insar_agent.engines.isce3.defaults import get_default_runconfig_template_path
 from insar_agent.engines.isce3.stack import (
@@ -19,7 +18,6 @@ from insar_agent.engines.isce3.network import (
     build_forward_neighbor_pairs,
     build_temporal_threshold_pairs,
     load_pair_strings,
-    resolve_pairs,
     prepare_network,
 )
 from insar_agent.core.jobs import BatchJob
@@ -629,7 +627,6 @@ def test_mcp_insar_prepare_network_invalid_mode(tmp_path):
 
 def test_batch_job_save_and_load(tmp_path):
     """BatchJob round-trips through JSON save/load correctly."""
-    import unittest.mock as mock
     batch_dir = str(tmp_path / "batch")
     Path(batch_dir).mkdir()
     job = BatchJob(
@@ -767,7 +764,6 @@ def _make_batch_job(tmp_path: Path, status: str = "running", pid: int = 12345) -
 def test_insar_get_job_batch_running(tmp_path):
     """Returns status=running while process is alive."""
     import unittest.mock as mock
-    import builtins
     job, batch_dir = _make_batch_job(tmp_path, status="running", pid=12345)
     # Patch os.kill to not raise (process alive) and proc status to show sleeping state.
     # Use side_effect on read_text to only intercept /proc paths.
@@ -817,7 +813,6 @@ def test_insar_get_job_batch_job_not_found(tmp_path):
 
 def test_insar_get_job_batch_include_logs(tmp_path):
     """Returns log_content when include_logs=True."""
-    import unittest.mock as mock
     job, batch_dir = _make_batch_job(tmp_path, status="done", pid=None)
     job.status = "done"
     job.save()

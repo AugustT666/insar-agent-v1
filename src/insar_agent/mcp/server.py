@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
+import zipfile
 from datetime import datetime, UTC
 from pathlib import Path
 
@@ -17,7 +18,7 @@ import yaml
 from mcp.server.fastmcp import FastMCP
 
 from insar_agent.core.config import set_path, unset_path
-from insar_agent.core.jobs import BatchJob, Job
+from insar_agent.core.jobs import BatchJob, DownloadJob, Job
 from insar_agent.core.project import Project, new_project, resolve_plugin_logs_dir
 from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
@@ -1336,22 +1337,80 @@ def insar_get_job(
     project_id: str = "",
     work_dir: str = "",
     batch_dir: str = "",
+    output_dir: str = "",
     include_logs: bool = False,
 ) -> dict:
     """
-    Return the current state of any job (ISCE3 workflow, MintPy, or batch).
+    Return the current state of any job (ISCE3 workflow, MintPy, batch, or download).
 
     For ISCE3 workflow jobs: provide project_id.
     For MintPy jobs: provide work_dir (the mintpy_work_dir passed to insar_run_mintpy).
     For batch jobs (insar_run_batch): provide batch_dir (the output_dir of prepare_stack/network).
+    For download jobs (insar_download_rslc): provide output_dir.
 
     Args:
         job_id: Job UUID
         project_id: Parent project UUID (for ISCE3 workflow jobs)
         work_dir: MintPy work directory (for MintPy jobs)
         batch_dir: Batch output directory (for insar_run_batch jobs)
+        output_dir: Download output directory (for insar_download_rslc jobs)
         include_logs: If true, include the full log content in the response
     """
+    if output_dir:
+        if not Path(output_dir).exists():
+            return {"error": "path_not_found", "message": f"output_dir not found: {output_dir!r}"}
+        try:
+            dl_job = DownloadJob.load(job_id, output_dir)
+        except FileNotFoundError:
+            return {"error": "job_not_found", "message": f"No download job {job_id!r} in {output_dir!r}"}
+        except Exception as exc:
+            return {"error": "load_failed", "message": str(exc)}
+
+        if dl_job.status == "running" and dl_job.pid is not None:
+            alive = True
+            try:
+                os.kill(dl_job.pid, 0)
+                state_line = next(
+                    (ln for ln in Path(f"/proc/{dl_job.pid}/status").read_text().splitlines()
+                     if ln.startswith("State:")),
+                    "",
+                )
+                if "Z" in state_line:
+                    alive = False
+            except (ProcessLookupError, FileNotFoundError):
+                alive = False
+            if not alive:
+                log_tail = _read_log_tail(dl_job.log_path) if dl_job.log_path else ""
+                log_lower = log_tail.lower()
+                failed = (
+                    "error:" in log_lower
+                    or "traceback" in log_lower
+                    or "exception:" in log_lower
+                    or "status: failed" in log_lower
+                )
+                dl_job.status = "failed" if failed else "done"
+                dl_job.finished_at = _utc_now()
+                dl_job.exit_code = 1 if failed else 0
+                dl_job.save()
+
+        result: dict = {
+            "job_id": dl_job.job_id,
+            "output_dir": dl_job.output_dir,
+            "n_files": dl_job.n_files,
+            "status": dl_job.status,
+            "pid": dl_job.pid,
+            "exit_code": dl_job.exit_code,
+            "submitted_at": dl_job.submitted_at,
+            "finished_at": dl_job.finished_at,
+            "log_path": dl_job.log_path,
+        }
+        if include_logs:
+            if dl_job.log_path and Path(dl_job.log_path).exists():
+                result["log_content"] = Path(dl_job.log_path).read_text(errors="replace")
+            else:
+                result["log_content"] = None
+        return result
+
     if batch_dir:
         if not Path(batch_dir).exists():
             return {"error": "path_not_found", "message": f"batch_dir not found: {batch_dir!r}"}
@@ -1439,7 +1498,7 @@ def insar_get_job(
 
     # ISCE3 workflow job
     if not project_id:
-        return {"error": "missing_param", "message": "Provide project_id (ISCE3 jobs), work_dir (MintPy jobs), or batch_dir (batch jobs)"}
+        return {"error": "missing_param", "message": "Provide project_id (ISCE3 jobs), work_dir (MintPy jobs), batch_dir (batch jobs), or output_dir (download jobs)"}
 
     try:
         project = Project.load(project_id)
@@ -2345,15 +2404,18 @@ def insar_download_rslc(
         "chunk_rows": chunk_rows,
         "proxy": proxy,
     }
-    job_id, log_path_obj, params_path = _prepare_tool_log(
-        [output_dir],
-        "nisar_download",
-        params,
-        fallback_root=output_dir,
-    )
+    dl_job = DownloadJob(output_dir=output_dir, n_files=len(h5_urls))
+    job_id = dl_job.job_id
+    logs_dir = Path(output_dir) / ".insar_agent" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path_obj = logs_dir / f"nisar_download_{job_id}.log"
+    params_path = logs_dir / f"nisar_download_{job_id}_params.json"
+    log_path_obj.touch()
+    params_path.write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
     log_path = str(log_path_obj)
     params_file = str(params_path)
-    runner_file = str(log_path_obj.with_name(f"nisar_download_{job_id}_run.py"))
+    runner_file = str(logs_dir / f"nisar_download_{job_id}_run.py")
+    dl_job.log_path = log_path
 
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
@@ -2386,6 +2448,9 @@ except Exception as _e:
     except Exception as exc:
         return {"error": "launch_failed", "message": str(exc)}
 
+    dl_job.pid = proc.pid
+    dl_job.save()
+
     return {
         "job_id": job_id,
         "status": "running",
@@ -2394,7 +2459,7 @@ except Exception as _e:
         "output_dir": output_dir,
         "log_path": log_path,
         "params_path": params_file,
-        "poll": f"tail -f {log_path}",
+        "poll": f'insar_get_job(job_id="{job_id}", output_dir="{output_dir}")',
     }
 
 
@@ -2865,7 +2930,6 @@ def insar_check_env() -> dict:
         "d-insar-isce3", "stack-insar-isce3", "param-advisor", "mintpy",
         "d-insar-isce2", "stack-insar-isce2",
     ]
-    plugin_skills_dir = Path.home() / ".claude" / "plugins"
     installed_skills: list[str] = []
     try:
         result = subprocess.run(
@@ -2930,6 +2994,8 @@ def build_server_description() -> dict:
             "insar_describe_s1",
             "insar_prepare_sentinel_data",
             "insar_check_env",
+            "insar_export_runconfig",
+            "insar_run_mintpy_isce2",
         ],
     }
 

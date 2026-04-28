@@ -13,7 +13,8 @@ def test_server_description_mentions_isce3():
     assert "insar_download_dem" in description["tools"]
     assert "insar_extract_bbox" not in description["tools"]
     assert "insar_validate_runconfig" not in description["tools"]
-    assert "insar_export_runconfig" not in description["tools"]
+    assert "insar_export_runconfig" in description["tools"]
+    assert "insar_run_mintpy_isce2" in description["tools"]
     assert "insar_get_mintpy_status" not in description["tools"]
 
 

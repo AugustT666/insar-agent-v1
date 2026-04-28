@@ -43,7 +43,8 @@ pip install -e ".[dev]"
 AI 客户端（Codex / Claude Code / OpenCode 等）
   -> insar_agent.mcp        # MCP 协议层，工具/资源/提示定义
   -> insar_agent.core       # 协议无关的领域逻辑（Project、Job、config）
-  -> insar_agent.engines.isce3  # ISCE3 专属适配器、校验器、运行器
+  -> insar_agent.engines.isce3  # NISAR/ISCE3 专属适配器、校验器、运行器
+  -> insar_agent.engines.isce2  # Sentinel-1/ISCE2 专属适配器、runner、数据准备
   -> 本地 conda 环境
 ```
 
@@ -51,17 +52,20 @@ AI 客户端（Codex / Claude Code / OpenCode 等）
 
 **`insar_agent.mcp`** — MCP 服务器层。`server.py` 使用 FastMCP（stdio 传输）。MCP 工具必须将所有领域逻辑委托给 `core` 和 `engines`，本层不包含业务逻辑。
 
-**`insar_agent.engines`** — 软件专属行为层。`base.py` 定义 `EngineAdapter`（Protocol）和 `WorkflowInfo`。`isce3/` 是第一个适配器实现：`adapter.py` 实现 `ISCE3Adapter`，`defaults.py` 声明支持的工作流（`gslc`、`insar`）和处理参数注册表，`validator.py` 校验 runconfig，`runner.py` 构建 conda run 包装命令。
+**`insar_agent.engines`** — 软件专属行为层。`base.py` 定义 `EngineAdapter`（Protocol）和 `WorkflowInfo`。`isce3/` 负责 NISAR/ISCE3（`gslc`、`insar`、stack/network、MintPy、GeoTIFF）；`isce2/` 负责 Sentinel-1/ISCE2（`tops`、`stack`、SAFE/ZIP 数据准备、Sentinel metadata、ISCE2 MintPy）。
 
 **`insar_agent.runtime`** — 工作空间布局、conda 环境检测、结构化日志辅助工具。
 
 **`skills/`** — Claude Code 技能文件，以本地插件形式打包（`insar-agent-skills@insar-agent`）并安装到 Claude Code。通过 Skill 工具调用：
 - `data-prep-nisar` — 用用户提供的 URL 列表和 AOI / bbox 下载 NISAR RSLC 与 Copernicus 30m DEM
+- `data-prep-sentinel` — Sentinel-1 SAFE/ZIP、orbit、DEM 准备
 - `d-insar-isce3` — 单对 RSLC → GUNW 产品（Path A，M1-M3 工具）
 - `stack-insar-isce3` — 多景批量堆叠 + 干涉图网络（Path B，M4 工具）
+- `d-insar-isce2` — Sentinel-1 / ISCE2 单对 TOPS D-InSAR
+- `stack-insar-isce2` — Sentinel-1 / ISCE2 stackSentinel
 - `mintpy` — MintPy 时序分析（ISCE3 / ISCE2 统一入口）
 - `param-advisor` — 参数调优顾问（多视、解缠、电离层/对流层校正）
-- `env-setup-nisar` — ISCE3 + MCP 安装指引
+- `env-setup` — ISCE3 / ISCE2 / MintPy + MCP 安装指引
 - `insar-agent` — 会话路由 / 入口
 
 插件安装（初次或 skills/ 变更后运行）：
@@ -96,7 +100,7 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 ## 当前状态
 
-**当前 FastMCP 面为 18 个活跃工具。数据准备面已更新为 `insar_download_rslc` + `insar_download_dem`，`insar_extract_bbox` 保留为内部 helper，不再作为公开 MCP 工具。**
+**截至 2026-04-27，源码 FastMCP 注册面为 24 个工具、2 个资源、2 个 prompts，支持 `isce3` 与 `isce2` 双引擎。`--describe` 当前只列出 22 个工具，漏列 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`，这是摘要同步问题。`insar_extract_bbox` 保留为内部 helper，不再作为公开 MCP 工具。**
 
 进行非简单改动前，请先阅读：
 
@@ -132,9 +136,11 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 - M5c：数据准备 V1 稳定化 ✓ — `insar_download_rslc`（URL 列表 + AOI/bbox 裁剪下载）、`insar_download_dem`（AOI/bbox 驱动的 Copernicus 30m DEM 下载）
 - M7 metadata-first 参数顾问更新 ✓ — `insar_describe_rslc`、metadata-first 参数建议流程、带 provenance 的 subagent 合约
 - M6：MintPy ✓ — `insar_run_mintpy`、`insar_plot_baseline`
+- ISCE2 / Sentinel 扩展 ✓ — `insar_download_scene`、`insar_describe_s1`、`insar_prepare_sentinel_data`、`d-insar-isce2`、`stack-insar-isce2`、`insar_run_mintpy_isce2`
+- 环境检查 ✓ — `insar_check_env`
 - 精简（2026-03-29 检查点）：MCP API 精简 21→15 工具；`insar_discover`、`insar_get_job`（ISCE3+MintPy 统一）、`insar_set_runconfig_value`（value=None 删除）、`insar_run_workflow` 吸收 validate+export
 - M4c（2026-03-30）：新增 `insar_run_batch`；`insar_get_job` 通过 `batch_dir` 覆盖批处理作业；171 个单元测试
-- 当前活跃 MCP 工具总数：18
+- 当前源码注册 MCP 工具总数：24
 
 ---
 

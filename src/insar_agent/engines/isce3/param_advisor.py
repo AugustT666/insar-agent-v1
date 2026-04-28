@@ -184,7 +184,6 @@ def generate_parameter_recommendations(
     temporal_baseline = profile["data"]["temporal_baseline_days"]["value"]
     task_type = profile["task"]["task_type"]["value"]
     deformation_magnitude = profile["task"]["deformation_magnitude"]["value"]
-    deformation_scale = profile["task"]["deformation_scale"]["value"]
     coverage_scale_km = profile["scene"]["coverage_scale_km"]["value"]
     topographic_relief_m = profile["scene"]["topographic_relief_m"]["value"]
     climate = profile["scene"]["climate"]["value"]

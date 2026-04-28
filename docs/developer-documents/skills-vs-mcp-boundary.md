@@ -35,7 +35,13 @@ This design answers the question: **Why not only use skills?** Because skills ca
 
 ---
 
-## II. MCP Tool Surface: 24 Tools + 2 Resources + 2 Prompts
+## II. MCP Tool Surface: 24 Registered Tools + 2 Resources + 2 Prompts
+
+The source of truth for this count is the `@mcp.tool()` registration surface in
+`src/insar_agent/mcp/server.py`. The current `--describe` summary lists 22 tools
+because `build_server_description()` is missing `insar_export_runconfig` and
+`insar_run_mintpy_isce2`; fixing that summary is a documentation/runtime
+consistency task, not a change to the actual FastMCP registration surface.
 
 ### Location
 `/home/august/insar-agent/src/insar_agent/mcp/server.py` (2,956 lines)
@@ -298,6 +304,24 @@ MCP Tools     → Execution, validation, persistence, process management, protoc
 Together      → Complete, reproducible, client-aware InSAR processing system
 ```
 
+### Completed Evolution: Router Skill as a Real Agent (2026-04-27)
+
+The `skills/insar-agent/SKILL.md` Markdown router has been upgraded to a
+project-level agent defined at `.claude/agents/insar-agent.md`.
+
+The agent owns session-level context (conda env choice, engine selection) and
+routes to workflow skills via the Skill tool, with inline fallback steps when
+the Skill tool is unavailable. It can be invoked directly via the Agent tool
+without manual skill loading.
+
+The parameter-advisor split is preserved: the router agent routes and bootstraps;
+the dedicated `.claude/agents/param-advisor.md` subagent continues to own
+advisory package generation and does not communicate with the user directly.
+
+The skill file (`skills/insar-agent/SKILL.md`) is retained as a compatibility
+and documentation layer for skill-aware clients that load it explicitly. It is
+no longer the authoritative definition.
+
 ---
 
 ## VIII. File Paths: Evidence Checklist
@@ -361,4 +385,3 @@ Together      → Complete, reproducible, client-aware InSAR processing system
 - **Clients enjoy workflow guidance**, **servers guarantee safety**
 
 This design is documented in CLAUDE.md, agent-guide.md, and the param-advisor contract files.
-

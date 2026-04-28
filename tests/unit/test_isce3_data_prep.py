@@ -138,10 +138,44 @@ class TestInsarDownloadRslcTool:
             )
 
         assert result["status"] == "running"
-        params_files = list((tmp_path / "out" / ".insar_logs").glob("*_params.json"))
+        params_files = list((tmp_path / "out" / ".insar_agent" / "logs").glob("*_params.json"))
         assert len(params_files) == 1
         params = json.loads(params_files[0].read_text(encoding="utf-8"))
         assert params["bbox"] == [40.5, 13.4, 40.8, 13.7]
+
+    def test_download_job_persisted_and_pollable(self, tmp_path: Path):
+        """insar_download_rslc saves a DownloadJob; insar_get_job(output_dir=) can read it."""
+        shp_path = tmp_path / "study_area.shp"
+        shp_path.write_text("placeholder", encoding="utf-8")
+
+        with (
+            patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
+            patch("insar_agent.mcp.server.subprocess.Popen") as mock_popen,
+        ):
+            mock_popen.return_value.pid = 99999
+            result = insar_download_rslc(
+                urls=["https://example.test/NISAR_RSLC.h5"],
+                aoi_path=str(shp_path),
+                output_dir=str(tmp_path / "out"),
+            )
+
+        job_id = result["job_id"]
+        out_dir = result["output_dir"]
+        assert result["poll"] == f'insar_get_job(job_id="{job_id}", output_dir="{out_dir}")'
+
+        # DownloadJob file must exist
+        from insar_agent.core.jobs import DownloadJob
+        dl_job = DownloadJob.load(job_id, out_dir)
+        assert dl_job.n_files == 1
+        assert dl_job.pid == 99999
+        assert dl_job.status == "running"
+
+        # insar_get_job(output_dir=...) should return job info
+        from insar_agent.mcp.server import insar_get_job
+        status = insar_get_job(job_id=job_id, output_dir=out_dir)
+        assert "error" not in status, status
+        assert status["job_id"] == job_id
+        assert status["n_files"] == 1
 
 
 class TestInsarDownloadDemTool:

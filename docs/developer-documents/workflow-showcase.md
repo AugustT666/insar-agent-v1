@@ -28,10 +28,10 @@
 │        prepare_stack / prepare_network /                 │
 │        download_rslc / download_dem /                    │
 │        run_mintpy / plot_baseline /                      │
-│        export_geotiff                                    │
+│        export_geotiff / Sentinel-1 ISCE2 tools           │
 │  资源：insar://workflow-guide                             │
 │         insar://allowed-fields/{workflow}                │
-│  引擎：ISCE3 Adapter → conda run nisar.workflows.*       │
+│  引擎：ISCE3 Adapter / ISCE2 Adapter → conda run         │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -320,8 +320,9 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 | 组件 | 路径 | 作用 |
 |------|------|------|
-| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，FastMCP stdio 入口（18 个活跃工具） |
+| MCP 服务 | `src/insar_agent/mcp/server.py` | 工具/资源/提示定义，FastMCP stdio 入口（24 个注册工具；`--describe` 摘要当前列出 22 个） |
 | ISCE3 适配器 | `src/insar_agent/engines/isce3/` | runconfig 验证、conda run 命令构造 |
+| ISCE2 适配器 | `src/insar_agent/engines/isce2/` | Sentinel-1 TOPS/stack 参数、命令构造、数据准备 |
 | 工具扩展（M5/M7） | `src/insar_agent/engines/isce3/bbox.py` + `geotiff.py` + `rslc_metadata.py` | 包围盒提取、GeoTIFF 导出、RSLC 元数据画像 |
 | MintPy 集成（M6） | `src/insar_agent/engines/isce3/mintpy.py` + `baseline.py` | 异步 MintPy 启动、基线网络图 |
 | 约束文档 | `docs/agent-guide.md` | 硬规则文档 = `insar://workflow-guide` 资源内容（server.py 直接读取） |
@@ -331,7 +332,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 | 参数顾问 Skill | `skills/param-advisor/SKILL.md` | metadata-first 参数调优编排 |
 | 参数顾问 Reference | `.claude/agents/references/param-advisor.md` | 经验规则与参考知识 |
 | 数据准备 Skill | `skills/data-prep-nisar/SKILL.md` | DEM + RSLC 准备流程 |
-| 环境安装 Skill | `skills/env-setup-nisar/SKILL.md` | ISCE3 + MCP 安装指引（占位） |
+| 环境安装 Skill | `skills/env-setup/SKILL.md` | ISCE3 / ISCE2 / MintPy + MCP 安装指引 |
 
 ---
 

@@ -234,7 +234,7 @@
 
 ### 审阅事实基线
 
-- 当前活跃 MCP 面：`18 tools / 2 resources / 2 prompts`
+- 当时活跃 MCP 面：`18 tools / 2 resources / 2 prompts`（历史基线；2026-04-27 已更新为 24 个注册工具）
   - 证据：`src/insar_agent/mcp/server.py` 中 `@mcp.tool()` / `@mcp.resource()` / `@mcp.prompt()` 定义，以及 `--describe` 输出一致
 - 当前测试基线：`pytest tests -q` 在本机环境实跑通过，结果为 `237 passed in 64.96s`
   - 证据：2026-04-05 本地验证
@@ -298,7 +298,7 @@
 
 ### 文档漂移与校准项
 
-- [README.md](/home/august/insar-agent/README.md) 中“17 FastMCP tools”已过时，当前真实值为 18
+- [README.md](/home/august/insar-agent/README.md) 中“17 FastMCP tools”在当时已过时，当时真实值为 18（历史记录；2026-04-27 已更新为 24 个注册工具）
   - 证据：`--describe` 与 `mcp/server.py` 一致
 - Path B 返回字段与交互模式已经进入实现，但不是所有总览文档都已同步说明
   - 证据：代码实现 vs 总览文档对比
@@ -315,23 +315,105 @@
 
 ---
 
+## 2026-04-27 项目审阅与状态校准
+
+> 说明：下列结论以 2026-04-27 仓库状态、`PYTHONPATH=src python -m insar_agent.mcp.server --describe` 输出、`src/insar_agent/mcp/server.py` 注册面、测试文件与本地 NAS 可见路径为准。若与 2026-04-05 基线冲突，以本节作为当前维护基线。
+
+### 审阅事实基线
+
+- 当前引擎面：`isce3` 与 `isce2`
+  - 证据：`src/insar_agent/mcp/server.py` 中 `_ENGINES = {"isce3", "isce2"}`
+- 当前 FastMCP 注册面：24 个 `@mcp.tool()` / 2 个 resources / 2 个 prompts
+  - 证据：`server.py` 中 tool decorators
+- 当前 `--describe` 摘要：22 个 tools / engines=`["isce3", "isce2"]`
+  - 说明：`build_server_description()` 漏列 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`，这是摘要同步问题，应作为 P0 文档/实现一致性项处理
+- 当前仓库已有用户工作区改动：
+  - 删除：`docs/AUDIT-GUIDE-ISCE2-SENTINEL.md`、`docs/FINDINGS-SUMMARY-20260413.txt`、`docs/RESEARCH-ISCE2-SENTINEL-20260413.md`
+  - 未跟踪：`site/InSAR-Agent.html`
+  - 本次文档维护不恢复或覆盖这些改动
+
+### 新增或已推进能力
+
+| 能力/模块 | 当前状态 | 证据 | 后续动作 |
+|------|------|------|------|
+| 双引擎编排 | 已进入主实现 | `ISCE3Adapter` + `ISCE2Adapter` 均注册到 `_ENGINES` | 文档继续统一成双引擎表述 |
+| Sentinel-1 / ISCE2 Path A | 已实现，真实数据测试脚手架已存在 | `skills/d-insar-isce2/SKILL.md`、`src/insar_agent/engines/isce2/*`、`tests/integration/test_isce2_sentinel_real.py` | 需要准备 `/home/august/NAS/Sentinel1_data/` 后跑真实回归 |
+| Sentinel 数据准备 | 已实现 | `insar_download_scene`、`insar_describe_s1`、`insar_prepare_sentinel_data`、`skills/data-prep-sentinel/SKILL.md` | 补真实 SAFE/ZIP + orbit 下载记录 |
+| ISCE2 Stack 与 MintPy | 已实现工具入口 | `stack-insar-isce2` skill、`insar_run_mintpy_isce2`、`engines/isce2/mintpy.py` | 补真实 stackSentinel/MintPy 回归 |
+| `insar_check_env` | 已实现 | MCP tool + `env-setup` skill | 后续可与主路由 agent 自动 bootstrap 合并 |
+| `insar_export_runconfig` | 仍是注册工具，但不再是主路径必需步骤 | `@mcp.tool()` 保留；`insar_run_workflow` 自动校验/导出 | 同步 `--describe` 和文档措辞，避免误写为已移除 |
+
+### 真实数据实测进度
+
+| 数据/路径 | 当前状态 | 证据 | 备注 |
+|------|------|------|------|
+| NISAR / ISCE3 Path A | 已有真实执行与产品验证记录 | `tests/integration/test_real_dinsar.py`；历史记录显示生成 `GUNW_product.h5`，并检查 wrapped phase、coherence、unwrapped phase | 仍依赖 `/home/august/NAS/NISAR_wangshuai_data/` 与 `isce3gpu` |
+| NISAR 元数据摘要 | 已有真实数据测试 | `tests/integration/test_param_advisor_real_data.py` | temporal baseline、bbox、DEM context 已覆盖 |
+| NISAR runconfig 兼容/干跑 | 已有真实路径验证 | `tests/integration/test_nisar_wangshuai_data.py` | 含 real paths validation、export、dry-run command |
+| GeoTIFF / bbox 辅助 | 已有真实 GUNW/RSLC 验证 | `test_real_dinsar.py` 中 bbox 与 GeoTIFF 测试 | `insar_extract_bbox` 是内部 helper，不作为公开工具主线 |
+| Sentinel-1 / ISCE2 | 测试脚手架已完成，真实数据未落地 | `tests/integration/test_isce2_sentinel_real.py` 会查找 `/home/august/NAS/Sentinel1_data/` | 当前本机只看到 `/home/august/NAS/NISAR_wangshuai_data/`，未看到 Sentinel 数据目录 |
+| Path B / MintPy / 数据下载 | 有代码与单元/契约测试，缺可重复真实外部环境回归 | `tests/unit/*` 与 skills | 继续保持为下一阶段最高优先级之一 |
+
+### 文档漂移与校准项
+
+- 中文 README、架构文档、CLAUDE 中文指南已在本轮同步为双引擎和 24 注册工具
+- `docs/developer-documents/mcp-tools.md` 已在本轮把工具总览同步为 24 注册工具，并补回 `insar_export_runconfig` 的定位
+- `workflow-showcase.md` 已在本轮改为 24 注册工具 / `--describe` 22 摘要的表述
+- `skills-vs-mcp-boundary.md` 已补充“主路由 skill agent 化”的远期方向
+
+---
+
 ## 下一阶段开发计划
 
-### P1 — Path B / MintPy / 数据准备真实回归补齐（最高优先级）
+### P0 — 工具描述摘要与文档一致性 ✓（2026-04-27）
 
-1. 为 `insar_prepare_stack` / `insar_prepare_network` / `insar_run_batch` 增补真实数据验证记录
-2. 为 `insar_plot_baseline` / `insar_run_mintpy` 增补真实 MintPy 链路验证
-3. 为 `insar_download_rslc` / `insar_download_dem` 增补真实 AOI / Earthdata 环境验证
-4. 将真实失败模式沉淀到对应 skill 与开发文档，而不是只留在临时会话结论中
+**已完成：**
+- `build_server_description()` 补入 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`，`--describe` 现在与 24 个 `@mcp.tool()` 注册面一致
+- `test_smoke.py` 同步：`insar_export_runconfig` / `insar_run_mintpy_isce2` 改为正向断言
+- 5 个单元测试中 `router_skill` 读取路径从 `skills/insar-agent/SKILL.md` 更新为 `.claude/agents/insar-agent.md`
 
-### P2 — `gslc` 从模板级支持推进到正式能力
+### P1 — Sentinel-1 / ISCE2 真实数据闭环 ✓ 部分（2026-04-27）
+
+**已完成：**
+- 集成测试 `tests/integration/test_isce2_sentinel_real.py` 路径修正：从 `/home/august/NAS/Sentinel1_data/`（不存在）改为 `/mnt/HDD2T/August/inasr-agent-test/safe/s1a_asc_rel014/`（8 个 .SAFE 场景 + 22 个 POEORB + DEM 均存在）
+- 测试 glob 从 `*.zip` 改为 `*.SAFE` 以匹配实际数据格式
+- 补充 `orbit_dir` / `dem_path` session-scoped fixtures，复用已有文件（download_orbits=False）
+- `test_sentinel_data_preparation` 与 `test_sentinel_project_creation_and_parameters` 在本地数据上通过
+- 全流程执行测试（`test_sentinel_full_workflow_d_insar`）结构正确，等待专用跑批环境
+
+**剩余：**
+- 跑通完整 topsApp.py 执行并验证 interferogram / coherence / unwrapped phase 输出
+
+### P2 — Path B / MintPy / 数据准备真实回归补齐 ✓ 部分（2026-04-28）
+
+**已完成：**
+- 新建 `tests/integration/test_hdd2t_path_b.py`（15 个 `@pytest.mark.real_data` 测试，全绿）
+  - `TestPrepareStackRealRSLC`（4 tests）：`insar_prepare_stack` 对 7 个真实 NISAR RSLC 文件，验证 manifest、runconfigs、DEM 注入、参考场景选取
+  - `TestPrepareNetworkRealRSLC`（3 tests）：`insar_prepare_network` tbase≤36d 模式，验证 15 对、pair_list 与 gunw_pattern
+  - `TestMintPyPrecomputedOutputs`（4 tests）：验证 `mintpy-network-20260408/` 完整输出（velocity/timeseries/demErr 等），以及 `insar_run_mintpy` 的路径校验逻辑
+  - `TestSentinelDInSARCompletedOutputs`（4 tests）：验证 `sentinel-dinsar-asc-real-20260413-rerun3/` 的完成输出（wrapped phase、unwrapped phase、coherence、LOS），以及 topsApp.xml 中 SAFE 路径一致性
+
+**剩余：**
+- `insar_download_rslc` / `insar_download_dem` 真实 Earthdata 网络环境回归（需要 `.netrc` + 网络）
+- `insar_run_batch` 对已准备好的 stack/network 执行全流程（约 30~120 分钟）
+
+### P3 — 主路由 skill agent 化设计 ✓（2026-04-27）
+
+**已完成：**
+- 新建 `.claude/agents/insar-agent.md`：session bootstrap（读 `insar://workflow-guide` + 确认 conda envs）+ 双模路由（Skill 优先 / inline fallback）+ param-advisor 调用边界 + 硬约束列表
+- `skills/insar-agent/SKILL.md` 保留为兼容层，顶部加兼容性说明
+- `docs/developer-documents/skills-vs-mcp-boundary.md` §VII 从"Planned"更新为"Completed"
+
+**说明：** 当前 agent 通过 Agent 工具调用或 description 匹配触发。
+
+### P4 — `gslc` 从模板级支持推进到正式能力
 
 1. 补独立 workflow 指南与 skill 路径
 2. 若需要开放参数修改，补充 `processing_params_gslc.yaml` 及其校验边界
 3. 增补最小可运行测试与真实执行验证
 4. 在开发文档中把 `gslc` 和 `insar` 的成熟度边界写清楚
 
-### P3 — 长任务模型与状态查询风格统一
+### P5 — 长任务模型与状态查询风格统一
 
 1. 评估是否让 `insar_download_rslc` 进入正式 job metadata 模型，而不是只返回 `tail -f <log_path>`
 2. 统一 long-running 工具的状态查询风格：
@@ -341,13 +423,13 @@
    - `insar_download_rslc`
 3. 若统一，则尽量收敛到 `insar_get_job` 的单一查询入口
 
-### P4 — 参数与 ancillary 能力继续演进
+### P6 — 参数与 ancillary 能力继续演进
 
 1. 继续补齐 troposphere / ionosphere ancillary 准备路径
 2. 给 `param-advisor` 加入 ancillary-aware gating
 3. 评估“每次参数建议都必须 web search”的约束是否需要进一步收敛为 metadata-first 优先策略
 
-### P5 — DEM 能力补强（参考历史脚本，但按当前架构迁移）
+### P7 — DEM 能力补强（参考历史脚本，但按当前架构迁移）
 
 1. 多数据源/provider 抽象
 2. 下载管理器、缓存、重试
@@ -358,7 +440,7 @@
 ### 远期规划（待讨论）
 
 - 长时间处理的定时状态监测：后台守护进程定期 poll `insar_get_job`，错误时主动通知 AI 介入修复
-- 多引擎支持（ISCE2 / HyP3 适配器）
+- 更多引擎支持（HyP3 等适配器）
 - Web UI / 任务队列（可选）
 
 ---
@@ -406,8 +488,14 @@ insar-agent/
     marketplace.json   # 本地 marketplace 清单
   skills/
     insar-agent/       # 路由/入口 skill
-    d-insar-isce3/     # Path A 单对干涉图
-    stack-insar-isce3/ # Path B 批量堆叠网络
-mintpy/            # Path B MintPy 时序分析
-    data-prep-nisar/   # 数据准备（RSLC + DEM）
+    data-prep/         # 数据准备总路由
+    data-prep-nisar/   # NISAR RSLC + DEM
+    data-prep-sentinel/# Sentinel SAFE/ZIP + orbit/DEM
+    d-insar-isce3/     # NISAR Path A 单对干涉图
+    stack-insar-isce3/ # NISAR Path B 批量堆叠网络
+    d-insar-isce2/     # Sentinel / ISCE2 单对 TOPS
+    stack-insar-isce2/ # Sentinel / ISCE2 stackSentinel
+    mintpy/            # ISCE3 / ISCE2 MintPy 时序分析
+    param-advisor/     # 参数顾问入口
+    env-setup/         # 环境检查与安装指引
 ```

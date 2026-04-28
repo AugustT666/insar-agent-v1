@@ -65,7 +65,9 @@ Prompts 是任务模板。调用后可获得预填好的分步操作说明。
 
 ---
 
-## 工具总览（18 个工具）
+## 工具总览（24 个注册工具）
+
+本节按 `src/insar_agent/mcp/server.py` 中的 `@mcp.tool()` 注册面统计。当前 `--describe` 摘要已与注册面同步，包含 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`。
 
 | 分组 | 工具 | 作用 |
 |---|---|---|
@@ -75,6 +77,7 @@ Prompts 是任务模板。调用后可获得预填好的分步操作说明。
 | 配置 | `insar_get_runconfig` | 读取当前 runconfig |
 | 配置 | `insar_set_runconfig_value` | 设置或移除一个 runconfig 字段（`value=None` 表示移除） |
 | 配置 | `insar_set_processing_param` | 设置受白名单控制的算法参数 |
+| 配置 | `insar_export_runconfig` | 将当前 runconfig 导出为 YAML；主路径通常由 `insar_run_workflow` 自动完成 |
 | 工具 | `insar_describe_rslc` | 为参数建议汇总本地 RSLC 元数据 |
 | 执行 | `insar_run_workflow` | 校验 + 导出 + 启动（一步完成） |
 | 执行 | `insar_get_job` | 查询作业状态，可选附带日志（ISCE3、MintPy、batch） |
@@ -85,7 +88,12 @@ Prompts 是任务模板。调用后可获得预填好的分步操作说明。
 | 数据准备 | `insar_download_rslc` | 基于 AOI/bbox，从 URL 列表裁剪下载 RSLC |
 | 数据准备 | `insar_download_dem` | 基于 AOI/bbox 下载 Copernicus 30m DEM |
 | MintPy | `insar_run_mintpy` | 启动 MintPy 时序处理 |
+| MintPy | `insar_run_mintpy_isce2` | 启动 Sentinel-1 / ISCE2 stack 的 MintPy 时序处理 |
 | MintPy | `insar_plot_baseline` | 绘制基线网络图 |
+| Sentinel/ISCE2 | `insar_download_scene` | 下载 Sentinel-1 场景文件 |
+| Sentinel/ISCE2 | `insar_describe_s1` | 读取 Sentinel SAFE/ZIP 元数据摘要 |
+| Sentinel/ISCE2 | `insar_prepare_sentinel_data` | 组织 SAFE/ZIP、orbit、DEM 等 ISCE2 输入 |
+| 环境 | `insar_check_env` | 检查 conda env、MCP 注册与 skill 插件安装状态 |
 | 工具 | `insar_export_geotiff` | HDF5 GUNW → GeoTIFF + PNG |
 
 ---
@@ -335,10 +343,38 @@ Prompts 是任务模板。调用后可获得预填好的分步操作说明。
 
 ---
 
-### _已移除：`insar_validate_runconfig` 和 `insar_export_runconfig`_
+### `insar_export_runconfig`
 
-这两个工具已经不再作为 MCP 工具存在。`insar_run_workflow` 现在会在启动前自动完成校验和导出。
-如果校验失败，它会返回 `runconfig_invalid`，并附带完整的错误列表。
+将当前项目 runconfig 渲染为磁盘上的 YAML 文件。
+
+主路径中不需要单独调用它：`insar_run_workflow` 会在启动前自动校验并导出。这个工具保留用于人工审阅、生成参数调优快照，或测试/调试场景。
+
+**参数：**
+
+| 名称 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `project_id` | string | 是 | 项目 UUID |
+| `output_dir` | string | 否 | 输出目录；留空时写入 `<workspace_root>/configs/runconfig.yaml` |
+
+**返回：**
+```json
+{
+  "project_id": "...",
+  "yaml_path": "/workspace/configs/runconfig.yaml",
+  "exported_at": "2026-04-27T00:00:00+00:00"
+}
+```
+
+**错误：**
+- `project_not_found`
+- `output_dir_not_writable`
+
+---
+
+### _已移除：`insar_validate_runconfig`_
+
+该工具已经不再作为 MCP 工具存在。`insar_run_workflow` 现在会在启动前自动完成校验和导出。
+如果校验失败，它会返回 `runconfig_invalid` 或 engine-specific validation error，并附带完整错误列表。
 
 ---
 
@@ -1037,3 +1073,105 @@ output_dir/
 - `plot_failed`：绘图过程中出现未预期错误
 
 **实现位置：** `engines/isce3/baseline.py::plot_baseline_network`
+
+---
+
+## 第 8 组：Sentinel-1 / ISCE2
+
+### `insar_download_scene`
+
+下载 Sentinel-1 场景文件。该工具用于用户尚未准备 SAFE/ZIP 输入时的下载入口；如果用户已经有本地 SAFE/ZIP，应直接进入 `insar_prepare_sentinel_data`。
+
+**参数：**
+
+| 名称 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `urls` | list[string] | 是 | Sentinel-1/2 ZIP 或 SAFE 文件的直接下载 URL |
+| `output_dir` | string | 是 | 本地输出目录 |
+| `n_workers` | integer | 否 | 并行下载线程数，默认 4 |
+| `proxy` | string\|null | 否 | 本次下载临时代理；留空则继承系统环境 |
+
+**返回：** `ok` / `failed` 列表、`output_dir`、`log_path`、`params_path`。
+
+**错误：**
+- `output_dir_not_writable`
+
+---
+
+### `insar_describe_s1`
+
+读取 Sentinel-1 SAFE 或 ZIP 元数据，为 ISCE2 参数建议和数据配对提供 metadata-first 证据。
+
+**参数：**
+
+| 名称 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `zip_path` | string | 是 | Sentinel-1 SAFE 目录或 SAFE ZIP 文件 |
+
+**返回：** scene id、satellite、mode、polarizations、relative orbit、absolute orbit、pass direction、开始/结束时间、bbox 等摘要字段。
+
+**错误：**
+- `path_not_found`
+- `manifest_not_found`
+- `invalid_format`
+- `invalid_zip`
+- `parse_failed`
+
+---
+
+### `insar_prepare_sentinel_data`
+
+把 Sentinel-1 SAFE/ZIP 输入整理为 ISCE2 可消费的目录结构，并按需准备 orbit 与 DEM 路径。
+
+**参数（摘要）：**
+
+| 名称 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `project_root` | string | 是 | Sentinel 数据准备输出根目录 |
+| `mode` | string | 否 | `"auto"` 等准备模式 |
+| `aoi_path` | string\|null | 否 | AOI 文件路径 |
+| `bbox` | list[float]\|null | 否 | `[west, south, east, north]` |
+| `dem_path` | string\|null | 否 | 已有 DEM 路径 |
+| `dem_output_path` | string\|null | 否 | 需要下载 DEM 时的输出路径 |
+| `download_dem` | boolean | 否 | 是否通过 DEM downloader 准备 DEM |
+| `dem_backend` | string | 否 | DEM 后端，默认 `"general"` |
+| `dem_type` | string\|null | 否 | DEM 类型，供后端使用 |
+| `download_orbits` | boolean | 否 | 是否调用 ISCE2 orbit 下载逻辑 |
+| `orbit_dir` | string | 否 | orbit 输出/复用目录 |
+| `orbit_username` / `orbit_password` / `orbit_token_file` | string\|null | 否 | orbit 下载凭据 |
+| `source_paths` | list[string]\|null | 否 | SAFE 目录、SAFE ZIP 或输入路径列表 |
+| `burst_manifest` | string\|null | 否 | burst manifest 文件 |
+| `include_pair` | boolean | 否 | 是否生成单对路径输出 |
+| `include_stack` | boolean | 否 | 是否生成 stack 路径输出 |
+| `resume` | boolean | 否 | 是否复用已有准备结果 |
+
+**返回：** grouped SAFE 路径、orbit 目录、DEM 路径、日志路径、失败 orbit 列表等。
+
+**错误：**
+- `path_not_found`
+- `invalid_input`
+- `prepare_failed`
+
+---
+
+## 第 9 组：环境检查
+
+### `insar_check_env`
+
+检查本机 conda 环境、MCP 注册状态与 skill 插件安装状态。
+
+**返回：**
+```json
+{
+  "envs": {
+    "isce3gpu": {"status": "ok", "version": "..."},
+    "mintpy": {"status": "missing", "error": "..."},
+    "isce2": {"status": "ok", "version": "..."}
+  },
+  "mcp": {"registered": true, "server_name": "insar-mcp-server"},
+  "skills": {"installed": ["insar-agent", "..."], "missing": []},
+  "install_hints": {}
+}
+```
+
+该工具只做探测与提示，不安装依赖、不修改环境。

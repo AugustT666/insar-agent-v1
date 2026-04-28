@@ -40,9 +40,14 @@
   skills/
     d-insar-isce3/SKILL.md          ← Path A 技能指令：单对工作流步骤、交互/自动模式、param-advisor 调用链
     stack-insar-isce3/SKILL.md      ← Path B 技能指令：批量工作流步骤、Step 0 参数调优、handoff 处理
+    d-insar-isce2/SKILL.md          ← Sentinel-1 / ISCE2 单对 TOPS D-InSAR 工作流
+    stack-insar-isce2/SKILL.md      ← Sentinel-1 / ISCE2 stackSentinel 工作流
+    mintpy/SKILL.md                 ← ISCE3 / ISCE2 MintPy 时序分析入口
     param-advisor/SKILL.md    ← 参数调优统一入口：AUTO-TRIGGER、三选一确认、落盘规则
-    data-prep-nisar/SKILL.md        ← RSLC 下载和 DEM 准备
-    env-setup-nisar/SKILL.md        ← ISCE3 + MCP 安装指南
+    data-prep/SKILL.md              ← 数据准备路由：NISAR / Sentinel
+    data-prep-nisar/SKILL.md        ← NISAR RSLC 下载和 DEM 准备
+    data-prep-sentinel/SKILL.md     ← Sentinel SAFE/ZIP、orbit、DEM 准备
+    env-setup/SKILL.md              ← ISCE3 / ISCE2 / MintPy + MCP 安装指南
     insar-agent/SKILL.md            ← 会话路由入口
 
   .claude/

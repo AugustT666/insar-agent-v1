@@ -5,7 +5,6 @@ PID-based liveness check in insar_get_job_status.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

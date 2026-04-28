@@ -33,4 +33,5 @@ testpaths = ["tests"]
 addopts = "-m 'not real_data'"
 markers = [
   "real_data: tests that require mounted NAS data or launch real processing workflows",
+  "timeout: maximum runtime hint for long-running integration tests",
 ]

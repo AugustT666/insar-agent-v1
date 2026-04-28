@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from insar_agent.core.jobs import Job
 from insar_agent.mcp.server import insar_create_project, insar_list_outputs
 

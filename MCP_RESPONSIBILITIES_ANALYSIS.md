@@ -31,7 +31,10 @@ This report identifies **why MCP exists** instead of just skills, with concrete 
 - Resources and prompts are **protocol-level contracts** served by the MCP server. Skills cannot serve MCP resources.
 - Agent clients (Claude Code, Codex, OpenCode) require a running MCP server to read `insar://workflow-guide` before making decisions.
 
-#### 2. **Tool Registration & Delegation** (24 tools, lines 500–2956)
+#### 2. **Tool Registration & Delegation** (24 registered tools, lines 500–2956)
+Note: `build_server_description()` is synchronized with the FastMCP registration
+surface and includes `insar_export_runconfig` plus `insar_run_mintpy_isce2`.
+
 Each tool follows the pattern:
 ```python
 @mcp.tool()
@@ -410,6 +413,8 @@ Skills are **read-only guidance documents** that:
 4. **Multi-client support requires protocol abstraction** — same tools work with Claude Code, Codex, OpenCode, REST clients. Skills are client-specific guidance layers on top.
 
 5. **Workflow checkpoints require structured state** — `handoff_required=True`, `review_artifacts=[]`, `next_recommended_action=...`. These must be returned by tools, not embedded in static Markdown.
+
+6. **Router bootstrapping may need a real plugin agent** — the current `skills/insar-agent/SKILL.md` router is Markdown guidance. A planned evolution is an agent entry point that automatically injects session-level prompts, routing rules, environment bootstrap, and MCP resource preload when a host connects to the plugin.
 
 The three-layer architecture is:
 - **MCP** (protocol, orchestration, subprocess, persistence)

@@ -15,6 +15,8 @@ The system exposes a rich MCP and plugin surface tailored for automated workflow
 - **Dual-Engine Execution**: Native support for both `isce3` (NISAR) and `isce2` (Sentinel-1) processing graphs.
 - **Runtime Support Layer**: Abstracted workspace layout, logging, and Conda environment orchestration.
 
+Note: the source FastMCP registration surface and the `--describe` CLI summary both currently report 24 tools, including `insar_export_runconfig` and `insar_run_mintpy_isce2`.
+
 ## Who It Is For
 
 - AI-agent clients that need a compact, well-scoped MCP interface.

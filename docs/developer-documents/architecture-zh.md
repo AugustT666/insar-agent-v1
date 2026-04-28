@@ -2,6 +2,8 @@
 
 `insar-agent` 是一个以 MCP 为中心的 InSAR 编排项目。它的职责是把真实处理经验收敛成紧凑的工具面，供 agent 客户端调用，同时保持领域逻辑可复用、与宿主无关。
 
+截至 2026-04-27，项目已经是双引擎结构：NISAR/ISCE3 与 Sentinel-1/ISCE2 共用同一套 MCP、core、runtime 与 skill 插件契约。
+
 ## 系统分层
 
 ```text
@@ -9,7 +11,7 @@ Agent Client
   -> MCP tools / resources / prompts
   -> insar_agent.mcp
   -> insar_agent.core
-  -> insar_agent.engines.isce3
+  -> insar_agent.engines.isce3 / insar_agent.engines.isce2
   -> local runtime + conda environments
 ```
 
@@ -35,6 +37,14 @@ Agent Client
 - MintPy 启动支持
 - GeoTIFF 导出与 RSLC 元数据摘要
 
+### `insar_agent.engines.isce2`
+
+- 所有 Sentinel-1 / ISCE2 专属行为
+- `topsApp.py` 与 `stackSentinel.py` 命令构建
+- Sentinel SAFE/ZIP 元数据摘要与数据准备
+- orbit/DEM 组织、tops/stack 参数校验
+- ISCE2 stack 结果进入 MintPy 的启动支持
+
 ### `insar_agent.runtime`
 
 - 工作空间布局
@@ -54,6 +64,8 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 ## MCP 面
 
 完整签名与返回结构请见 `docs/developer-documents/mcp-tools.md`。
+
+当前源码注册面为 24 个 `@mcp.tool()`。`--describe` 摘要当前列出 22 个工具，漏列 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`；这是描述摘要同步问题，不改变 FastMCP 注册事实。
 
 ### Resources
 
@@ -76,7 +88,10 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
   `insar_run_batch`
 - Data prep：`insar_download_rslc`、`insar_download_dem`
 - MintPy：`insar_run_mintpy`、`insar_plot_baseline`
-- Utilities：`insar_export_geotiff`
+- Sentinel/ISCE2：`insar_download_scene`、`insar_describe_s1`、
+  `insar_prepare_sentinel_data`、`insar_run_mintpy_isce2`
+- Env/utility：`insar_check_env`、`insar_export_runconfig`、
+  `insar_export_geotiff`
 
 ## 执行模式
 
@@ -101,6 +116,15 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 5. 用 `insar_run_mintpy` 启动 MintPy
 6. 用 `insar_get_job(work_dir=...)` 轮询 MintPy 进度
 
+### Sentinel-1 / ISCE2
+
+1. 用 `insar_prepare_sentinel_data` 组织 SAFE/ZIP、orbit 和 DEM 输入
+2. 用 `insar_create_project(engine="isce2", workflow="tops" | "stack")` 创建项目
+3. 用 `insar_set_processing_param` 填写 ISCE2 workflow 参数
+4. 用 `insar_run_workflow` 启动 `topsApp.py` 或 `stackSentinel.py`
+5. 用 `insar_get_job(project_id=...)` 轮询
+6. 对已完成的 ISCE2 stack，可用 `insar_run_mintpy_isce2` 启动 Sentinel/MintPy 时序分析
+
 ## 参数优化边界
 
 参数优化被有意拆成三层：
@@ -113,6 +137,8 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 这样可以把细粒度推理留在主对话之外，同时保留可见的 diff 与用户确认步骤。
 
 对 skill-aware 客户端，这个拆分属于插件契约：skills 负责 advisory workflow 和 subagent 边界，MCP 工具只负责经过校验的执行。MCP 契约本身更窄：服务器只暴露 resources、prompts、tools，不在协议层验证宿主是否真的先调用了 subagent。
+
+新的插件演进方向是把 `skills/insar-agent` 从纯 Markdown 路由 skill 升级为真实 agent 入口：宿主一旦接入插件，即自动注入会话级提示词、运行上下文和路由策略，弱约束 skill 继续保留为可读文档与兼容层。该方向尚未实现，当前只进入开发计划。
 
 ## 核心数据模型
 

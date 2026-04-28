@@ -56,7 +56,7 @@ MCP tool count directly affects agent decision depth — fewer, more semantic to
 
 ## MCP Surface
 
-The current MCP surface exposes **24 tools**, 2 resources, and 2 prompts.
+The source MCP registration surface exposes **24 tools**, 2 resources, and 2 prompts. The `--describe` summary is synchronized with that surface, including `insar_export_runconfig` and `insar_run_mintpy_isce2`.
 
 ### Resources
 - `insar://workflow-guide`
@@ -107,6 +107,10 @@ Parameter optimization is intentionally split between the MCP server and the hos
 - `insar_set_processing_param` acts as the strict MCP enforcement layer, applying only whitelist-controlled changes.
 
 This keeps detailed reasoning out of the main conversation while preserving a visible diff-and-confirmation step for the user. The plugin contract owns advisory reasoning and user-facing confirmation flow, while the MCP contract stays focused on validated execution and state mutation.
+
+## Planned Plugin Evolution
+
+The current `skills/insar-agent/SKILL.md` router is a Markdown skill and therefore a soft client-side constraint. A planned direction is to promote it into a real plugin agent entry point that injects session-level prompts, routing rules, runtime bootstrap requirements, and MCP resource preload instructions automatically when the AI connects to the plugin. The existing skill should remain as readable documentation and a compatibility layer; the dedicated `param-advisor` subagent should remain responsible only for advisory packages.
 
 ## Core Data Model
 

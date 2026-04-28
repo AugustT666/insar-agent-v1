@@ -448,7 +448,7 @@ def test_prepare_sentinel_data_skill_routing_text():
     prep_skill = (repo / "skills" / "data-prep-sentinel" / "SKILL.md").read_text(encoding="utf-8")
     unified_prep_skill = (repo / "skills" / "data-prep" / "SKILL.md").read_text(encoding="utf-8")
     nisar_prep_skill = (repo / "skills" / "data-prep-nisar" / "SKILL.md").read_text(encoding="utf-8")
-    router_skill = (repo / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
+    router_skill = (repo / ".claude" / "agents" / "insar-agent.md").read_text(encoding="utf-8")
     pair_skill = (repo / "skills" / "d-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
     stack_skill = (repo / "skills" / "stack-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
 
@@ -487,8 +487,7 @@ def test_retry_with_backoff_succeeds_on_first_attempt(tmp_path, monkeypatch):
 def test_retry_with_backoff_retries_on_failure(tmp_path, monkeypatch):
     """Test that _retry_with_backoff retries and eventually succeeds."""
     from insar_agent.engines.isce2.sentinel_prep import _retry_with_backoff
-    import time as time_module
-    
+
     call_count = {"count": 0}
     sleep_calls = {"count": 0}
     
@@ -512,8 +511,7 @@ def test_retry_with_backoff_retries_on_failure(tmp_path, monkeypatch):
 def test_retry_with_backoff_exhausts_retries_and_raises(tmp_path, monkeypatch):
     """Test that _retry_with_backoff raises after exhausting retries."""
     from insar_agent.engines.isce2.sentinel_prep import _retry_with_backoff
-    import time as time_module
-    
+
     call_count = {"count": 0}
     
     def fake_sleep(seconds):

@@ -45,7 +45,7 @@ def test_process_prompts_require_unified_subagent_delegation():
 
 
 def test_upper_skills_route_to_unified_param_advisor_skill():
-    router_skill = (REPO_ROOT / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
+    router_skill = (REPO_ROOT / ".claude" / "agents" / "insar-agent.md").read_text(encoding="utf-8")
     pair_skill = (REPO_ROOT / "skills" / "d-insar-isce3" / "SKILL.md").read_text(encoding="utf-8")
     stack_skill = (REPO_ROOT / "skills" / "stack-insar-isce3" / "SKILL.md").read_text(encoding="utf-8")
     advisor_skill = (REPO_ROOT / "skills" / "param-advisor" / "SKILL.md").read_text(encoding="utf-8")

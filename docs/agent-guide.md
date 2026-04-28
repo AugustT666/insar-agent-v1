@@ -7,7 +7,7 @@ For step-by-step workflow guidance, invoke the appropriate skill:
 
 ## Hard constraints (NEVER violate)
 
-1. Only official ISCE3 NISAR workflows. Do not invent custom workflows.
+1. Only official ISCE3 NISAR workflows and project-wrapped ISCE2 Sentinel workflows. Do not invent custom workflows.
 2. Path fields may be changed through the engine-appropriate setter.
    Core processing parameters remain locked by default, except for the whitelist
    exposed through the engine-appropriate param-advisor skill +
@@ -24,8 +24,9 @@ For step-by-step workflow guidance, invoke the appropriate skill:
    and the user remains responsible for deciding whether to trust or apply them.
 4. Always start from the default runconfig template —
    `insar_create_project` loads it automatically.
-5. Execution command is always:
-   `conda run -n <env> python -m nisar.workflows.<workflow> /path/to/runconfig.yaml`
+5. NISAR / ISCE3 execution command is always:
+   `conda run -n <env> python -m nisar.workflows.<workflow> /path/to/runconfig.yaml`.
+   Sentinel / ISCE2 execution must use the project-wrapped `topsApp.py` or `stackSentinel.py` paths exposed through MCP tools.
 
 ---
 

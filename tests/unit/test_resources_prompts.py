@@ -1,6 +1,8 @@
 """Tests for MCP Resources, Prompts, and tool return fields."""
 from __future__ import annotations
 
+import pytest
+
 from insar_agent.mcp.server import (
     get_workflow_guide,
     get_allowed_fields,
@@ -11,7 +13,6 @@ from insar_agent.mcp.server import (
     insar_export_runconfig,
     insar_run_workflow,
     insar_set_runconfig_value,
-    insar_list_outputs,
     insar_prepare_stack,
     insar_prepare_network,
 )
@@ -151,12 +152,6 @@ def test_process_insar_batch_step_order():
     assert prompt.index("insar_prepare_stack") < prompt.index("insar_prepare_network")
 
 
-# ── tool return fields ────────────────────────────────────────────────────────
-
-import os
-import pytest
-
-
 @pytest.fixture(autouse=True)
 def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "registry"))
@@ -232,7 +227,9 @@ def test_run_workflow_dry_run_has_next_step(insar_project):
 
 
 def test_prepare_stack_returns_run_command(tmp_path):
-    import sys, pathlib
+    import pathlib
+    import sys
+
     sys.path.insert(0, str(pathlib.Path(__file__).parent))
     from test_m4_stack_network import make_rslc, make_fixture_runconfig, make_dem
     data_dir = tmp_path / "rslc"
@@ -252,7 +249,9 @@ def test_prepare_stack_returns_run_command(tmp_path):
 
 
 def test_prepare_network_returns_run_command_and_pattern(tmp_path):
-    import sys, pathlib
+    import pathlib
+    import sys
+
     sys.path.insert(0, str(pathlib.Path(__file__).parent))
     from test_m4_stack_network import make_rslc, make_fixture_runconfig, make_dem
     data_dir = tmp_path / "rslc"

@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_mintpy_router_skill_replaces_engine_specific_name() -> None:
-    router_skill = (REPO_ROOT / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
+    router_skill = (REPO_ROOT / ".claude" / "agents" / "insar-agent.md").read_text(encoding="utf-8")
     nisar_stack_skill = (REPO_ROOT / "skills" / "stack-insar-isce3" / "SKILL.md").read_text(encoding="utf-8")
     sentinel_stack_skill = (REPO_ROOT / "skills" / "stack-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
     old_skill_name = "mintpy" + "-isce3"

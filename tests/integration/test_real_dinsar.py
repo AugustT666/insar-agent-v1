@@ -163,7 +163,7 @@ def test_full_dinsar_produces_gunw(dinsar_project, tmp_path):
         logs = insar_get_job_logs(job_id, dinsar_project, tail=50)
         print("\n  === last 50 log lines ===")
         print(logs.get("content", "(no log)"))
-        pytest.fail(f"ISCE3 workflow failed. See log above.")
+        pytest.fail("ISCE3 workflow failed. See log above.")
 
     # Verify GUNW output
     gunw = tmp_path / "outputs" / "GUNW_product.h5"

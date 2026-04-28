@@ -4,12 +4,13 @@
 
 ## 项目能力
 
-当前主线围绕 `ISCE3` 与 NISAR RSLC 数据：
+当前项目已经从 NISAR/ISCE3 单主线演进为双引擎编排器：
 
-- Path A：单对参考景/次级景 RSLC 生成 `GUNW`
-- Path B：多景 stack 准备、干涉图网络生成、MintPy 时序分析
-- metadata-first 参数优化：通过 `param-advisor` skill 调用 `.claude/agents/param-advisor.md`
-- 辅助工具：RSLC bbox 提取、GUNW 导出 GeoTIFF 与 PNG browse 图
+- NISAR / ISCE3：Path A 单对 RSLC → `GUNW`，Path B 多景 stack、干涉图网络、MintPy 时序分析
+- Sentinel-1 / ISCE2：单对 TOPS D-InSAR、Sentinel 数据准备、stackSentinel 路径与 ISCE2 MintPy 入口
+- metadata-first 参数优化：统一通过 `param-advisor` skill 调用 `.claude/agents/param-advisor.md`
+- 数据准备：NISAR RSLC + DEM，Sentinel SAFE/ZIP + orbit/DEM 组织
+- 辅助工具：RSLC/Sentinel 元数据摘要、GUNW 导出 GeoTIFF 与 PNG browse 图、环境检查
 
 ## 适用对象
 
@@ -69,7 +70,7 @@ insar-agent/
   docs/                 架构、API 参考、归档资料、开发文档
   examples/             预留给未来公开的 sanitized runconfig 示例
   skills/               面向 skill-aware host 的工作流指引
-  src/insar_agent/      core 模型、MCP 服务器、ISCE3 引擎代码
+  src/insar_agent/      core 模型、MCP 服务器、ISCE3 与 ISCE2 引擎代码
   tests/                单元测试与集成测试
 ```
 
@@ -85,16 +86,18 @@ insar-agent/
 
 ## 当前状态
 
-截至 2026-04-05，当前活跃 MCP 面为：
+截至 2026-04-27，源码中的 FastMCP 注册面为：
 
-- 18 个 FastMCP 工具
+- 24 个 `@mcp.tool()` 工具
 - 2 个资源
 - 2 个 prompts
 
+注意：`PYTHONPATH=src python -m insar_agent.mcp.server --describe` 当前只列出 22 个工具，漏列 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`。这是描述摘要与 FastMCP 注册面的同步问题，已列入下一步开发计划；精确实现仍以 `src/insar_agent/mcp/server.py` 和 `docs/developer-documents/mcp-tools.md` 为准。
+
 当前仓库内已有真实数据自动化验证的能力主要集中在：
 
-- Path A 主线
-- `insar_describe_rslc`
-- `insar_extract_bbox` / `insar_export_geotiff`
+- NISAR / ISCE3 Path A 主线：真实 NAS RSLC + DEM，可执行到 GUNW 产品验证
+- `insar_describe_rslc`：真实 NISAR 元数据摘要
+- `insar_export_geotiff` 与内部 bbox helper：真实 GUNW/RSLC 辅助验证
 
-Path B、MintPy、批处理、数据准备下载链路已经有实现，但真实外部环境回归仍需继续补齐。精确工具行为以 `docs/developer-documents/mcp-tools.md` 与实时 `--describe` 输出为准。
+Sentinel-1 / ISCE2、Path B、MintPy、批处理、数据准备下载链路已经有代码和单元/契约测试，但真实外部环境回归仍需继续补齐。当前 `/home/august/NAS/Sentinel1_data/` 尚未作为真实测试数据集落地，相关 real-data 测试会自动 skip。

@@ -11,7 +11,6 @@ Skip automatically if data is not available.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest

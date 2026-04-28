@@ -2,21 +2,16 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
 
 from insar_agent.core.config import get_path, set_path, unset_path
-from insar_agent.core.project import Project, new_project, _load_registry
+from insar_agent.core.project import Project, new_project
 from insar_agent.engines.isce3.defaults import (
-    ALLOWED_SET_FIELDS,
-    REQUIRED_PATH_FIELDS,
     load_default_runconfig,
 )
-from insar_agent.engines.isce3.validator import validate_runconfig
 from insar_agent.engines.isce3.runner import build_workflow_command
 from insar_agent.mcp.server import (
     insar_create_project,
