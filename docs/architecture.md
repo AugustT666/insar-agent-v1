@@ -67,15 +67,50 @@ The source MCP registration surface exposes **24 tools**, 2 resources, and 2 pro
 - `process_insar_batch`
 
 ### Tools (24 Total)
-- **Discovery**: `insar_discover`, `insar_check_env`
-- **Project**: `insar_create_project`, `insar_get_project`
-- **Config**: `insar_get_runconfig`, `insar_set_runconfig_value`, `insar_set_processing_param`, `insar_export_runconfig`
-- **Execution**: `insar_run_workflow`, `insar_get_job`, `insar_list_outputs`
-- **Stack/Batch**: `insar_prepare_stack`, `insar_prepare_network`, `insar_run_batch`
-- **Time-series**: `insar_run_mintpy`, `insar_run_mintpy_isce2`, `insar_plot_baseline`
-- **Data/NISAR**: `insar_describe_rslc`, `insar_download_rslc`, `insar_download_dem`
-- **Data/Sentinel**: `insar_describe_s1`, `insar_download_scene`, `insar_prepare_sentinel_data`
-- **Export**: `insar_export_geotiff`
+
+Full signatures, parameters, and return structures are in `docs/developer-documents/mcp-tools.md`.
+
+**Discovery**
+- `insar_discover` — List available engines (no args), or list supported workflows for a specific engine.
+- `insar_check_env` — Inspect conda environments, MCP registration status, and skill plugin installation. Read-only; never modifies the environment.
+
+**Project**
+- `insar_create_project` — Create a new project, initialize its workspace directory, and load the default runconfig template for the chosen engine/workflow. Returns `project_id` and the list of required path fields.
+- `insar_get_project` — Return project metadata, current runconfig key list, and latest job status.
+
+**Config**
+- `insar_get_runconfig` — Return the current project runconfig as JSON (default) or YAML.
+- `insar_set_runconfig_value` — Set or remove one runconfig field by dotted path (e.g. `runconfig.groups.worker.gpu_enabled`). Pass `value=null` to restore the template default.
+- `insar_set_processing_param` — Apply a whitelist-controlled processing parameter (multilook, filter mode, unwrap settings, atmospheric correction flags). Enforces type, range, and enum constraints. Intended to be called after `param-advisor` produces a confirmed recommendation — not for free-form YAML editing.
+- `insar_export_runconfig` — Render the current runconfig to a YAML file on disk. Not required in the normal launch path because `insar_run_workflow` does this automatically; useful for manual review or parameter-tuning snapshots.
+
+**Execution**
+- `insar_run_workflow` — Validate runconfig, export YAML, and launch the engine workflow in one step. Returns `job_id` and a poll hint. Replaces the former separate validate and export steps.
+- `insar_get_job` — Query status (running / done / failed) for any job type. Pass exactly one of `project_id` (ISCE3 workflow), `work_dir` (MintPy), or `batch_dir` (batch). Set `include_logs=true` to receive log content inline.
+- `insar_list_outputs` — List output artifacts produced by a completed job, including artifact type and recommended viewer.
+
+**Stack / Batch**
+- `insar_prepare_stack` — Generate single-reference ISCE3 runconfigs for all secondary scenes in an RSLC directory (Layer 1 of the two-layer batch workflow). Outputs `run_all.sh`, `run_parallel.sh`, and a `stack_manifest.csv`.
+- `insar_prepare_network` — Generate interferogram-network runconfigs from an RSLC directory using `tbase` (temporal baseline threshold), `conn` (fixed neighbor span), or a custom pair list (Layer 2). Outputs per-pair runconfigs and a `pairs_selected.txt`.
+- `insar_run_batch` — Launch a prepared stack or network by executing the generated `run_parallel.sh` (or `run_all.sh`) as a background process. Returns immediately with `job_id`; poll via `insar_get_job(batch_dir=...)`.
+
+**Time-series**
+- `insar_run_mintpy` — Asynchronously launch MintPy time-series analysis for a completed ISCE3/GUNW interferogram network. Wraps the proven `run_mintpy_nisar_stack.sh` pipeline: common-mask → `reference_point` → re-mask → `correct_unwrap_error`.
+- `insar_run_mintpy_isce2` — Asynchronously launch MintPy for a completed ISCE2/topsStack Sentinel-1 working directory. Runs `prep_isce.py` first to prepare `.rsc` metadata, then calls `smallbaselineApp.py --end velocity`.
+- `insar_plot_baseline` — Generate a spatiotemporal baseline network plot (PNG + PDF) and pair/scene CSV files from completed GUNW products. Acts as a mandatory human review gate before MintPy in `interactive` mode.
+
+**Data / NISAR**
+- `insar_describe_rslc` — Summarize NISAR RSLC metadata (sensor, band, polarizations, orbit, bbox, temporal baseline) for metadata-first parameter advisory. Designed to be called inside the `param-advisor` skill before the subagent generates a recommendation.
+- `insar_download_rslc` — Download and bbox-crop NISAR RSLC files from a list of URLs. Accepts an explicit bbox or an AOI file; runs as a background job and returns a log path.
+- `insar_download_dem` — Download a Copernicus 30 m DEM tile mosaic for a given bbox or AOI. Returns the merged GeoTIFF path and tile URLs used.
+
+**Data / Sentinel**
+- `insar_describe_s1` — Read Sentinel-1 SAFE or ZIP metadata (mode, polarizations, relative orbit, pass direction, bbox) for ISCE2 parameter advisory and scene pairing.
+- `insar_download_scene` — Download Sentinel-1 SAFE/ZIP files from a list of direct URLs. Used when the user does not yet have local SAFE/ZIP inputs; if inputs already exist, go straight to `insar_prepare_sentinel_data`.
+- `insar_prepare_sentinel_data` — Organize Sentinel-1 SAFE/ZIP inputs, orbit files, and DEM into the directory structure expected by ISCE2. Supports optional orbit download and AOI-based DEM preparation.
+
+**Export**
+- `insar_export_geotiff` — Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images for all spatial datasets in the file. Writes output under `<output_dir>/browse/`.
 
 ## Execution Modes
 

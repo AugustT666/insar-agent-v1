@@ -65,7 +65,7 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 
 完整签名与返回结构请见 `docs/developer-documents/mcp-tools.md`。
 
-当前源码注册面为 24 个 `@mcp.tool()`。`--describe` 摘要当前列出 22 个工具，漏列 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`；这是描述摘要同步问题，不改变 FastMCP 注册事实。
+当前源码注册面为 **24 个** `@mcp.tool()`，包含 `insar_export_runconfig` 与 `insar_run_mintpy_isce2`。`--describe` 摘要已与注册面保持同步，完整列出全部 24 个工具。
 
 ### Resources
 
@@ -77,21 +77,51 @@ MCP 工具数量会直接影响 agent 的决策深度。工具越少、语义越
 - `process_insar_pair`
 - `process_insar_batch`
 
-### Tools
+### Tools（24 个）
 
-- Discovery：`insar_discover`、`insar_get_project`
-- Config：`insar_create_project`、`insar_get_runconfig`、
-  `insar_set_runconfig_value`、`insar_set_processing_param`、
-  `insar_describe_rslc`
-- Execution：`insar_run_workflow`、`insar_get_job`、`insar_list_outputs`
-- Stack/network：`insar_prepare_stack`、`insar_prepare_network`、
-  `insar_run_batch`
-- Data prep：`insar_download_rslc`、`insar_download_dem`
-- MintPy：`insar_run_mintpy`、`insar_plot_baseline`
-- Sentinel/ISCE2：`insar_download_scene`、`insar_describe_s1`、
-  `insar_prepare_sentinel_data`、`insar_run_mintpy_isce2`
-- Env/utility：`insar_check_env`、`insar_export_runconfig`、
-  `insar_export_geotiff`
+完整签名、参数与返回结构请见 `docs/developer-documents/mcp-tools.md`。
+
+**Discovery（发现）**
+- `insar_discover` — 无参数时列出可用引擎；传入引擎名时列出该引擎支持的工作流。
+- `insar_check_env` — 检测 conda 环境、MCP 注册状态与 skill 插件安装情况。只读，不修改环境。
+
+**Project（项目）**
+- `insar_create_project` — 创建新项目、初始化工作空间，并为所选引擎/工作流加载默认 runconfig 模板。返回 `project_id` 和必填路径字段列表。
+- `insar_get_project` — 返回项目元数据、当前 runconfig 键列表和最新作业状态。
+
+**Config（配置）**
+- `insar_get_runconfig` — 返回当前项目 runconfig（JSON 格式或 YAML 格式）。
+- `insar_set_runconfig_value` — 通过点号路径设置或移除一个 runconfig 字段（例如 `runconfig.groups.worker.gpu_enabled`）。传入 `value=null` 时恢复模板默认值。
+- `insar_set_processing_param` — 设置白名单控制的处理参数（多视因子、滤波模式、相位解缠设置、大气校正开关等），执行类型/范围/枚举校验。设计上应在 `param-advisor` 生成并经用户确认建议后调用，不用于自由形式 YAML 编辑。
+- `insar_export_runconfig` — 将当前 runconfig 渲染为磁盘上的 YAML 文件。主流程中不需要单独调用（`insar_run_workflow` 会自动完成）；保留用于人工审阅或参数调优快照。
+
+**Execution（执行）**
+- `insar_run_workflow` — 校验 runconfig、导出 YAML 并一步启动引擎工作流。返回 `job_id` 和轮询提示，取代原有的独立 validate/export 步骤。
+- `insar_get_job` — 查询任意类型作业的状态（running / done / failed）。必须且只能传入 `project_id`（ISCE3 工作流）、`work_dir`（MintPy）或 `batch_dir`（批处理）之一。设置 `include_logs=true` 可内联返回日志内容。
+- `insar_list_outputs` — 列出已完成作业产生的输出文件，包含文件类型和推荐查看工具。
+
+**Stack / Batch（批处理）**
+- `insar_prepare_stack` — 为目录中所有次级 RSLC 生成单参考景 ISCE3 runconfig（两层批处理架构的第一层）。输出 `run_all.sh`、`run_parallel.sh` 和 `stack_manifest.csv`。
+- `insar_prepare_network` — 从 RSLC 目录生成干涉图网络 runconfig，支持 `tbase`（时间基线阈值）、`conn`（固定邻居跨度）或自定义配对列表（第二层）。输出每对干涉图的 runconfig 和 `pairs_selected.txt`。
+- `insar_run_batch` — 通过后台进程执行已准备好的 stack 或 network（调用 `run_parallel.sh` 或 `run_all.sh`）。立即返回 `job_id`，通过 `insar_get_job(batch_dir=...)` 轮询。
+
+**Time-series（时序分析）**
+- `insar_run_mintpy` — 异步启动 MintPy 时序分析，输入为已完成的 ISCE3/GUNW 干涉图网络。封装了经过实践验证的 `run_mintpy_nisar_stack.sh` 流程：公共掩膜 → `reference_point` → 再次掩膜 → `correct_unwrap_error`。
+- `insar_run_mintpy_isce2` — 异步启动 MintPy，输入为已完成的 ISCE2/topsStack Sentinel-1 工作目录。先运行 `prep_isce.py` 准备 `.rsc` 元数据，再调用 `smallbaselineApp.py --end velocity`。
+- `insar_plot_baseline` — 从已完成的 GUNW 产品生成时空基线网络图（PNG + PDF）和配对/景 CSV 文件。在 `interactive` 模式下，作为进入 MintPy 前的强制人工检查窗口。
+
+**Data / NISAR（NISAR 数据）**
+- `insar_describe_rslc` — 汇总 NISAR RSLC 元数据（传感器、频段、极化、轨道、bbox、时间基线），供元数据优先的参数建议流程使用。设计上在 `param-advisor` skill 内部、subagent 生成建议之前调用。
+- `insar_download_rslc` — 根据 URL 列表下载并 bbox 裁剪 NISAR RSLC 文件。接受显式 bbox 或 AOI 文件，以后台作业方式运行，返回日志路径。
+- `insar_download_dem` — 为给定 bbox 或 AOI 下载 Copernicus 30m DEM 瓦片拼接产品。返回合并后的 GeoTIFF 路径和所用瓦片 URL。
+
+**Data / Sentinel（Sentinel-1 数据）**
+- `insar_describe_s1` — 读取 Sentinel-1 SAFE 或 ZIP 的元数据（模式、极化、相对轨道、过境方向、bbox），供 ISCE2 参数建议和场景配对使用。
+- `insar_download_scene` — 从直接 URL 列表下载 Sentinel-1 SAFE/ZIP 文件。用于用户尚未准备本地输入的情况；若已有本地 SAFE/ZIP 则直接进入 `insar_prepare_sentinel_data`。
+- `insar_prepare_sentinel_data` — 将 Sentinel-1 SAFE/ZIP 输入、orbit 文件和 DEM 组织为 ISCE2 所需的目录结构。支持可选的 orbit 下载和基于 AOI 的 DEM 准备。
+
+**Export（导出）**
+- `insar_export_geotiff` — 将 NISAR GUNW HDF5 产品中的所有空间数据集转换为 GeoTIFF + PNG 浏览图像，输出写入 `<output_dir>/browse/`。
 
 ## 执行模式
 
