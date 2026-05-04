@@ -55,12 +55,12 @@
                                       insar_prepare_stack / insar_prepare_network
                                       调用前注入 PARAM_ADVISOR_PROMPT，触发参数调优询问）
     agents/
+      insar-agent.md          ← 主路由 primary agent（负责编排 workflow skills 与 MCP tools）
       param-advisor.md        ← 参数专家 subagent 合约（不与用户对话，只输出
                                       结构化 recommendation package）
-      behavior-tester.md            ← 行为测试 agent（模拟首次用户观察工作流合规性）
       references/
-        param-advisor.md      ← 参数经验规则知识库（multilook/filter/unwrap 等
-                                      启发式规则，subagent 读取后生成建议）
+        param-advisor-isce2.md ← Sentinel/ISCE2 参数经验规则与 workflow 模板
+        param-advisor-isce3.md ← NISAR/ISCE3 参数经验规则与默认值调整依据
 ```
 
 ---

@@ -60,6 +60,21 @@ DEFAULT_PARAMS: dict[str, dict] = {
     },
 }
 
+# Fields the MCP agent is allowed to set via insar_set_runconfig_value (path fields only)
+ALLOWED_SET_FIELDS: dict[str, list[str]] = {
+    "tops": [
+        "reference_safe",
+        "secondary_safe",
+        "orbit_dir",
+        "dem_file",
+    ],
+    "stack": [
+        "slc_dir",
+        "orbit_dir",
+        "dem_file",
+    ],
+}
+
 REQUIRED_PARAM_FIELDS["stack"] = [
     "slc_dir",
     "orbit_dir",

@@ -670,6 +670,10 @@ def test_insar_run_batch_background_returns_job_id(tmp_path):
     assert "error" not in result
     assert "job_id" in result
     assert result["status"] == "running"
+    assert result["state"] == "running"
+    assert result["running_count"] == 2
+    assert result["queued_count"] == 0
+    assert result["failed_count"] == 0
     assert result["pid"] == 99999
     assert result["interaction_mode"] == "interactive"
     assert result["execution_mode"] == "parallel"

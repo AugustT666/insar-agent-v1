@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "insar-agent",
+  "mcp": {
+    "insar-agent": {
+      "type": "local",
+      "command": ["insar-mcp-server", "--stdio"],
+      "enabled": true
+    }
+  },
+  "skills": {
+    "sources": [
+      {
+        "path": "./skills",
+        "recursive": true,
+        "glob": "**/SKILL.md"
+      }
+    ]
+  },
+  "plugin": []
+}

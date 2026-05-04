@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "insar-agent",
+  "agent": {
+    "insar-agent": {
+      "model": "opencode/big-pickle",
+      "description": "Main InSAR processing session agent. Handles NISAR, Sentinel-1, ISCE3, ISCE2, InSAR, time-series, MintPy, DEM preparation, and environment setup. Routes to workflow skills and orchestrates insar_* MCP tools end-to-end.",
+      "mode": "primary"
+    }
+  },
+  "instructions": [
+    "__PROJECT_ROOT__/.claude/agents/insar-agent.md"
+  ],
+  "skills": {
+    "sources": [
+      { "path": "__PROJECT_ROOT__/skills", "recursive": true, "glob": "**/SKILL.md" }
+    ]
+  },
+  "mcp": {
+    "insar-agent": {
+      "type": "local",
+      "command": ["insar-mcp-server", "--stdio"],
+      "enabled": true
+    }
+  },
+  "plugin": []
+}

@@ -368,7 +368,7 @@ def test_prepare_sentinel_data_can_prepare_dem_and_orbits(tmp_path, monkeypatch)
             "log": ["downloaded"],
         }
 
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, capture_output, text, timeout, env=None):
         orbit_dir = Path(command[command.index("-o") + 1])
         orbit_dir.mkdir(parents=True, exist_ok=True)
         (orbit_dir / "S1A_OPER_AUX_POEORB_OPOD_20260113T000000_V20260112T000000_20260114T000000.EOF").write_text(
@@ -441,6 +441,38 @@ def test_prepare_sentinel_data_fails_fast_without_orbit_credentials(tmp_path, mo
 
     assert result["error"] == "invalid_input"
     assert "dataspace.copernicus.eu" in result["message"]
+
+
+def test_prepare_sentinel_data_background_launch_returns_job(tmp_path, monkeypatch):
+    import unittest.mock as mock
+
+    project_root = tmp_path / "project"
+    safe_root = tmp_path / "source"
+    safe_dir = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    mock_proc = mock.MagicMock()
+    mock_proc.pid = 45454
+
+    monkeypatch.setattr("insar_agent.mcp.server.subprocess.Popen", mock.MagicMock(return_value=mock_proc))
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(safe_dir)],
+        download_orbits=True,
+        orbit_dir=str(project_root / "orbits"),
+        background=True,
+    )
+
+    assert result["status"] == "running"
+    assert result["job_id"]
+    assert result["pid"] == 45454
+    assert result["output_dir"] == str(project_root)
+    assert "insar_get_job" in result["poll"]
+    assert Path(result["log_path"]).exists()
+    assert Path(result["params_path"]).exists()
 
 
 def test_prepare_sentinel_data_skill_routing_text():
@@ -601,7 +633,7 @@ def test_orbit_download_retries_on_transient_failures(tmp_path, monkeypatch):
     call_count = {"count": 0}
     log_messages = []
     
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, capture_output, text, timeout, env=None):
         call_count["count"] += 1
         
         # Fail first time with transient error
@@ -681,7 +713,7 @@ def test_orbit_download_fails_after_exhausting_retries(tmp_path, monkeypatch):
     
     call_count = {"count": 0}
     
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, capture_output, text, timeout, env=None):
         call_count["count"] += 1
         # Always fail
         class Result:
@@ -703,4 +735,6 @@ def test_orbit_download_fails_after_exhausting_retries(tmp_path, monkeypatch):
     assert downloaded == 0
     assert len(failed) == 1
     assert "orbit download failed" in failed[0]["message"]
+    assert failed[0]["returncode"] == 1
+    assert failed[0]["stderr"] == "Permanent authentication failure"
     assert call_count["count"] == 3  # Tried 3 times

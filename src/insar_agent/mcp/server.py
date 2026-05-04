@@ -22,13 +22,17 @@ from insar_agent.core.jobs import BatchJob, DownloadJob, Job
 from insar_agent.core.project import Project, new_project, resolve_plugin_logs_dir
 from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
-    ALLOWED_SET_FIELDS,
+    ALLOWED_SET_FIELDS as ISCE3_ALLOWED_SET_FIELDS,
     REQUIRED_PATH_FIELDS,
     get_default_runconfig_template_path,
     get_processing_param_keys,
     load_default_runconfig,
     load_processing_params,
 )
+from insar_agent.engines.isce2.defaults import (
+    ALLOWED_SET_FIELDS as ISCE2_ALLOWED_SET_FIELDS,
+)
+
 from insar_agent.engines.isce3.baseline import plot_baseline_network
 from insar_agent.engines.isce3.bbox import union_bbox
 from insar_agent.engines.isce3.aoi import resolve_aoi_bbox
@@ -53,11 +57,30 @@ from insar_agent.engines.isce2.sentinel_prep import _read_safe_metadata, prepare
 from insar_agent.engines.isce2.stack import build_stack_command as isce2_build_stack_command
 from insar_agent.engines.isce2.validator import validate_params as isce2_validate_params
 
+ENGINE_ALLOWED_FIELDS: dict[str, dict[str, list[str]]] = {
+    "isce3": ISCE3_ALLOWED_SET_FIELDS,
+    "isce2": ISCE2_ALLOWED_SET_FIELDS,
+}
+
 _ADAPTER = ISCE3Adapter()
 _ISCE2_ADAPTER = ISCE2Adapter()
 _ENGINES = {_ADAPTER.name: _ADAPTER, _ISCE2_ADAPTER.name: _ISCE2_ADAPTER}
 
 mcp = FastMCP("insar-mcp-server")
+
+_CONDA_SAFE_DEFAULTS = {
+    "_CONDA_SET_GEOTIFF_CSV": "",
+}
+
+
+def _conda_safe_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
+    env = os.environ.copy()
+    for key, value in _CONDA_SAFE_DEFAULTS.items():
+        env.setdefault(key, value)
+    if overrides:
+        env.update(overrides)
+    return env
+
 
 # Path to the external agent guide — single source of truth for AI constraints.
 # Stored in docs/agent-guide.md so it can be edited without touching server code.
@@ -780,12 +803,14 @@ def insar_set_runconfig_value(project_id: str, key: str, value: object) -> dict:
             return {"error": "save_failed", "message": str(exc)}
         return {"project_id": project_id, "key": key, "unset": True}
 
-    allowed = ALLOWED_SET_FIELDS.get(project.workflow, [])
+    engine_allowed = ENGINE_ALLOWED_FIELDS.get(project.engine, {})
+    allowed = engine_allowed.get(project.workflow, [])
     if allowed and key not in allowed:
         return {
             "error": "key_not_allowed",
             "message": (
-                f"Key {key!r} is not in the allowed set for workflow {project.workflow!r}. "
+                f"Key {key!r} is not in the allowed set for engine {project.engine!r}, "
+                f"workflow {project.workflow!r}. "
                 "Use insar_set_processing_param for whitelist-controlled processing keys. "
                 f"Allowed keys: {allowed}"
             ),
@@ -1186,6 +1211,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 cwd=project.workspace_root,
+                env=_conda_safe_env(),
             )
         job.pid = proc.pid
         job.save(project.jobs_dir())
@@ -1306,6 +1332,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 cwd=project.workspace_root,
+                env=_conda_safe_env(),
             )
         job.pid = proc.pid
         job.save(project.jobs_dir())
@@ -1926,9 +1953,11 @@ def insar_run_batch(
     batch_job.status = "running"
 
     try:
-        env = os.environ.copy()
+        env = _conda_safe_env()
         if python_bin:
             env["PYTHON_BIN"] = python_bin
+        running_count = min(max_jobs if execution_mode == "parallel" else 1, num_pairs)
+        queued_count = max(num_pairs - running_count, 0)
         with open(log_path, "w") as log_file:
             proc = subprocess.Popen(
                 command,
@@ -1952,6 +1981,10 @@ def insar_run_batch(
         "num_pairs": num_pairs,
         "pid": proc.pid,
         "status": "running",
+        "state": "running",
+        "running_count": running_count,
+        "queued_count": queued_count,
+        "failed_count": 0,
         "interaction_mode": interaction_mode,
         "execution_mode": execution_mode,
         "log_path": log_path,
@@ -2551,7 +2584,7 @@ def insar_download_dem(
         ]
         # Build subprocess env: bypass proxy for NASA EarthData to avoid SSL inspection issues.
         # Includes both the legacy USGS host and the new LP DAAC Earthdata Cloud host.
-        isce2_env = os.environ.copy()
+        isce2_env = _conda_safe_env()
         nasa_hosts = [
             "e4ftl01.cr.usgs.gov",
             "data.lpdaac.earthdatacloud.nasa.gov",
@@ -2792,6 +2825,64 @@ def insar_describe_s1(zip_path: str) -> dict:
         return {"error": "parse_failed", "message": str(exc)}
 
 
+def _launch_sentinel_prepare_background(params: dict) -> dict:
+    root = Path(params["project_root"]).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    logs_dir = resolve_plugin_logs_dir(root, fallback_root=root)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    job = DownloadJob(output_dir=str(root), n_files=len(params.get("source_paths") or []))
+    log_path = logs_dir / f"sentinel_prepare_{job.job_id}.log"
+    params_path = logs_dir / f"sentinel_prepare_{job.job_id}_params.json"
+    runner_path = logs_dir / f"sentinel_prepare_{job.job_id}_run.py"
+    log_path.touch()
+    params_path.write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    src_dir = str(Path(__file__).resolve().parent.parent.parent)
+    runner_script = f"""\
+import json
+import sys
+import traceback
+sys.path.insert(0, {src_dir!r})
+from insar_agent.engines.isce2.sentinel_prep import prepare_sentinel_data
+from insar_agent.mcp.server import insar_download_dem
+
+with open({str(params_path)!r}, encoding="utf-8") as _f:
+    _params = json.load(_f)
+
+try:
+    _result = prepare_sentinel_data(**_params, dem_downloader=insar_download_dem)
+    print(json.dumps({{"status": "done", "result": _result}}, ensure_ascii=False), flush=True)
+except Exception as _exc:
+    print(json.dumps({{"status": "failed", "error": str(_exc), "traceback": traceback.format_exc()}}, ensure_ascii=False), flush=True)
+"""
+    runner_path.write_text(runner_script, encoding="utf-8")
+    job.log_path = str(log_path)
+
+    try:
+        with open(log_path, "w", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                [sys.executable, str(runner_path)],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=_conda_safe_env(),
+            )
+    except Exception as exc:
+        return {"error": "launch_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+
+    job.pid = proc.pid
+    job.save()
+    return {
+        "job_id": job.job_id,
+        "status": "running",
+        "pid": proc.pid,
+        "output_dir": str(root),
+        "n_files": job.n_files,
+        "log_path": str(log_path),
+        "params_path": str(params_path),
+        "poll": f'insar_get_job(job_id="{job.job_id}", output_dir="{root}")',
+    }
+
+
 @mcp.tool()
 def insar_prepare_sentinel_data(
     project_root: str,
@@ -2813,6 +2904,7 @@ def insar_prepare_sentinel_data(
     include_pair: bool = True,
     include_stack: bool = True,
     resume: bool = True,
+    background: bool = False,
 ) -> dict:
     """
     Organize Sentinel-1 SAFE inputs into grouped SAFE paths for later ISCE2 use.
@@ -2822,6 +2914,30 @@ def insar_prepare_sentinel_data(
     files. It can also optionally prepare DEM and Sentinel-1 orbit files for
     downstream ISCE2 workflows.
     """
+    params = {
+        "project_root": project_root,
+        "mode": mode,
+        "aoi_path": aoi_path,
+        "bbox": bbox,
+        "dem_path": dem_path,
+        "dem_output_path": dem_output_path,
+        "download_dem": download_dem,
+        "dem_backend": dem_backend,
+        "dem_type": dem_type,
+        "download_orbits": download_orbits,
+        "orbit_dir": orbit_dir,
+        "orbit_username": orbit_username,
+        "orbit_password": orbit_password,
+        "orbit_token_file": orbit_token_file,
+        "source_paths": source_paths,
+        "burst_manifest": burst_manifest,
+        "include_pair": include_pair,
+        "include_stack": include_stack,
+        "resume": resume,
+    }
+    if background:
+        return _launch_sentinel_prepare_background(params)
+
     try:
         return prepare_sentinel_data(
             project_root=project_root,
@@ -2875,6 +2991,10 @@ def insar_check_env() -> dict:
             "probe": "import isce3; print(isce3.__version__)",
             "install": "conda create -n isce3gpu -c conda-forge isce3 cudatoolkit -y",
         },
+        "isce3": {
+            "probe": "import isce3; print(isce3.__version__)",
+            "install": "conda create -n isce3 -c conda-forge isce3 -y",
+        },
         "mintpy": {
             "probe": "import mintpy; print(mintpy.__version__)",
             "install": "conda create -n mintpy -c conda-forge mintpy -y",
@@ -2896,6 +3016,7 @@ def insar_check_env() -> dict:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=_conda_safe_env(),
             )
             if result.returncode == 0:
                 version = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "unknown"

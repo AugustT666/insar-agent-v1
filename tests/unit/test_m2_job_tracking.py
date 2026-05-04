@@ -104,6 +104,17 @@ class TestRunWorkflowPidCapture:
         assert data["status"] == "failed"
         assert data["exit_code"] == -1
 
+    def test_launch_sets_conda_safe_environment(self, ready_project):
+        mock_proc = MagicMock()
+        mock_proc.pid = 42001
+
+        with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = insar_run_workflow(ready_project, dry_run=False)
+
+        assert "error" not in result
+        _, kwargs = mock_popen.call_args
+        assert kwargs["env"]["_CONDA_SET_GEOTIFF_CSV"] == ""
+
 
 # ── insar_get_job_status: PID liveness ─────────────────────────────────────────
 

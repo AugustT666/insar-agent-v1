@@ -11,7 +11,7 @@ The system exposes a rich MCP and plugin surface tailored for automated workflow
 - **24 MCP Tools**: Covering discovery, project management, config tuning, execution, batch processing, data preparation, and export.
 - **2 MCP Resources**: Serving hard workflow constraints (`insar://workflow-guide`) and schema rules (`insar://allowed-fields/{workflow}`).
 - **2 MCP Prompts**: Pre-built instructions for single-pair and batch processing.
-- **11 Plugin Skills**: Providing domain guidance for data preparation, parameter advisory, environment setup, and path execution.
+- **10 Plugin Skills**: Providing domain guidance for data preparation, parameter advisory, environment setup, and path execution.
 - **Dual-Engine Execution**: Native support for both `isce3` (NISAR) and `isce2` (Sentinel-1) processing graphs.
 - **Runtime Support Layer**: Abstracted workspace layout, logging, and Conda environment orchestration.
 

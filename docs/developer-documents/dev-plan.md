@@ -36,10 +36,9 @@
   - `stack-insar-isce2`
   - `mintpy`
   - `param-advisor`
-- 当前 Claude agent 文件：
+- 当前 Claude/OpenCode agent 文件：
   - `.claude/agents/insar-agent.md`
   - `.claude/agents/param-advisor.md`
-  - `.claude/agents/behavior-tester.md`
 
 ### 已基本完成的能力
 
@@ -192,8 +191,8 @@ All checks passed!
    - Path B、MintPy、Sentinel 数据准备已经实现并通过快速真实回归；
    - 但 long-running execution 还没有本轮自动化通过记录。
 
-4. README 中插件 skill 数量需要后续统一。
-   - 当前 `skills/` 下是 10 个 workflow skills，主路由已经移动到 `.claude/agents/insar-agent.md`。
+4. README 中插件 skill 数量已统一为 10。
+   - 当前 `skills/` 下是 10 个 workflow skills，主路由位于 `.claude/agents/insar-agent.md`，OpenCode 通过 `.opencode/agents/` 软链引用。
 
 ---
 

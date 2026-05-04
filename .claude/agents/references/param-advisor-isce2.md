@@ -32,9 +32,9 @@ Default template summary:
 - `do_esd = true`
 - `esd_coherence_threshold = 0.85`
 - `filter_strength = 0.5`
-- `range_looks = 4`
-- `azimuth_looks = 1`
-- `unwrap_method = icu`
+- `range_looks = 20`
+- `azimuth_looks = 4`
+- `unwrap_method = snaphu`
 
 Use this template when the user wants a single-pair interferogram / coherence / unwrapped phase result.
 

@@ -1,0 +1,1 @@
+../../.claude/agents/insar-agent.md
