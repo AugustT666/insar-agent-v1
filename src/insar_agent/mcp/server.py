@@ -1229,6 +1229,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
                 stderr=subprocess.STDOUT,
                 cwd=project.workspace_root,
                 env=_conda_safe_env(),
+                start_new_session=True,
             )
         job.pid = proc.pid
         job.save(project.jobs_dir())
@@ -1350,6 +1351,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
                 stderr=subprocess.STDOUT,
                 cwd=project.workspace_root,
                 env=_conda_safe_env(),
+                start_new_session=True,
             )
         job.pid = proc.pid
         job.save(project.jobs_dir())
@@ -1988,6 +1990,7 @@ def insar_run_batch(
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 env=env,
+                start_new_session=True,
             )
         batch_job.pid = proc.pid
         batch_job.save()
@@ -2501,6 +2504,7 @@ except Exception as _e:
                 [sys.executable, runner_file],
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
     except Exception as exc:
         return {"error": "launch_failed", "message": str(exc)}
@@ -2889,6 +2893,7 @@ except Exception as _exc:
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 env=_conda_safe_env(),
+                start_new_session=True,
             )
     except Exception as exc:
         return {"error": "launch_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
