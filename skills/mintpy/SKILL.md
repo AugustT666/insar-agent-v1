@@ -31,7 +31,7 @@ Path B tools operate directly on the filesystem and do not use the project regis
   `runs/*/products/*.h5`
 - `stack_work_dir` (ISCE2 only): completed ISCE2 topsStack directory with `merged/interferograms`, `merged/geom_reference`, and `merged/baselines`
 - `mintpy_work_dir`: output directory for MintPy results
-- `mintpy_config`: path to MintPy smallbaselineApp config file (`.cfg` or `.txt`)
+- `mintpy_config`: path to MintPy smallbaselineApp config file (`.cfg` or `.txt`). **Optional for ISCE3** — omit or pass `""` to auto-generate a minimal NISAR default config.
 - `dem_path` (ISCE3 only): path to DEM GeoTIFF (`.tif`) — same DEM used in ISCE3 processing
 - `conda_env`:
   - **ISCE3**: Must be a dedicated MintPy env with numpy<2 (not the ISCE3 env). Create if needed:
@@ -93,9 +93,9 @@ If `handoff_required=false`, show the same review artifacts briefly, then contin
 insar_run_mintpy(
     mintpy_work_dir=<mintpy_work_dir>,
     gunw_glob="<network_dir>/runs/*/products/*.h5",
-    mintpy_config=<mintpy_config>,
     dem_path=<dem_path>,
     conda_env=<conda_env>,
+    mintpy_config=<mintpy_config or "">,   # omit or pass "" to use auto-generated NISAR default
     interaction_mode=<interactive|auto>
 )
 ```

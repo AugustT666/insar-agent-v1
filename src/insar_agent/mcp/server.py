@@ -2172,9 +2172,9 @@ def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
 def insar_run_mintpy(
     mintpy_work_dir: str,
     gunw_glob: str,
-    mintpy_config: str,
     dem_path: str,
     conda_env: str,
+    mintpy_config: str = "",
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
     interaction_mode: str = "interactive",
@@ -2188,9 +2188,10 @@ def insar_run_mintpy(
         mintpy_work_dir: Output directory for MintPy results.
         gunw_glob:       Shell glob pattern matching GUNW .h5 files,
                          e.g. /path/to/network/runs/*/products/*.h5
-        mintpy_config:   Path to MintPy smallbaselineApp config (.cfg or .txt).
         dem_path:        Path to the DEM GeoTIFF used during preprocessing.
         conda_env:       Conda environment that contains MintPy and GDAL.
+        mintpy_config:   Path to MintPy smallbaselineApp config (.cfg or .txt).
+                         Optional — a minimal NISAR default is auto-generated if omitted.
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
@@ -2200,18 +2201,17 @@ def insar_run_mintpy(
     if not gunw_glob.strip():
         return {"error": "invalid_input", "message": "gunw_glob must not be empty"}
 
-    for label, path in [("mintpy_config", mintpy_config), ("dem_path", dem_path)]:
-        if not Path(path).exists():
-            return {
-                "error": "path_not_found",
-                "message": f"{label} not found: {path!r}",
-            }
+    if not Path(dem_path).exists():
+        return {"error": "path_not_found", "message": f"dem_path not found: {dem_path!r}"}
+
+    if mintpy_config and mintpy_config.strip() and not Path(mintpy_config).exists():
+        return {"error": "path_not_found", "message": f"mintpy_config not found: {mintpy_config!r}"}
 
     try:
         result = run_mintpy(
             mintpy_work_dir=mintpy_work_dir,
             gunw_glob=gunw_glob,
-            mintpy_config=mintpy_config,
+            mintpy_config=mintpy_config or None,
             dem_path=dem_path,
             conda_env=conda_env,
             python_bin=python_bin,
