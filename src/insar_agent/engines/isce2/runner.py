@@ -169,10 +169,10 @@ def build_workflow_command(
         if do_esd is False:
             inner_cmd = (
                 'export PATH="$ISCE_HOME/applications:$PATH" && '
-                f"{tops_app} --steps --end overlapifg && "
+                f"{tops_app} --steps --end=overlapifg && "
                 "(cp -f PICKLE/overlapifg PICKLE/rangecoreg 2>/dev/null || true; "
                 "cp -f PICKLE/overlapifg.xml PICKLE/rangecoreg.xml 2>/dev/null || true) && "
-                f"{tops_app} --steps --start fineoffsets"
+                f"{tops_app} --steps --start=fineoffsets"
             )
         else:
             inner_cmd = f'export PATH="$ISCE_HOME/applications:$PATH" && {tops_app}'

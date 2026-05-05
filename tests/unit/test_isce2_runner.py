@@ -127,7 +127,7 @@ def test_build_workflow_command_tops_skips_esd_steps_when_disabled() -> None:
     command = build_workflow_command("tops", "/tmp/topsApp.xml", conda_env="isce2", do_esd=False)
     inner = command[-1]
 
-    assert 'python "$ISCE_HOME/applications/topsApp.py" /tmp/topsApp.xml --steps --end overlapifg' in inner
+    assert 'python "$ISCE_HOME/applications/topsApp.py" /tmp/topsApp.xml --steps --end=overlapifg' in inner
     assert "cp -f PICKLE/overlapifg PICKLE/rangecoreg" in inner
-    assert 'python "$ISCE_HOME/applications/topsApp.py" /tmp/topsApp.xml --steps --start fineoffsets' in inner
+    assert 'python "$ISCE_HOME/applications/topsApp.py" /tmp/topsApp.xml --steps --start=fineoffsets' in inner
     assert "--dostep esd" not in inner
