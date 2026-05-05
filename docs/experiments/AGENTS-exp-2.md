@@ -6,7 +6,7 @@ Autonomous regression run. Do not ask questions.
 
 Prepare a short-temporal-baseline NISAR RSLC network, run ISCE3 batch interferograms, then run MintPy time-series analysis.
 
-Use the `stack-insar-isce3` skill for the stack/network/batch workflow, then use the `mintpy` skill for time-series analysis.
+Invoke the `stack-insar-isce3` skill immediately as your first action. Then invoke the `mintpy` skill for time-series analysis once the batch is done. Do not write planning text — call the skill tools directly.
 
 ## Data
 
