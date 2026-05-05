@@ -425,6 +425,9 @@ def _finalize_job_status_from_artifacts(job: Job, jobs_dir: Path) -> None:
             or "traceback" in log_lower
             or "exception:" in log_lower
             or "critical:" in log_lower
+            or "environmentlocationnotfound" in log_lower
+            or "not a conda environment" in log_lower
+            or "condaerror" in log_lower
         )
         job.status = "failed" if failed else "done"
         job.exit_code = 1 if failed else 0
@@ -1490,6 +1493,9 @@ def insar_get_job(
                     or "exception:" in log_lower
                     or "critical:" in log_lower
                     or "exit 1" in log_lower
+                    or "environmentlocationnotfound" in log_lower
+                    or "not a conda environment" in log_lower
+                    or "condaerror" in log_lower
                 )
                 batch_job.status = "failed" if failed else "done"
                 batch_job.finished_at = _utc_now()
