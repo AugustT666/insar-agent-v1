@@ -22,11 +22,13 @@ _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_nisar_stack.sh"
 
 
 _DEFAULT_NISAR_CFG = """\
-mintpy.load.processor       = nisar
-mintpy.plot                 = no
-mintpy.unwrapError.method   = no
+mintpy.load.processor           = nisar
+mintpy.plot                     = no
+mintpy.unwrapError.method       = no
 mintpy.troposphericDelay.method = no
-mintpy.topographicResidual  = no
+mintpy.topographicResidual      = no
+mintpy.solidEarthTides          = no
+mintpy.ionosphericDelay.method  = no
 """
 
 
