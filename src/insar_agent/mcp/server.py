@@ -1890,6 +1890,7 @@ def insar_run_batch(
     batch_dir: str,
     max_jobs: int = 4,
     execution_mode: str = "parallel",
+    conda_env: str = "",
     python_bin: str | None = None,
     interaction_mode: str = "interactive",
 ) -> dict:
@@ -1904,8 +1905,9 @@ def insar_run_batch(
         tail -f <log_path>
 
     Args:
-        batch_dir: Output directory used in insar_prepare_stack or insar_prepare_network
-        max_jobs:  Maximum number of ISCE3 pairs to run in parallel (default: 4)
+        batch_dir:  Output directory used in insar_prepare_stack or insar_prepare_network
+        max_jobs:   Maximum number of ISCE3 pairs to run in parallel (default: 4)
+        conda_env:  Conda environment name to activate for ISCE3 (e.g. 'isce3', 'isce3gpu')
 
     Returns:
         job_id, pid, status, log_path, poll (ready-to-use insar_get_job call string)
@@ -1948,10 +1950,15 @@ def insar_run_batch(
     else:
         batch_type = "stack"
 
+    env_name = (conda_env or "").strip()
     if execution_mode == "parallel":
-        command = ["bash", str(runner_path), batch_dir, str(max_jobs)]
+        inner = ["bash", str(runner_path), batch_dir, str(max_jobs)]
     else:
-        command = ["bash", str(runner_path)]
+        inner = ["bash", str(runner_path)]
+    if env_name:
+        command = ["conda", "run", "-n", env_name, "--no-capture-output"] + inner
+    else:
+        command = inner
 
     logs_dir = resolve_plugin_logs_dir(batch_dir, fallback_root=batch_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)

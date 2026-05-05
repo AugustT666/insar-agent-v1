@@ -116,7 +116,7 @@ insar_run_batch(
     batch_dir=<stack_output_dir>,
     max_jobs=<N>,
     execution_mode="parallel",
-    python_bin=<path from isce3_conda_env>,
+    conda_env=<isce3_conda_env>,
     interaction_mode=<interactive|auto>
 )
 ```
@@ -150,7 +150,7 @@ insar_run_batch(
     batch_dir=<network_output_dir>,
     max_jobs=<N>,
     execution_mode="parallel",
-    python_bin=<path from isce3_conda_env>,
+    conda_env=<isce3_conda_env>,
     interaction_mode=<interactive|auto>
 )
 ```
