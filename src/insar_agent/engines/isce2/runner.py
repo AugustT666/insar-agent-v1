@@ -1,8 +1,80 @@
 from __future__ import annotations
 
+import re
 import shlex
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from xml.dom import minidom
+
+
+_SWATH_RE = re.compile(r"(?:^|-)iw([123])(?:-|_)", re.IGNORECASE)
+
+
+def _available_safe_swaths(safe_path: str | None) -> list[int]:
+    if not safe_path:
+        return []
+    annotation_dir = Path(safe_path) / "annotation"
+    if not annotation_dir.is_dir():
+        return []
+    swaths = {
+        int(match.group(1))
+        for path in annotation_dir.glob("*.xml")
+        for match in [_SWATH_RE.search(path.name)]
+        if match
+    }
+    return sorted(swaths)
+
+
+def _resolve_tops_swaths(params: dict) -> list[int]:
+    configured = params.get("swaths", [1, 2, 3])
+    if configured != [1, 2, 3]:
+        return configured
+
+    reference_swaths = _available_safe_swaths(params.get("reference_safe"))
+    secondary_swaths = _available_safe_swaths(params.get("secondary_safe"))
+    common_swaths = sorted(set(reference_swaths) & set(secondary_swaths))
+    return common_swaths or configured
+
+
+def materialize_dem_for_tops(dem_file: str, workspace_root: str | Path) -> str:
+    source = Path(dem_file)
+    source_xml = Path(f"{source}.xml")
+    source_vrt = Path(f"{source}.vrt")
+    if not source_xml.exists() or not source_vrt.exists():
+        return dem_file
+
+    target_dir = Path(workspace_root) / "isce2_dem"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / source.name
+
+    xml_tree = ET.parse(source_xml)
+    xml_root = xml_tree.getroot()
+    _set_xml_property(xml_root, "file_name", str(target))
+    xml_tree.write(f"{target}.xml", encoding="unicode")
+
+    vrt_tree = ET.parse(source_vrt)
+    vrt_root = vrt_tree.getroot()
+    for source_filename in vrt_root.iter("SourceFilename"):
+        source_filename.text = str(source)
+        source_filename.set("relativeToVRT", "0")
+    vrt_tree.write(f"{target}.vrt", encoding="unicode")
+
+    return str(target)
+
+
+def _set_xml_property(root: ET.Element, name: str, value: str) -> None:
+    for prop_el in root.iter("property"):
+        if prop_el.get("name") != name:
+            continue
+        value_el = prop_el.find("value")
+        if value_el is None:
+            value_el = ET.SubElement(prop_el, "value")
+        value_el.text = value
+        return
+
+    prop_el = ET.SubElement(root, "property", name=name)
+    value_el = ET.SubElement(prop_el, "value")
+    value_el.text = value
 
 
 def build_topsapp_xml(params: dict) -> str:
@@ -38,7 +110,7 @@ def build_topsapp_xml(params: dict) -> str:
         prop(sec, "auxiliary data directory", params["aux_dir"])
 
     # Subswaths
-    swaths = params.get("swaths", [1, 2, 3])
+    swaths = _resolve_tops_swaths(params)
     prop(comp, "swaths", str(swaths))
 
     # Bounding box [S, N, W, E]
@@ -47,8 +119,8 @@ def build_topsapp_xml(params: dict) -> str:
         prop(comp, "geocode bounding box", f"{bbox[0]} {bbox[1]} {bbox[2]} {bbox[3]}")
 
     # Coregistration
-    prop(comp, "do esd", str(params.get("do_esd", True)))
-    prop(comp, "esd coherence threshold", str(params.get("esd_coherence_threshold", 0.7)))
+    prop(comp, "do ESD", str(params.get("do_esd", True)))
+    prop(comp, "ESD coherence threshold", str(params.get("esd_coherence_threshold", 0.7)))
 
     # Multilook
     prop(comp, "range looks", str(params.get("range_looks", 20)))
@@ -75,6 +147,8 @@ def build_workflow_command(
     workflow: str,
     config_path: str,
     conda_env: str | None = None,
+    *,
+    do_esd: bool | None = None,
 ) -> list[str]:
     """
     Build the command list to execute an ISCE2 workflow.
@@ -90,10 +164,18 @@ def build_workflow_command(
             "$ISCE_STACK/topsStack/stackSentinel.py" <args>'
     """
     if workflow == "tops":
-        inner_cmd = (
-            'export PATH="$ISCE_HOME/applications:$PATH" && '
-            f'python "$ISCE_HOME/applications/topsApp.py" {shlex.quote(config_path)}'
-        )
+        quoted_config = shlex.quote(config_path)
+        tops_app = f'python "$ISCE_HOME/applications/topsApp.py" {quoted_config}'
+        if do_esd is False:
+            inner_cmd = (
+                'export PATH="$ISCE_HOME/applications:$PATH" && '
+                f"{tops_app} --steps --end overlapifg && "
+                "(cp -f PICKLE/overlapifg PICKLE/rangecoreg 2>/dev/null || true; "
+                "cp -f PICKLE/overlapifg.xml PICKLE/rangecoreg.xml 2>/dev/null || true) && "
+                f"{tops_app} --steps --start fineoffsets"
+            )
+        else:
+            inner_cmd = f'export PATH="$ISCE_HOME/applications:$PATH" && {tops_app}'
     elif workflow == "stack":
         inner_cmd = (
             f'PYTHONPATH="$ISCE_STACK" '

@@ -51,7 +51,11 @@ from insar_agent.engines.isce2.defaults import (
     load_default_params as isce2_load_default_params,
     load_processing_params as isce2_load_processing_params,
 )
-from insar_agent.engines.isce2.runner import build_topsapp_xml, build_workflow_command as isce2_build_workflow_command
+from insar_agent.engines.isce2.runner import (
+    build_topsapp_xml,
+    build_workflow_command as isce2_build_workflow_command,
+    materialize_dem_for_tops,
+)
 from insar_agent.engines.isce2.mintpy import run_mintpy_isce2_stack
 from insar_agent.engines.isce2.sentinel_prep import _read_safe_metadata, prepare_sentinel_data
 from insar_agent.engines.isce2.stack import build_stack_command as isce2_build_stack_command
@@ -456,6 +460,16 @@ _VAGUE_JUSTIFICATIONS = {
     "improve quality",
     "test",
 }
+
+
+def _coerce_processing_param_value(value: object, meta: dict) -> object:
+    if meta.get("type") == "bool" and isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return value
 
 
 def _validate_processing_param_type(value: object, meta: dict) -> dict | None:
@@ -897,6 +911,7 @@ def insar_set_processing_param(
         meta = params_meta[key]
         old_value = project.runconfig.get(key)
 
+        value = _coerce_processing_param_value(value, meta)
         valid_values = meta.get("valid_values")
         valid_range = meta.get("valid_range")
 
@@ -963,6 +978,7 @@ def insar_set_processing_param(
     # Validate value type against registry metadata
     params_meta = {p["key"]: p for p in load_processing_params(project.workflow)}
     meta = params_meta[key]
+    value = _coerce_processing_param_value(value, meta)
     valid_values = meta.get("valid_values")
     valid_range = meta.get("valid_range")
 
@@ -1141,9 +1157,9 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
     configs_dir.mkdir(parents=True, exist_ok=True)
 
     if project.workflow == "tops":
-        # Generate topsApp.xml
         try:
-            xml_content = build_topsapp_xml(params)
+            dem_file = materialize_dem_for_tops(params["dem_file"], project.workspace_root)
+            xml_content = build_topsapp_xml({**params, "dem_file": dem_file})
         except Exception as exc:
             return {"error": "config_generation_failed", "message": str(exc)}
 
@@ -1156,6 +1172,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             workflow="tops",
             config_path=str(config_path),
             conda_env=project.conda_env,
+            do_esd=params.get("do_esd"),
         )
 
     elif project.workflow == "stack":
