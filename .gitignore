@@ -16,5 +16,6 @@ workspace/
 outputs/
 logs/
 .worktrees/
+.claude/worktrees/
 .opencode-test/
 *.log
