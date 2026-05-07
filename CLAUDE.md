@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -e ".[dev]"                             # install with dev deps
 pytest                                              # default suite; excludes real_data marker
-pytest -m real_data tests/integration -q            # real-data tests (need NAS dataset)
+pytest -m real_data tests/integration -q            # real-data tests (opt-in)
 pytest tests/unit/test_smoke.py::test_name          # single test
 pytest --cov=src --cov-report=term-missing          # coverage
 ruff check src tests                                # lint (dev dep)
@@ -77,4 +77,4 @@ Knowledge archive:
 - `docs/archive/knowledge-base/tianxiaolong/` — workflow constraints, runconfig templates, DEM/GeoTIFF scripts
 - `docs/archive/knowledge-base/wangshuai/` — stack/network prep, MintPy time-series, baseline visualization
 
-**Test data:** NAS RSLC files at `/home/august/NAS/NISAR_wangshuai_data/`; real-data tests are marked `real_data` and are excluded from default `pytest` runs unless explicitly selected.
+**Test data:** Real-data tests are marked `real_data` and are excluded from default `pytest` runs unless explicitly selected.

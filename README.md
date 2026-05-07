@@ -45,7 +45,7 @@ pytest tests/unit -q                # unit tests only
 pytest -m real_data tests/integration -q
 ```
 
-Real-data tests require the NAS dataset and may launch actual processing workflows, so they are opt-in.
+Real-data tests may launch actual processing workflows, so they are opt-in.
 
 ## Typical Workflows
 

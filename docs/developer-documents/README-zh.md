@@ -40,7 +40,7 @@ pytest tests/unit -q                # 仅运行单元测试
 pytest -m real_data tests/integration -q
 ```
 
-真实数据测试依赖 NAS 数据集，并且可能真正启动处理流程，因此改为显式选择后才运行。
+真实数据测试可能真正启动处理流程，因此改为显式选择后才运行。
 
 ## 典型工作流
 
@@ -96,8 +96,8 @@ insar-agent/
 
 当前仓库内已有真实数据自动化验证的能力主要集中在：
 
-- NISAR / ISCE3 Path A 主线：真实 NAS RSLC + DEM，可执行到 GUNW 产品验证
+- NISAR / ISCE3 Path A 主线：真实 RSLC + DEM，可执行到 GUNW 产品验证
 - `insar_describe_rslc`：真实 NISAR 元数据摘要
 - `insar_export_geotiff` 与内部 bbox helper：真实 GUNW/RSLC 辅助验证
 
-Sentinel-1 / ISCE2、Path B、MintPy、批处理、数据准备下载链路已经有代码和单元/契约测试，但真实外部环境回归仍需继续补齐。当前 `/home/august/NAS/Sentinel1_data/` 尚未作为真实测试数据集落地，相关 real-data 测试会自动 skip。
+Sentinel-1 / ISCE2、Path B、MintPy、批处理、数据准备下载链路已经有代码和单元/契约测试，但真实外部环境回归仍需继续补齐。

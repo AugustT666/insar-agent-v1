@@ -177,7 +177,6 @@ MCP 工具数量直接影响 AI agent 决策链深度——工具越少、语义
 
 ## 测试数据
 
-- NAS RSLC 文件：`/home/august/NAS/NISAR_wangshuai_data/`（真实数据测试直接引用）
 - 固定 runconfig：`tests/fixtures/insar_nisar.yaml`
 - 真实数据测试统一标记为 `real_data`，默认 `pytest` 不会执行；只有显式使用 `-m real_data` 才会运行
 

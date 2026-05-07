@@ -46,13 +46,13 @@
 |---|---|---|
 | Project / runconfig 管理 | 已完成 | 创建项目、读取/修改 runconfig、导出 runconfig、受控 processing param 修改 |
 | 统一作业查询 | 已完成 | `insar_get_job` 覆盖 workflow、batch、MintPy、RSLC download |
-| NISAR / ISCE3 Path A | 已实现 | 单对 D-InSAR 主线具备 dry-run、后台执行、输出扫描；旧真实测试因 NAS 数据缺失跳过 |
+| NISAR / ISCE3 Path A | 已实现 | 单对 D-InSAR 主线具备 dry-run、后台执行、输出扫描 |
 | NISAR / ISCE3 Path B | 部分闭环 | `prepare_stack` / `prepare_network` 已通过 HDD2T 真实数据快速回归；真实 `run_batch` 尚待跑批 |
 | MintPy / ISCE3 | 部分闭环 | 已验证既有 MintPy 输出和启动参数校验；尚未重新从 GUNW 网络端到端跑一轮 |
 | Sentinel / ISCE2 Path A | 部分闭环 | 数据准备、项目创建、参数设置、既有 topsApp 输出校验已通过；full topsApp 测试未跑 |
 | Sentinel / ISCE2 stack | 部分闭环 | 有 stackSentinel 目录和工具入口；缺自动化端到端执行与 MintPy 验证 |
 | 数据准备 | 部分闭环 | NISAR RSLC/DEM 下载和 Sentinel SAFE/orbit/DEM 准备工具已实现；真实 Earthdata 下载未跑 |
-| 参数顾问 | 已实现 | skill + subagent contract + metadata-first 工具路径已落地；真实 NISAR metadata 测试当前因旧 NAS 数据缺失跳过 |
+| 参数顾问 | 已实现 | skill + subagent contract + metadata-first 工具路径已落地 |
 | GeoTIFF / baseline / 元数据工具 | 已实现 | HDD2T 真实产物上的 baseline、Sentinel metadata、D-InSAR 输出校验已通过 |
 
 ---
@@ -79,14 +79,6 @@
 | `bursts/` + `temp/burst_manifest.txt` | 可用 | burst manifest 模式测试 |
 | `sentinel-dinsar-asc-real-20260413-rerun3/` | 完整 D-InSAR 输出 | wrapped/unwrapped/coherence/LOS 产物校验 |
 | `sentinel-stack-desc-real-20260413-*` | 多个 stackSentinel 中间/结果目录 | 后续 ISCE2 stack 闭环依据 |
-
-旧 NISAR NAS 路径：
-
-```text
-/home/august/NAS/NISAR_wangshuai_data
-```
-
-该目录当前存在，但本次检查时没有所需 RSLC/DEM 文件，因此依赖它的 11 个 `real_data` 测试全部 skip。下一步要么恢复该目录文件，要么把这些测试迁移到 HDD2T 的 7 个 RSLC 数据集。
 
 ---
 
@@ -138,7 +130,7 @@ pytest -m real_data -q -rs \
 解释：
 
 - 27 passed：HDD2T 真实数据快速回归全部通过；
-- 11 skipped：全部来自旧 `/home/august/NAS/NISAR_wangshuai_data/` 数据缺失；
+- 11 skipped：集成测试数据缺失；
 - 2 deselected：两个长时间真实执行测试被本轮主动排除。
 
 Lint：
@@ -169,8 +161,8 @@ All checks passed!
 | Sentinel Path A 数据准备 | 通过 | `insar_prepare_sentinel_data` 可复用 HDD2T SAFE、orbit、DEM |
 | Sentinel Path A 项目参数设置 | 通过 | `reference_safe`、`secondary_safe`、`orbit_dir`、`dem_file` 可通过 `insar_set_processing_param` 写入 |
 | Sentinel D-InSAR 既有输出 | 通过 | `sentinel-dinsar-asc-real-20260413-rerun3` 中 wrapped/unwrapped/coherence/LOS 非空且 XML 引用 SAFE 存在 |
-| 旧 NISAR NAS runconfig / metadata / GeoTIFF 测试 | 跳过 | `/home/august/NAS/NISAR_wangshuai_data/` 缺 required RSLC/DEM 文件 |
-| NISAR full D-InSAR 真实执行 | 未跑 | `test_real_dinsar.py::test_full_dinsar_produces_gunw`，本轮排除；需要 `isce3gpu` 和旧 NAS 或迁移数据 |
+| NISAR runconfig / metadata / GeoTIFF 测试 | 跳过 | 缺 required RSLC/DEM 文件 |
+| NISAR full D-InSAR 真实执行 | 未跑 | `test_real_dinsar.py::test_full_dinsar_produces_gunw`，本轮排除；需要 `isce3gpu` 和迁移数据 |
 | Sentinel full topsApp 真实执行 | 未跑 | `test_isce2_sentinel_real.py::test_sentinel_full_workflow_d_insar`，本轮排除；预计 30-120 分钟 |
 | `insar_run_batch` 真实执行 | 未跑 | 当前只验证 prepare 与既有产物；尚未实际 launch `run_parallel.sh` |
 | Earthdata RSLC / DEM 下载 | 未跑 | 需要 `.netrc`、网络、代理与小 AOI 下载计划 |
@@ -183,9 +175,8 @@ All checks passed!
 1. 旧开发计划太长，且按日期堆叠，容易把历史事实误读成当前状态。
    - 本文已改为当前基线，不再展开 M0-M7 的细节。
 
-2. 旧 NAS NISAR 测试路径已经不可靠。
-   - 当前 `/home/august/NAS/NISAR_wangshuai_data/` 没有所需文件。
-   - 建议把这 11 个测试迁移到 `/mnt/HDD2T/August/inasr-agent-test/RSLC`，或明确要求恢复 NAS 数据。
+2. NISAR 真实测试数据路径已不可靠。
+   - 建议把这 11 个测试迁移到 `/mnt/HDD2T/August/inasr-agent-test/RSLC`。
 
 3. “已实现”和“真实端到端跑通”需要分开写。
    - Path B、MintPy、Sentinel 数据准备已经实现并通过快速真实回归；
@@ -200,13 +191,13 @@ All checks passed!
 
 ### P0：把 NISAR 真实测试迁移到 HDD2T
 
-目标：消除 11 个 NAS skip，让 NISAR metadata、runconfig、dry-run、GeoTIFF 测试回到可重复状态。
+目标：消除 11 个 skip，让 NISAR metadata、runconfig、dry-run、GeoTIFF 测试回到可重复状态。
 
 建议动作：
 
-1. 把 `tests/integration/test_nisar_wangshuai_data.py`、`test_param_advisor_real_data.py`、`test_real_dinsar.py` 的数据源从旧 NAS 路径迁移到 HDD2T；
+1. 把 `tests/integration/test_nisar_wangshuai_data.py`、`test_param_advisor_real_data.py`、`test_real_dinsar.py` 的数据源迁移到 HDD2T；
 2. 选定 HDD2T 中相邻日期的 RSLC 对，例如 `20251122` / `20251204`；
-3. 为旧 `NAS_GUNW` 依赖寻找 HDD2T 上稳定 GUNW 替代；
+3. 为 `NAS_GUNW` 依赖寻找 HDD2T 上稳定 GUNW 替代；
 4. 重跑排除长流程后的 real-data 集合，目标是 `38 passed, 2 deselected` 或等价结果。
 
 ### P1：给长流程测试单独分层
