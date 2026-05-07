@@ -9,7 +9,6 @@ description: >
   the task is unclear. Bootstraps session context (conda envs, MCP status),
   routes to workflow skills, and orchestrates insar_* MCP tools end-to-end.
 mode: primary
-model: inherit
 ---
 
 # insar-agent — Main Orchestration Agent

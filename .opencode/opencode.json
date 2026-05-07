@@ -11,11 +11,11 @@
   "skills": {
     "sources": [
       {
-        "path": "./skills",
+        "path": "/home/august/insar-agent/skills",
         "recursive": true,
         "glob": "**/SKILL.md"
       }
     ]
   },
-  "plugin": []
+  "plugin": ["./insar-plugin"]
 }

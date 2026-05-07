@@ -55,5 +55,5 @@ echo "Running MintPy steps through reference_point"
 echo "Re-applying common mask after reference_point"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/apply_common_ifgram_mask.py" "$WORK_DIR/inputs/ifgramStack.h5" --coherence-threshold 0.4
 
-echo "Resuming MintPy from correct_unwrap_error to skip the quick_overview histogram bug"
-"$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$CUSTOM_CFG" --start correct_unwrap_error
+echo "Resuming MintPy from correct_unwrap_error to reference_date (skip quick_overview bug and optional steps)"
+"$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$CUSTOM_CFG" --start correct_unwrap_error --end reference_date

@@ -1,14 +1,40 @@
 from __future__ import annotations
 
+import re
 import shlex
+from pathlib import Path
+
+_SWATH_RE = re.compile(r"(?:^|-)iw([123])(?:-|_)", re.IGNORECASE)
+
+
+def _detect_stack_swaths(slc_dir: str, configured: list[int]) -> list[int]:
+    """Return swaths common to all SAFE scenes in slc_dir.
+
+    When the configured list is the default [1,2,3], auto-detects from data.
+    If a specific non-default list is given, respects it as-is.
+    Falls back to configured if detection yields nothing.
+    """
+    if configured != [1, 2, 3]:
+        return configured
+    common: set[int] | None = None
+    for safe in Path(slc_dir).glob("*.SAFE"):
+        annotation = safe / "annotation"
+        swaths = {
+            int(m.group(1))
+            for f in annotation.glob("*.xml")
+            for m in [_SWATH_RE.search(f.name)]
+            if m
+        }
+        if not swaths:
+            continue
+        common = swaths if common is None else common & swaths
+    return sorted(common) if common else configured
 
 
 def build_stack_command(params: dict, work_dir: str, conda_env: str | None = None) -> list[str]:
     """
-    Build the stackSentinel.py command for time-series stack preparation.
-
-    stackSentinel.py generates a structured directory of run scripts that
-    are then executed in order by insar_run_batch.
+    Build the full ISCE2 topsStack command: runs stackSentinel.py (prep),
+    then executes all generated run_files/run_* scripts in order.
 
     Required params: slc_dir, orbit_dir, dem_file
     Optional params: aux_dir, bbox, swaths, polarization, workflow,
@@ -23,14 +49,15 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         "-w", shlex.quote(work_dir),
     ]
 
-    if params.get("aux_dir"):
-        args += ["-a", shlex.quote(params["aux_dir"])]
+    # stackSentinel.py always requires -a; use placeholder if not provided
+    aux_dir = params.get("aux_dir") or f"{work_dir}/aux_cal"
+    args += ["-a", shlex.quote(aux_dir)]
 
     if params.get("bbox"):
         s, n, w, e = params["bbox"]
         args += ["-b", f"'{s} {n} {w} {e}'"]
 
-    swaths = params.get("swaths", [1, 2, 3])
+    swaths = _detect_stack_swaths(params["slc_dir"], params.get("swaths", [1, 2, 3]))
     args += ["-n", f"'{' '.join(str(s) for s in swaths)}'"]
 
     if params.get("polarization"):
@@ -67,9 +94,26 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         args += ["-useGPU"]
 
     args_str = " ".join(args)
+    # Clean prior ISCE2 outputs so stackSentinel.py can always run fresh.
+    # PATH is extended so SentinelWrapper.py and other topsStack scripts are found.
     inner_cmd = (
-        f'PYTHONPATH="$ISCE_STACK" '
-        f'python "$ISCE_STACK/topsStack/stackSentinel.py" {args_str}'
+        'set -e && '
+        f'mkdir -p {shlex.quote(aux_dir)} && '
+        'export PYTHONPATH="$ISCE_STACK" && '
+        'export PATH="$ISCE_STACK/topsStack:$ISCE_STACK/applications:$PATH" && '
+        f'cd {shlex.quote(work_dir)} && '
+        'rm -rf run_files configs SAFE_files.txt reference geom_reference '
+        'secondary secondary_* merged misreg baselines baselines_txt DEM_files && '
+        f'python "$ISCE_STACK/topsStack/stackSentinel.py" {args_str} && '
+        'echo "[insar-agent] stackSentinel.py done; executing run_files..." && '
+        'for f in $(ls -v run_files/run_* 2>/dev/null); do '
+        '  echo "[insar-agent] Step: $f"; '
+        '  while IFS= read -r line; do '
+        '    [ -z "$line" ] && continue; '
+        '    bash -c "$line" || exit 1; '
+        '  done < "$f"; '
+        'done && '
+        'echo "[insar-agent] All stack steps completed."'
     )
 
     if conda_env:

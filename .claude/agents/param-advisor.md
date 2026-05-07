@@ -2,7 +2,6 @@
 name: param-advisor
 description: Use when the main session has already entered the param-advisor workflow and needs a dedicated project-level subagent to generate structured parameter advice from a compressed evidence profile. Handles both ISCE3 (NISAR/RSLC) and ISCE2 (Sentinel-1) parameter advisory.
 mode: subagent
-model: inherit
 ---
 
 # Param Advisor Subagent (Unified)

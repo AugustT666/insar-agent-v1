@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -84,6 +85,42 @@ def _conda_safe_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
     if overrides:
         env.update(overrides)
     return env
+
+
+def _launch_detached_shell_job(
+    shell_command: str,
+    *,
+    cwd: str | Path,
+    env: dict[str, str],
+    log_path: str | Path,
+) -> int:
+    launcher_command = (
+        f"nohup bash -lc {shlex.quote(shell_command)} "
+        f"> {shlex.quote(str(log_path))} 2>&1 < /dev/null & "
+        "printf '%s\\n' \"$!\""
+    )
+    proc = subprocess.Popen(
+        ["bash", "-lc", launcher_command],
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    if not hasattr(proc, "communicate"):
+        return proc.pid
+    result = proc.communicate(timeout=10)
+    if not (isinstance(result, tuple) and len(result) == 2):
+        return proc.pid
+    stdout, stderr = result
+    if not isinstance(stdout, str):
+        return proc.pid
+    if proc.returncode:
+        message = stderr.strip() or stdout.strip() or f"launcher exited with {proc.returncode}"
+        raise RuntimeError(message)
+    pid_text = stdout.strip().splitlines()[-1]
+    return int(pid_text)
 
 
 # Path to the external agent guide — single source of truth for AI constraints.
@@ -382,7 +419,7 @@ def _read_exit_code(exit_code_path: str | None) -> int | None:
         return None
     try:
         return int(Path(exit_code_path).read_text().strip())
-    except Exception:
+    except (OSError, ValueError):
         return None
 
 
@@ -393,6 +430,26 @@ def _normalize_interaction_mode(interaction_mode: str) -> str:
             f"Unsupported interaction_mode: {interaction_mode!r}. Use 'interactive' or 'auto'."
         )
     return mode
+
+
+def _opencode_session_workspace_key(path: str | Path) -> str | None:
+    parts = Path(path).parts
+    for index, part in enumerate(parts):
+        if len(parts) > index + 3 and part == ".opencode-test" and parts[index + 1] == "sessions":
+            if parts[index + 3] == "workspace":
+                return parts[index + 2]
+    return None
+
+
+def _validate_same_opencode_session_workspace(left: str | Path, right: str | Path) -> str | None:
+    left_key = _opencode_session_workspace_key(left)
+    right_key = _opencode_session_workspace_key(right)
+    if left_key and right_key and left_key != right_key:
+        return (
+            "stack_work_dir and mintpy_work_dir must refer to the same OpenCode session workspace; "
+            f"got {left_key!r} and {right_key!r}"
+        )
+    return None
 
 
 def _prepare_handoff(
@@ -411,28 +468,138 @@ def _prepare_handoff(
     }
 
 
+WORKFLOW_LOG_FAILURE_PATTERNS = (
+    re.compile(r"^\s*(?:\w+error|error):\s*(?!0\b)", re.IGNORECASE),
+    re.compile(r"^\s*traceback\b", re.IGNORECASE),
+    re.compile(r"^\s*exception:\s*", re.IGNORECASE),
+    re.compile(r"^\s*critical:\s*", re.IGNORECASE),
+)
+
+WORKFLOW_LOG_FAILURE_SUBSTRINGS = (
+    "environmentlocationnotfound",
+    "not a conda environment",
+    "condaerror",
+)
+
+WORKFLOW_LOG_SUCCESS_MARKERS = (
+    "[insar-agent] all stack steps completed.",
+    "workflow finished successfully",
+)
+
+
+def _workflow_log_has_failure(log_tail: str) -> bool:
+    log_lower = log_tail.lower()
+    if any(marker in log_lower for marker in WORKFLOW_LOG_FAILURE_SUBSTRINGS):
+        return True
+    return any(
+        pattern.search(line)
+        for line in log_tail.splitlines()
+        for pattern in WORKFLOW_LOG_FAILURE_PATTERNS
+    )
+
+
+def _workflow_log_has_success(log_tail: str) -> bool:
+    log_lower = log_tail.lower()
+    return any(marker in log_lower for marker in WORKFLOW_LOG_SUCCESS_MARKERS)
+
+
 def _finalize_job_status_from_artifacts(job: Job, jobs_dir: Path) -> None:
-    """Update a finished workflow job using persisted exit code or log fallback."""
+    """Update a finished workflow job using persisted exit code or log markers."""
     exit_code = _read_exit_code(job.exit_code_path)
     if exit_code is not None:
         job.status = "done" if exit_code == 0 else "failed"
         job.exit_code = exit_code
     else:
         log_tail = _read_log_tail(job.log_path)
-        log_lower = log_tail.lower()
-        failed = (
-            "error:" in log_lower
-            or "traceback" in log_lower
-            or "exception:" in log_lower
-            or "critical:" in log_lower
-            or "environmentlocationnotfound" in log_lower
-            or "not a conda environment" in log_lower
-            or "condaerror" in log_lower
-        )
-        job.status = "failed" if failed else "done"
-        job.exit_code = 1 if failed else 0
+        failed = _workflow_log_has_failure(log_tail)
+        succeeded = _workflow_log_has_success(log_tail)
+        job.status = "done" if succeeded and not failed else "failed"
+        job.exit_code = 0 if succeeded and not failed else 1
     job.finished_at = _utc_now()
     job.save(jobs_dir)
+
+
+def _job_result(job: Job, include_logs: bool = False) -> dict:
+    result: dict = {
+        "job_id": job.job_id,
+        "project_id": job.project_id,
+        "engine": job.engine,
+        "workflow": job.workflow,
+        "status": job.status,
+        "pid": job.pid,
+        "exit_code": job.exit_code,
+        "submitted_at": job.submitted_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "log_path": job.log_path,
+        "output_paths": job.output_paths,
+        "runconfig_path": job.runconfig_path,
+    }
+    if include_logs:
+        if job.log_path and Path(job.log_path).exists():
+            result["log_content"] = Path(job.log_path).read_text(errors="replace")
+        else:
+            result["log_content"] = None
+    return result
+
+
+
+def _refresh_workflow_job_status(job: Job, jobs_dir: Path) -> Job:
+    if job.status != "running":
+        return job
+
+    if _read_exit_code(job.exit_code_path) is not None:
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+        return job
+
+    if job.pid is None:
+        return job
+
+    alive = True
+    try:
+        os.kill(job.pid, 0)
+        state_line = next(
+            (ln for ln in Path(f"/proc/{job.pid}/status").read_text().splitlines() if ln.startswith("State:")),
+            "",
+        )
+        if "Z" in state_line:
+            alive = False
+    except PermissionError:
+        return job
+    except (ProcessLookupError, FileNotFoundError):
+        alive = False
+
+    if not alive:
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+    return job
+
+
+def _find_reusable_workflow_job(project: Project) -> Job | None:
+    jobs_dir = project.jobs_dir()
+    if not jobs_dir.exists():
+        return None
+
+    reusable_statuses = {"running", "done"}
+    candidates: list[Job] = []
+    for job_file in jobs_dir.glob("*.json"):
+        try:
+            job = Job.load(job_file.stem, jobs_dir)
+        except (FileNotFoundError, json.JSONDecodeError, TypeError):
+            continue
+        if (
+            job.project_id == project.project_id
+            and job.engine == project.engine
+            and job.workflow == project.workflow
+        ):
+            refreshed = _refresh_workflow_job_status(job, jobs_dir)
+            if refreshed.status in reusable_statuses:
+                candidates.append(refreshed)
+
+    candidates.sort(
+        key=lambda item: item.started_at if item.started_at is not None else item.submitted_at,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
 
 
 def _safe_get_path(runconfig: dict, key: str) -> object:
@@ -1156,6 +1323,17 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             "errors": errors,
         }
 
+    if not dry_run:
+        existing_job = _find_reusable_workflow_job(project)
+        if existing_job is not None:
+            return {
+                **_job_result(existing_job),
+                "dry_run": False,
+                "deduplicated": True,
+                "poll": f"insar_get_job(job_id='{existing_job.job_id}', project_id='{project.project_id}')",
+                "message": "Existing workflow job found for this project; not launching a duplicate process.",
+            }
+
     configs_dir = project.configs_dir()
     configs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1225,16 +1403,12 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             f"printf '%s' \"$status\" > {shlex.quote(exit_code_path)}; "
             f"exit $status"
         )
-        with open(log_path, "w") as log_file:
-            proc = subprocess.Popen(
-                ["bash", "-lc", shell_command],
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                cwd=project.workspace_root,
-                env=_conda_safe_env(),
-                start_new_session=True,
-            )
-        job.pid = proc.pid
+        job.pid = _launch_detached_shell_job(
+            shell_command,
+            cwd=project.workspace_root,
+            env=_conda_safe_env(),
+            log_path=log_path,
+        )
         job.save(project.jobs_dir())
     except Exception as exc:
         job.status = "failed"
@@ -1248,7 +1422,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         "project_id": project.project_id,
         "command": command,
         "status": "running",
-        "pid": proc.pid,
+        "pid": job.pid,
         "submitted_at": job.submitted_at,
         "log_path": log_path,
         "dry_run": False,
@@ -1347,16 +1521,12 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             f"printf '%s' \"$status\" > {shlex.quote(exit_code_path)}; "
             f"exit $status"
         )
-        with open(log_path, "w") as log_file:
-            proc = subprocess.Popen(
-                ["bash", "-lc", shell_command],
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                cwd=project.workspace_root,
-                env=_conda_safe_env(),
-                start_new_session=True,
-            )
-        job.pid = proc.pid
+        job.pid = _launch_detached_shell_job(
+            shell_command,
+            cwd=project.workspace_root,
+            env=_conda_safe_env(),
+            log_path=log_path,
+        )
         job.save(project.jobs_dir())
     except Exception as exc:
         job.status = "failed"
@@ -1370,7 +1540,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         "project_id": project_id,
         "command": command,
         "status": "running",
-        "pid": proc.pid,
+        "pid": job.pid,
         "submitted_at": job.submitted_at,
         "log_path": log_path,
         "dry_run": False,
@@ -1467,6 +1637,12 @@ def insar_get_job(
             batch_job = BatchJob.load(job_id, batch_dir)
         except FileNotFoundError:
             return {"error": "job_not_found", "message": f"No batch job {job_id!r} in {batch_dir!r}"}
+        except TypeError:
+            try:
+                legacy_job = Job.load(job_id, BatchJob.jobs_dir_for(batch_dir))
+            except (FileNotFoundError, json.JSONDecodeError, TypeError) as exc:
+                return {"error": "load_failed", "message": str(exc)}
+            return _job_result(legacy_job, include_logs=include_logs)
         except Exception as exc:
             return {"error": "load_failed", "message": str(exc)}
 
@@ -2238,8 +2414,8 @@ def insar_run_mintpy(
         "submitted_at": result["submitted_at"],
         "command": shlex.join(result.get("command", [])) if result.get("command") else "",
         "progress_hint": (
-            f"Monitor with tail -f {result['log_path']} and poll via "
-            f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')"
+            f"Poll via insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}'); "
+            "if the job fails, call the same tool with include_logs=True."
         ),
         "poll": f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')",
         "work_dir": mintpy_work_dir,
@@ -2271,6 +2447,10 @@ def insar_run_mintpy_isce2(
     if not stack_dir.exists():
         return {"error": "path_not_found", "message": f"stack_work_dir not found: {stack_work_dir!r}"}
 
+    workspace_error = _validate_same_opencode_session_workspace(stack_work_dir, mintpy_work_dir)
+    if workspace_error:
+        return {"error": "invalid_input", "message": workspace_error}
+
     try:
         result = run_mintpy_isce2_stack(
             mintpy_work_dir=mintpy_work_dir,
@@ -2296,8 +2476,8 @@ def insar_run_mintpy_isce2(
         "command": shlex.join(result.get("command", [])) if result.get("command") else "",
         "mintpy_config": result.get("mintpy_config", ""),
         "progress_hint": (
-            f"Monitor with tail -f {result['log_path']} and poll via "
-            f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')"
+            f"Poll via insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}'); "
+            "if the job fails, call the same tool with include_logs=True."
         ),
         "poll": f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')",
         "work_dir": mintpy_work_dir,
@@ -3005,6 +3185,28 @@ def insar_prepare_sentinel_data(
     except Exception as exc:
         return {"error": "prepare_failed", "message": str(exc)}
 
+def _configured_opencode_skill_sources(repo_root: Path) -> list[Path]:
+    xdg_config_home = Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
+    config_paths = [
+        xdg_config_home / "opencode" / "opencode.json",
+        repo_root / ".opencode" / "opencode.json",
+    ]
+    sources: list[Path] = []
+    for config_path in config_paths:
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for source in config.get("skills", {}).get("sources", []):
+            path = source.get("path")
+            if not path:
+                continue
+            resolved = Path(path).expanduser().resolve()
+            if resolved not in sources:
+                sources.append(resolved)
+    return sources
+
+
 @mcp.tool()
 def insar_check_env() -> dict:
     """
@@ -3080,13 +3282,13 @@ def insar_check_env() -> dict:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         mcp_status["error"] = "claude CLI not found or timed out"
 
-    # Check installed skills
+    # Check installed/configured skills for both Claude Code and OpenCode clients.
     expected_skills = [
-        "env-setup", "insar-agent", "data-prep", "data-prep-nisar", "data-prep-sentinel",
+        "env-setup", "data-prep", "data-prep-nisar", "data-prep-sentinel",
         "d-insar-isce3", "stack-insar-isce3", "param-advisor", "mintpy",
         "d-insar-isce2", "stack-insar-isce2",
     ]
-    installed_skills: list[str] = []
+    claude_installed_skills: list[str] = []
     try:
         result = subprocess.run(
             ["claude", "plugin", "list"],
@@ -3095,19 +3297,37 @@ def insar_check_env() -> dict:
             timeout=10,
         )
         raw = result.stdout
-        installed_skills = [s for s in expected_skills if s in raw]
-        missing_skills = [s for s in expected_skills if s not in installed_skills]
+        claude_installed_skills = [s for s in expected_skills if s in raw]
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        missing_skills = expected_skills
+        pass
+
+    repo_root = Path(__file__).resolve().parents[3]
+    opencode_sources = _configured_opencode_skill_sources(repo_root)
+    opencode_installed_skills = [
+        skill
+        for skill in expected_skills
+        if any((source / skill / "SKILL.md").exists() for source in opencode_sources)
+    ]
+    installed_skills = sorted(set(claude_installed_skills) | set(opencode_installed_skills))
+    missing_skills = [s for s in expected_skills if s not in installed_skills]
 
     skills_status = {
         "installed": installed_skills,
         "missing": missing_skills,
+        "claude": {
+            "installed": claude_installed_skills,
+            "missing": [s for s in expected_skills if s not in claude_installed_skills],
+        },
+        "opencode": {
+            "configured_sources": [str(source) for source in opencode_sources],
+            "installed": opencode_installed_skills,
+            "missing": [s for s in expected_skills if s not in opencode_installed_skills],
+        },
     }
     if missing_skills:
         skills_status["hint"] = (
-            "Run: claude plugin marketplace add /home/august/insar-agent --scope project "
-            "&& claude plugin install insar-agent-skills@insar-agent"
+            "Configure OpenCode skills.sources for /home/august/insar-agent/skills, "
+            "or install the Claude Code project plugin when using Claude Code."
         )
 
     return {

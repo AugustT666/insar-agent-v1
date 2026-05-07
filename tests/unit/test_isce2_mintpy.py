@@ -156,6 +156,35 @@ class TestInsarRunMintpyISCE2:
         assert result["interaction_mode"] == "auto"
         assert "insar_get_job" in result["poll"]
         assert str(tmp_path / "mintpy") in result["poll"]
+        assert "tail" not in result["progress_hint"]
+        assert "include_logs=True" in result["progress_hint"]
+
+    def test_rejects_mismatched_opencode_session_workspaces(self, tmp_path: Path) -> None:
+        current = tmp_path / ".opencode-test" / "sessions" / "exp-4-current" / "workspace"
+        previous = tmp_path / ".opencode-test" / "sessions" / "exp-4-previous" / "workspace"
+        stack = _make_stack_root(previous / "outputs" / "sentinel-stack")
+
+        result = insar_run_mintpy_isce2(
+            mintpy_work_dir=str(current / "outputs" / "sentinel-mintpy"),
+            stack_work_dir=str(stack),
+            interaction_mode="auto",
+        )
+
+        assert result["error"] == "invalid_input"
+        assert "same OpenCode session workspace" in result["message"]
+
+    def test_rejects_external_stack_for_opencode_session_mintpy(self, tmp_path: Path) -> None:
+        current = tmp_path / ".opencode-test" / "sessions" / "exp-4-current" / "workspace"
+        stack = _make_stack_root(tmp_path / "external" / "sentinel-stack")
+
+        result = insar_run_mintpy_isce2(
+            mintpy_work_dir=str(current / "outputs" / "sentinel-mintpy"),
+            stack_work_dir=str(stack),
+            interaction_mode="auto",
+        )
+
+        assert result["error"] == "invalid_input"
+        assert "current OpenCode session workspace" in result["message"]
 
     def test_tool_uses_isce2_default_and_no_removed_bridge_args(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")

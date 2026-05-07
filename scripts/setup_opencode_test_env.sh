@@ -33,7 +33,7 @@ cat > "$CONFIG_DIR/opencode.json" <<JSON
       }
     ]
   },
-  "plugin": []
+  "plugin": ["$ROOT/.opencode/insar-plugin"]
 }
 JSON
 
