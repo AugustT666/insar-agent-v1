@@ -17,6 +17,18 @@ import time
 from insar_agent.core.project import resolve_plugin_logs_dir
 
 
+_CONDA_SAFE_DEFAULTS = {
+    "_CONDA_SET_GEOTIFF_CSV": "",
+}
+
+
+def _conda_safe_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for key, value in _CONDA_SAFE_DEFAULTS.items():
+        env.setdefault(key, value)
+    return env
+
+
 S1_NS = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "s1": "http://www.esa.int/safe/sentinel-1.0/sentinel-1",
@@ -482,14 +494,22 @@ def _download_orbits_for_scenes(
             command.extend(["-p", orbit_password])
 
         log(f"RUN {_redact_command(command)}")
-        # Wrap subprocess.run with retry logic
+        last_result: dict[str, object] = {}
+
         def run_with_timeout():
-            result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=300, env=_conda_safe_env())
+            last_result.update(
+                {
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                }
+            )
             if result.returncode != 0:
                 message = result.stderr.strip() or result.stdout.strip() or "orbit download failed"
                 raise RuntimeError(message)
             return result
-        
+
         def on_retry_log(attempt: int, exc: Exception) -> None:
             log(f"RETRY attempt {attempt} after transient failure: {exc}")
         
@@ -508,6 +528,9 @@ def _download_orbits_for_scenes(
                     "safe_path": scene.safe_path,
                     "command": command,
                     "message": f"orbit download failed after retries: {str(e)}",
+                    "returncode": last_result.get("returncode"),
+                    "stdout": last_result.get("stdout", ""),
+                    "stderr": last_result.get("stderr", ""),
                 }
             )
             continue
@@ -521,6 +544,23 @@ def _download_orbits_for_scenes(
                     log(line)
     after = {path.name for path in orbit_dir.glob("*.EOF")}
     return len(after - before), failed
+
+
+def _compute_union_bbox(scenes: list[SceneRecord]) -> list[float] | None:
+    """Compute the union (bounding box) of all scene bboxes.
+
+    Scene bboxes are [min_lon, min_lat, max_lon, max_lat].
+    Returns None if no scene has a valid bbox.
+    """
+    valid = [s.bbox for s in scenes if s.bbox and len(s.bbox) == 4]
+    if not valid:
+        return None
+    return [
+        min(b[0] for b in valid),  # west
+        min(b[1] for b in valid),  # south
+        max(b[2] for b in valid),  # east
+        max(b[3] for b in valid),  # north
+    ]
 
 
 def prepare_sentinel_data(
@@ -546,7 +586,7 @@ def prepare_sentinel_data(
     resume: bool = True,
     dem_downloader: Callable[..., dict] | None = None,
 ) -> dict:
-    _ = (mode, aoi_path, bbox, dem_path, include_pair, include_stack)
+    _ = (mode, include_pair, include_stack)
     root = Path(project_root).expanduser().resolve()
     logs_dir = _ensure_dir(resolve_plugin_logs_dir(root, fallback_root=root))
     job_id = uuid4().hex[:12]
@@ -689,30 +729,59 @@ def prepare_sentinel_data(
 
     resolved_dem_path: str | None = None
     dem_log_path: str | None = None
-    if download_dem:
+
+    # --- DEM resolution ---
+    # Priority: explicit dem_path > auto-download (computed bbox) > fail
+
+    # If dem_path is explicitly provided and already exists, use it directly
+    # regardless of download_dem flag (no need to re-download what we have).
+    if dem_path:
+        dem_candidate = Path(dem_path).expanduser().resolve()
+        if dem_candidate.exists():
+            resolved_dem_path = str(dem_candidate)
+            _append_log(prep_log_path, f"DEM using existing {resolved_dem_path}")
+        elif download_dem:
+            # dem_path given but file doesn't exist — will download to it below
+            _append_log(prep_log_path, f"DEM path given but not found, will download: {dem_path}")
+        else:
+            raise FileNotFoundError(f"DEM path does not exist and download_dem=False: {dem_path}")
+
+    if download_dem and resolved_dem_path is None:
         if dem_downloader is None:
             raise RuntimeError("DEM downloader callback is required when download_dem=True")
+
+        # Auto-compute bbox from scene metadata if not provided
+        resolved_bbox = bbox
+        if resolved_bbox is None and not aoi_path and scenes:
+            bbox_union = _compute_union_bbox(scenes)
+            if bbox_union is not None:
+                resolved_bbox = bbox_union
+                _append_log(prep_log_path, f"DEM auto-bbox from {len(scenes)} scenes: {resolved_bbox}")
+
         default_name = "isce2.dem.wgs84" if dem_backend == "isce2" else "copernicus_30.tif"
         dem_target = Path(dem_output_path or dem_path or (root / "dem" / default_name))
         dem_source = dem_type or ("version3" if dem_backend == "isce2" else "copernicus_30")
-        dem_result = dem_downloader(
-            output_path=str(dem_target),
-            bbox=bbox,
-            aoi_path=aoi_path or "",
-            source=dem_source,
-            backend=dem_backend,
-        )
-        if dem_result.get("error"):
-            raise RuntimeError(dem_result.get("message", "DEM download failed"))
-        resolved_dem_path = dem_result["output_path"]
-        dem_log_path = dem_result.get("log_path")
-        _append_log(prep_log_path, f"DEM {resolved_dem_path}")
-    elif dem_path:
-        dem_candidate = Path(dem_path).expanduser().resolve()
-        if not dem_candidate.exists():
-            raise FileNotFoundError(f"DEM path does not exist: {dem_path}")
-        resolved_dem_path = str(dem_candidate)
-        _append_log(prep_log_path, f"DEM existing {resolved_dem_path}")
+
+        # Skip download if target already exists
+        if dem_target.exists():
+            resolved_dem_path = str(dem_target)
+            dem_log_path = None
+            _append_log(prep_log_path, f"DEM target already exists, skipped download: {resolved_dem_path}")
+        else:
+            dem_result = dem_downloader(
+                output_path=str(dem_target),
+                bbox=resolved_bbox,
+                aoi_path=aoi_path or "",
+                source=dem_source,
+                backend=dem_backend,
+            )
+            if dem_result.get("error"):
+                raise RuntimeError(dem_result.get("message", "DEM download failed"))
+            resolved_dem_path = dem_result["output_path"]
+            dem_log_path = dem_result.get("log_path")
+            _append_log(prep_log_path, f"DEM downloaded {resolved_dem_path}")
+
+    _append_log(prep_log_path, f"DEM final path: {resolved_dem_path}")
 
     resolved_orbit_dir: str | None = None
     orbit_downloaded_count = 0

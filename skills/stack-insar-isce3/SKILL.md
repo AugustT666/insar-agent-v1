@@ -31,7 +31,7 @@ Each option generates shell scripts that can be launched manually or through `in
 
 - `data_dir`: directory containing multiple NISAR RSLC `.h5` files
 - `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, uses the built-in default `insar` template.
-- `isce3_conda_env`: conda env that contains ISCE3 and a working GDAL HDF5 plugin path
+- `isce3_conda_env`: conda env that contains ISCE3. Call `insar_check_env` first; use `isce3` if available, otherwise `isce3gpu`. Do NOT attempt to run batch with `isce3` if `insar_check_env` shows it is missing — use the available fallback directly.
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
@@ -116,11 +116,11 @@ insar_run_batch(
     batch_dir=<stack_output_dir>,
     max_jobs=<N>,
     execution_mode="parallel",
-    python_bin=<path from isce3_conda_env>,
+    conda_env=<isce3_conda_env>,
     interaction_mode=<interactive|auto>
 )
 ```
-Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done.
+Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_logs=True` while polling — only use it once if the job fails.
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
 
 ### Option B — Short-baseline network
@@ -150,7 +150,7 @@ insar_run_batch(
     batch_dir=<network_output_dir>,
     max_jobs=<N>,
     execution_mode="parallel",
-    python_bin=<path from isce3_conda_env>,
+    conda_env=<isce3_conda_env>,
     interaction_mode=<interactive|auto>
 )
 ```

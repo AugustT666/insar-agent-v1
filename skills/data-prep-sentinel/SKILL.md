@@ -35,7 +35,7 @@ description: >
 | DEM 下载 | `insar_prepare_sentinel_data(download_dem=True)` 或 `insar_download_dem` | 允许只准备 DEM |
 | 辅助数据 | `insar_prepare_sentinel_data(download_orbits=True)` | 轨道文件写入 `orbits/` |
 | 目录约定 | `safe/`, `dem/`, `orbits/` | 全部位于 `project_root` 之下 |
-| 服务器资源建议 | `nproc` + `free -h` + `df -h` | 在下载或批量预处理前先检查 |
+| 服务器资源建议 | `insar_check_env` | 不使用 shell；仅通过 MCP 环境报告判断能力 |
 
 ## Hard constraints
 
@@ -64,17 +64,16 @@ insar_download_scene(
 )
 ```
 
-### Step 1.5 — Server info check
+### Step 1.5 — Environment check
 
-Before downloading or unpacking large Sentinel inputs, run and summarize:
+Before downloading or unpacking large Sentinel inputs, use the MCP environment report only:
 
-```bash
-nproc
-free -h
-df -h <project_root>
+```python
+insar_check_env()
 ```
 
-Use that result to recommend whether to keep the default worker count or reduce concurrency.
+Use that result to decide whether required conda environments and project skills are available.
+Do not run shell commands such as `nproc`, `free`, `df`, `ls`, or direct Python imports.
 
 ### Step 2 — Prepare grouped SAFE, DEM, and orbits
 

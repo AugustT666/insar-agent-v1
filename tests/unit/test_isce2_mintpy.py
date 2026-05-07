@@ -156,6 +156,8 @@ class TestInsarRunMintpyISCE2:
         assert result["interaction_mode"] == "auto"
         assert "insar_get_job" in result["poll"]
         assert str(tmp_path / "mintpy") in result["poll"]
+        assert "tail" not in result["progress_hint"]
+        assert "include_logs=True" in result["progress_hint"]
 
     def test_tool_uses_isce2_default_and_no_removed_bridge_args(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")

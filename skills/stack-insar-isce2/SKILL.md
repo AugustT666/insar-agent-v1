@@ -18,7 +18,7 @@ description: >
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Precise orbit directory — if missing, can be downloaded via `data-prep`
 - Workspace / output directory (absolute path)
-- Conda environment name — run `conda env list` and let user choose from isce2-related envs
+- Conda environment name — use `insar_check_env` only; do not run shell commands to inspect conda
 
 ## Execution modes
 
@@ -58,8 +58,16 @@ Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_
 
 ### Step 2 — Inspect a representative scene
 
+First discover available scenes using the MCP tool (do NOT use glob/read directly on the SAFE directory):
+
 ```python
-insar_describe_s1(zip_path="/mnt/.../safe/s1a_asc_rel014/S1A_IW_SLC__...SAFE")
+insar_discover(slc_dir="/mnt/.../safe/s1a_asc_rel014/")
+```
+
+Then call describe on the first returned scene path:
+
+```python
+insar_describe_s1(zip_path="<first SAFE path from insar_discover result>")
 ```
 
 Note: relative orbit, polarization, pass direction, bbox.
@@ -154,15 +162,15 @@ This calls `stackSentinel.py` which:
 3. Generates a series of `run_*` shell scripts in `<workspace>/run_files/`
 4. Executes those scripts in order (coregistration → interferogram → unwrap)
 
-For multi-hour stack jobs, prefer a background launcher or background shell session instead of blocking the main conversation. Always return:
+For multi-hour stack jobs, rely on the background job returned by `insar_run_workflow`. Always return:
 
-- the background job id or PID
+- the job id
 - the absolute log path
-- the exact polling command or MCP status call
+- the exact `insar_get_job` polling call
 
-Monitor with `insar_get_job(job_id=job_id, project_id=project_id)`.
+Monitor only with `insar_get_job(job_id=job_id, project_id=project_id)`.
 Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/`.
-If you need to execute generated `run_*` scripts manually, also redirect stdout/stderr to a durable log file under `<workspace>/run_files/` and show that path to the user.
+Do not execute generated `run_*` scripts manually; the MCP tool owns stack execution.
 
 > Runtime: several hours to days depending on scene count and AOI size.
 
@@ -170,15 +178,18 @@ If you need to execute generated `run_*` scripts manually, also redirect stdout/
 
 ### Step 7 — MintPy time-series analysis
 
-After stack processing completes, delegate to the unified **mintpy** skill with `engine=isce2`:
+After stack processing completes, delegate to the unified **mintpy** skill with `engine=isce2` and the exact current stack workspace:
 
 ```
 Invoke the /insar-agent:mintpy skill
 - engine: isce2
-- stack_work_dir: "/mnt/.../sentinel-stack/..."
-- mintpy_work_dir: "/mnt/.../sentinel-stack/.../mintpy"
+- stack_work_dir: the absolute workspace_root of the stack project whose job just reported done/completed
+- mintpy_work_dir: the task/user specified MintPy output directory
+- conda_env: the task/user specified MintPy env, or "isce2" if none was specified
 - interaction_mode: interactive (default) or auto
 ```
+
+Do not use stack paths from earlier sessions, previous successful runs, or similarly named output directories.
 
 The mintpy skill will:
 - Validate the ISCE2 stack structure

@@ -8,7 +8,7 @@ description: >
   environment setup. Also invoke when the user says "how do I start" or
   the task is unclear. Bootstraps session context (conda envs, MCP status),
   routes to workflow skills, and orchestrates insar_* MCP tools end-to-end.
-model: claude-sonnet-4-6
+mode: primary
 ---
 
 # insar-agent — Main Orchestration Agent
@@ -59,24 +59,25 @@ If the user wants to actually process data, ask before routing into `d-insar-isc
 
 ## Workflow Routing
 
-When Skill tool is available, invoke the matching plugin skill. When not available,
-follow the inline fallback steps listed below.
+Invoke the matching skill via the Skill tool. The skill name is bare (e.g., `env-setup`)
+in OpenCode; in Claude Code the same skill is namespaced as `insar-agent-skills:env-setup`.
+Try the bare name first, fall back to the namespaced form if unresolved, and use the
+inline fallback steps when the Skill tool itself is unavailable.
 
-| Task | Skill (preferred) | Fallback |
-|------|-------------------|----------|
-| First-time setup, ISCE3 / ISCE2 / MCP not installed | `insar-agent-skills:env-setup` | Call `insar_check_env`, guide user through install |
-| Data preparation (NISAR RSLC, Sentinel SAFE, DEM, orbits) | `insar-agent-skills:data-prep` | Ask engine type, then route inline |
-| Single RSLC pair → GUNW interferogram (NISAR) | `insar-agent-skills:d-insar-isce3` | Path A steps: create → set paths → (param-advisor) → run → poll |
-| Multiple RSLC scenes → stack and/or network batch, independent, run either or both (NISAR) | `insar-agent-skills:stack-insar-isce3` | Path B steps: prepare_stack/network → run_batch → poll |
-| Sentinel-1 single pair with ISCE2 | `insar-agent-skills:d-insar-isce2` | ISCE2 Path A inline |
-| Sentinel-1 time-series stack with ISCE2 | `insar-agent-skills:stack-insar-isce2` | ISCE2 Path B inline |
-| MintPy time-series, displacement, baseline plot | `insar-agent-skills:mintpy` (with engine parameter) | plot_baseline → run_mintpy → poll |
-| ISCE3 parameter tuning | `insar-agent-skills:param-advisor` (engine=isce3) | Delegate to param-advisor subagent directly |
-| ISCE2 parameter tuning | `insar-agent-skills:param-advisor` (engine=isce2) | Delegate to param-advisor subagent directly |
+| Task | Skill name | Inline fallback |
+|------|-----------|-----------------|
+| First-time setup, ISCE3 / ISCE2 / MCP not installed | `env-setup` | Call `insar_check_env`, guide user through install |
+| Data preparation (NISAR RSLC, Sentinel SAFE, DEM, orbits) | `data-prep` | Ask engine type, then route inline |
+| Single RSLC pair → GUNW interferogram (NISAR) | `d-insar-isce3` | Path A steps: create → set paths → (param-advisor) → run → poll |
+| Multiple RSLC scenes → stack and/or network batch (NISAR) | `stack-insar-isce3` | Path B steps: prepare_stack/network → run_batch → poll |
+| Sentinel-1 single pair with ISCE2 | `d-insar-isce2` | ISCE2 Path A inline |
+| Sentinel-1 time-series stack with ISCE2 | `stack-insar-isce2` | ISCE2 Path B inline |
+| MintPy time-series, displacement, baseline plot | `mintpy` (with engine parameter) | plot_baseline → run_mintpy → poll |
+| ISCE3 parameter tuning | `param-advisor` (engine=isce3) | Delegate to param-advisor subagent directly |
+| ISCE2 parameter tuning | `param-advisor` (engine=isce2) | Delegate to param-advisor subagent directly |
 
 If the task spans multiple rows (e.g., data missing AND a single pair needs
-processing), invoke `insar-agent-skills:data-prep` first, then proceed to the
-engine-specific workflow skill.
+processing), invoke `data-prep` first, then proceed to the engine-specific workflow skill.
 
 **Session context ownership:**
 
@@ -88,11 +89,11 @@ engine-specific workflow skill.
 
 When parameter tuning is needed:
 
-- **NISAR / ISCE3**: invoke `insar-agent-skills:param-advisor` with `engine=isce3`.
-  The skill calls `insar_describe_rslc` to collect metadata, then delegates
-  recommendation generation to the `.claude/agents/param-advisor.md` subagent.
-- **Sentinel / ISCE2**: invoke `insar-agent-skills:param-advisor` with `engine=isce2`.
-  The skill calls `insar_describe_s1`, then delegates to the same subagent.
+- **NISAR / ISCE3**: Use the Skill tool to invoke the `param-advisor` skill with `engine=isce3`.
+  The skill calls `insar_describe_rslc` to collect metadata, then produces
+  a recommendation package (yaml_diff_preview, summary).
+- **Sentinel / ISCE2**: Use the Skill tool to invoke the `param-advisor` skill with `engine=isce2`.
+  The skill calls `insar_describe_s1`, then produces a recommendation package.
 
 After the subagent returns its recommendation package:
 

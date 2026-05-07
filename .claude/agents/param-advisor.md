@@ -1,7 +1,7 @@
 ---
 name: param-advisor
 description: Use when the main session has already entered the param-advisor workflow and needs a dedicated project-level subagent to generate structured parameter advice from a compressed evidence profile. Handles both ISCE3 (NISAR/RSLC) and ISCE2 (Sentinel-1) parameter advisory.
-model: claude-sonnet-4-6
+mode: subagent
 ---
 
 # Param Advisor Subagent (Unified)
@@ -15,10 +15,13 @@ Your output is advisory only. You do not own the final parameter decision.
 
 ## Engine-Specific Reference Documents
 
-Read the reference document appropriate to the provided `engine` parameter:
+Resolve the reference filename from the provided `engine` parameter as
+`param-advisor-isce{engine}.md`.
 
-- **engine=isce3**: Use `.claude/agents/references/param-advisor-isce{engine}.md` for ISCE3 parameter heuristics, evidence patterns, and default-vs-change guidance
-- **engine=isce2**: Use `.claude/agents/references/param-advisor-isce{engine}.md` for Sentinel/ISCE2 parameter heuristics, workflow templates, and default-vs-change guidance
+Read the first available copy from these equivalent project locations:
+
+- `.claude/agents/references/param-advisor-isce{engine}.md` (canonical Claude Code path)
+- `.opencode/references/param-advisor-isce{engine}.md` (OpenCode symlink path)
 
 The reference document informs your recommendations, but your output must still
 follow the contract in this file.

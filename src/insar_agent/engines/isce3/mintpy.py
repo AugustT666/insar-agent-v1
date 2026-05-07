@@ -21,10 +21,27 @@ from insar_agent.core.project import resolve_plugin_logs_dir
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_nisar_stack.sh"
 
 
+_DEFAULT_NISAR_CFG = """\
+mintpy.load.processor           = nisar
+mintpy.plot                     = no
+mintpy.unwrapError.method       = no
+mintpy.troposphericDelay.method = no
+mintpy.topographicResidual      = no
+mintpy.solidEarthTides          = no
+mintpy.ionosphericDelay.method  = no
+"""
+
+
+def _write_default_nisar_config(mintpy_work_dir: Path) -> Path:
+    cfg_path = mintpy_work_dir / "nisar_mintpy.cfg"
+    cfg_path.write_text(_DEFAULT_NISAR_CFG, encoding="utf-8")
+    return cfg_path
+
+
 def run_mintpy(
     mintpy_work_dir: str | Path,
     gunw_glob: str,
-    mintpy_config: str | Path,
+    mintpy_config: str | Path | None,
     dem_path: str | Path,
     conda_env: str,
     python_bin: str | None = None,
@@ -43,7 +60,8 @@ def run_mintpy(
         gunw_glob:       Shell glob pattern matching GUNW .h5 files,
                          e.g. ``/path/to/network/runs/*/products/*.h5``.
         mintpy_config:   Path to the MintPy smallbaselineApp config file
-                         (.cfg or .txt).
+                         (.cfg or .txt). If None or empty, a minimal NISAR
+                         default config is auto-generated.
         dem_path:        Path to the DEM GeoTIFF used during GUNW preprocessing.
         conda_env:       Conda environment name that contains MintPy and GDAL.
         python_bin:      Optional override for PYTHON_BIN inside the shell script.
@@ -53,15 +71,21 @@ def run_mintpy(
         dict with keys: job_id, pid, status, log_path, submitted_at
     """
     work_dir = Path(mintpy_work_dir)
-    config = Path(mintpy_config)
     dem = Path(dem_path)
 
     if not _SCRIPT.exists():
         raise FileNotFoundError(f"MintPy script not found: {_SCRIPT}")
-    if not config.exists():
-        raise FileNotFoundError(str(config))
     if not dem.exists():
         raise FileNotFoundError(str(dem))
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    if not mintpy_config or (isinstance(mintpy_config, str) and not mintpy_config.strip()):
+        config = _write_default_nisar_config(work_dir)
+    else:
+        config = Path(mintpy_config)
+        if not config.exists():
+            raise FileNotFoundError(str(config))
 
     work_dir.mkdir(parents=True, exist_ok=True)
     jobs_dir = work_dir / ".jobs"
@@ -88,7 +112,10 @@ def run_mintpy(
         env["SMALLBASELINE_BIN"] = smallbaseline_bin
 
     with open(log_path, "w") as lf:
-        proc = subprocess.Popen(command, stdout=lf, stderr=subprocess.STDOUT, env=env)
+        proc = subprocess.Popen(
+            command, stdout=lf, stderr=subprocess.STDOUT, env=env,
+            start_new_session=True,
+        )
 
     job_data: dict[str, object] = {
         "job_id": job_id,

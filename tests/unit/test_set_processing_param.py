@@ -47,6 +47,18 @@ def isce2_stack_project(tmp_path):
     return result
 
 
+@pytest.fixture()
+def isce2_tops_project(tmp_path):
+    result = insar_create_project(
+        engine="isce2",
+        workflow="tops",
+        workspace_root=str(tmp_path / "isce2-tops-workspace"),
+        conda_env="isce2",
+    )
+    assert "project_id" in result, result
+    return result
+
+
 # ── registry loader tests ─────────────────────────────────────────────────────
 
 def test_load_processing_params_returns_list():
@@ -164,6 +176,18 @@ def test_set_bool_param(insar_project):
     )
     assert result.get("error") is None, result
     assert result["new_value"] is True
+
+
+def test_set_bool_param_accepts_opencode_string_bool(isce2_tops_project):
+    pid = isce2_tops_project["project_id"]
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="do_esd",
+        value="false",
+        justification="Both usable swaths contain one common burst, so ESD has no overlap points.",
+    )
+    assert result.get("error") is None, result
+    assert result["new_value"] is False
 
 
 def test_set_null_param(insar_project):

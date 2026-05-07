@@ -20,7 +20,7 @@ from insar_agent.engines.isce3.network import (
     load_pair_strings,
     prepare_network,
 )
-from insar_agent.core.jobs import BatchJob
+from insar_agent.core.jobs import BatchJob, Job
 from insar_agent.mcp.server import insar_prepare_stack, insar_prepare_network, insar_run_batch, insar_get_job
 
 
@@ -670,6 +670,10 @@ def test_insar_run_batch_background_returns_job_id(tmp_path):
     assert "error" not in result
     assert "job_id" in result
     assert result["status"] == "running"
+    assert result["state"] == "running"
+    assert result["running_count"] == 2
+    assert result["queued_count"] == 0
+    assert result["failed_count"] == 0
     assert result["pid"] == 99999
     assert result["interaction_mode"] == "interactive"
     assert result["execution_mode"] == "parallel"
@@ -819,6 +823,31 @@ def test_insar_get_job_batch_include_logs(tmp_path):
     result = insar_get_job(job_id=job.job_id, batch_dir=batch_dir, include_logs=True)
     assert "log_content" in result
     assert result["log_content"] is not None
+
+
+def test_insar_get_job_batch_dir_reads_legacy_project_job_json(tmp_path):
+    batch_dir = tmp_path / "sentinel-stack"
+    log_path = tmp_path / "stack.log"
+    log_path.write_text("failed in topsStack\n", encoding="utf-8")
+    job = Job(
+        project_id="project-1",
+        engine="isce2",
+        workflow="stack",
+        status="failed",
+        job_id="job-1",
+        exit_code=1,
+        log_path=str(log_path),
+    )
+    job.save(BatchJob.jobs_dir_for(batch_dir))
+
+    result = insar_get_job(job_id="job-1", batch_dir=str(batch_dir), include_logs=True)
+
+    assert result["job_id"] == "job-1"
+    assert result["project_id"] == "project-1"
+    assert result["workflow"] == "stack"
+    assert result["status"] == "failed"
+    assert result["exit_code"] == 1
+    assert result["log_content"] == "failed in topsStack\n"
 
 
 def test_insar_get_job_missing_all_params():

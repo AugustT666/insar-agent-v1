@@ -104,6 +104,17 @@ class TestRunWorkflowPidCapture:
         assert data["status"] == "failed"
         assert data["exit_code"] == -1
 
+    def test_launch_sets_conda_safe_environment(self, ready_project):
+        mock_proc = MagicMock()
+        mock_proc.pid = 42001
+
+        with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = insar_run_workflow(ready_project, dry_run=False)
+
+        assert "error" not in result
+        _, kwargs = mock_popen.call_args
+        assert kwargs["env"]["_CONDA_SET_GEOTIFF_CSV"] == ""
+
 
 # ── insar_get_job_status: PID liveness ─────────────────────────────────────────
 
@@ -136,13 +147,31 @@ class TestGetJobStatusLiveness:
         data = json.loads(job_files[0].read_text())
         log_path = Path(data["log_path"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text("Processing complete.\nWorkflow finished successfully.\n")
+        log_path.write_text("Processing complete.\nNumber of SLCs processed (error: 0)\nWorkflow finished successfully.\n")
 
         with patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
             result = insar_get_job_status(job_id, ready_project)
 
         assert result["status"] == "done"
         assert result["exit_code"] == 0
+        assert result["finished_at"] is not None
+
+    def test_dead_pid_incomplete_log_without_exit_code_returns_failed(self, ready_project, tmp_path):
+        """Process exited without exit code or success marker → status becomes 'failed'."""
+        job_id = self._launch_job(ready_project, pid=77778)
+
+        project = Project.load(ready_project)
+        job_files = list(project.jobs_dir().glob("*.json"))
+        data = json.loads(job_files[0].read_text())
+        log_path = Path(data["log_path"])
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("Running topo...\nAPI open (WR): geom_reference/IW2/shadowMask_01.rdr\n")
+
+        with patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
+            result = insar_get_job_status(job_id, ready_project)
+
+        assert result["status"] == "failed"
+        assert result["exit_code"] == 1
         assert result["finished_at"] is not None
 
     def test_dead_pid_error_in_log_returns_failed(self, ready_project, tmp_path):

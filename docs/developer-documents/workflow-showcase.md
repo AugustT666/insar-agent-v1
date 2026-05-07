@@ -347,7 +347,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 
 **测试客户端：** opencode MCP 模式 + gpt-5.3-codex 推理引擎
 
-**测试场景：** 调用 insar-agent MCP 服务，使用真实 NISAR RSLC 数据（NAS: `/home/august/NAS/NISAR_wangshuai_data/`）生成 GUNW 产品。
+**测试场景：** 调用 insar-agent MCP 服务，使用真实 NISAR RSLC 数据生成 GUNW 产品。
 
 ### 当前等效工具调用序列（已验证）
 
@@ -405,7 +405,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 **✓ 错误处理：** 无检查项失败，整个工作流顺畅完成。
 
 **测试时间：** 2026-03-28
-**测试环境：** isce3gpu conda 环境，NAS 挂载
+**测试环境：** isce3gpu conda 环境
 **重现命令：**
 ```bash
 pytest tests/integration/test_real_dinsar.py::test_full_dinsar_produces_gunw -v -s
