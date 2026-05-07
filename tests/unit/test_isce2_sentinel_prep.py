@@ -490,7 +490,7 @@ def test_prepare_sentinel_data_skill_routing_text():
     assert "insar_describe_s1" in prep_skill
     assert "Step 2.5 — Inspect representative scene" in prep_skill
     assert "Alternative — DEM only" in prep_skill
-    assert "Server info check" in prep_skill
+    assert "Environment check" in prep_skill
     assert "DEM" in prep_skill
     assert "orbit" in prep_skill
     assert "data-prep" in router_skill

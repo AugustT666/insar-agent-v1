@@ -46,7 +46,7 @@ Agent Client (Codex / Claude Code / etc.)
 
 Core persistence lives under `{workspace_root}/.insar_agent/project.json` and `.insar_agent/jobs/{job_id}.json`; batch and MintPy jobs persist beside their own output roots (see `docs/architecture.md` §Workspace Layout).
 
-**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). The `insar-agent` skill is the session entry point; the others cover env setup, data prep, Path A/B for each engine, MintPy, and param advisory. Invoke via the Skill tool; definitions live under `skills/<name>/SKILL.md`.
+**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). Covers env setup, data prep, Path A/B for each engine, MintPy, and param advisory. Invoke via the Skill tool; definitions live under `skills/<name>/SKILL.md`. Session entry point is `.claude/agents/insar-agent.md` (primary agent), not a skill.
 
 Plugin setup (run once, or after `skills/` changes):
 ```bash
