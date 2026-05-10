@@ -54,7 +54,7 @@ workflow consultation. Collect them before any real data-processing workflow.
 
 Invoke the matching same-plugin skill via the Skill tool. In Claude Code plugin
 usage, users may also invoke the namespaced form such as
-`/insar-agent-skills:insar-agent`.
+`/insar-agent-plugin:insar-agent`.
 
 | Task | Skill name | Inline fallback |
 |------|------------|-----------------|

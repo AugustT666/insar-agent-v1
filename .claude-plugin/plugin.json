@@ -1,5 +1,5 @@
 {
-  "name": "insar-agent-skills",
+  "name": "insar-agent-plugin",
   "version": "0.1.0",
   "description": "Claude Code skills and agents for NISAR/ISCE3 and Sentinel-1/ISCE2 InSAR workflows via insar-agent MCP tools",
   "author": {

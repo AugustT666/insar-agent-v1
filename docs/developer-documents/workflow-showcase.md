@@ -46,10 +46,10 @@
 
   ↓ Claude 识别任务类型，触发 Skill
 
-Claude → Skill("insar-agent-skills:insar-agent")
+Claude → Skill("insar-agent-plugin:insar-agent")
          读取路由表：单对 → d-insar-isce3
 
-Claude → Skill("insar-agent-skills:d-insar-isce3")
+Claude → Skill("insar-agent-plugin:d-insar-isce3")
          加载完整步骤约束：create → set×6 → validate → export → run → poll → list
 
 Claude → 向用户确认缺失信息：
@@ -271,7 +271,7 @@ Claude → 用户：
 ```
 用户：我还没有 DEM
 
-Claude → Skill("insar-agent-skills:data-prep-nisar")
+Claude → Skill("insar-agent-plugin:data-prep-nisar")
 
 Claude → 用户：
   "请提供研究区 AOI 文件或明确 bbox，以及 RSLC URL 列表。"

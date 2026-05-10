@@ -119,7 +119,7 @@ claude mcp add insar-mcp-server python -- -m insar_agent.mcp.server
 
 ```bash
 claude plugin marketplace add <insar-agent-repo> --scope project
-claude plugin install insar-agent-skills@insar-agent
+claude plugin install insar-agent-plugin@insar-agent
 ```
 
 ---

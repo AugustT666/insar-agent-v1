@@ -52,7 +52,7 @@ Real-data tests may launch actual processing workflows, so they are opt-in.
 For Claude Code plugin usage, start InSAR sessions through the `insar-agent` skill:
 
 ```text
-/insar-agent-skills:insar-agent
+/insar-agent-plugin:insar-agent
 ```
 
 The entry skill routes to the engine-specific workflow skills and delegates parameter tuning to the `param-advisor` skill and `agents/param-advisor.md` subagent.
