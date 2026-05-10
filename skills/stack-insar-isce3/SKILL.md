@@ -19,9 +19,8 @@ Each option generates shell scripts that can be launched manually or through `in
 
 ## Execution modes
 
-- Default to `interaction_mode="interactive"`.
-- At the start, tell the user they can switch to `interaction_mode="auto"` if they want
-  the AI to keep going with minimal interruptions.
+- Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
+- Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
 - In `interactive` mode, obey the MCP response: when `handoff_required=true`, stop and
   let the user review the listed artifacts before continuing.
 - In `auto` mode, keep executing when inputs are complete, but still show `log_path`,
@@ -37,7 +36,7 @@ Each option generates shell scripts that can be launched manually or through `in
 - Output directory (one per option if running both)
 - Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
 - Number of parallel jobs (`N`) for the shell scripts
-- Interaction mode: `interactive` (default) or `auto`
+- Interaction mode: determined by CLAUDE.md (auto if declared) or user preference (ask only in interactive mode)
 
 ## Hard constraints
 

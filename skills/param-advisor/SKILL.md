@@ -29,9 +29,7 @@ description: >
 - 主会话必须先进入本 skill，再进入参数建议流程
 - 本 skill 负责收集最小上下文、组织 evidence profile、展示 diff 和收用户确认
 - 参数建议本身必须委派给 `agents/param-advisor.md`
-- 参数经验和参考规则保存在 engine-specific 文件：
-  - **ISCE3**: `agents/references/param-advisor-isce3.md`
-  - **ISCE2**: `agents/references/param-advisor-isce2.md`
+- 参数经验和参考规则保存在 engine-specific 参考文件中，路径由 subagent 定义内部持有，主会话不读取
 
 主会话不得在当前对话里直接充当"参数专家"生成建议。
 
@@ -46,9 +44,12 @@ description: >
 - 主会话不得直接调用经验规则替代 subagent
 - 传给 subagent 的内容必须是压缩后的 evidence profile，不得传完整长对话、完整 YAML、完整知识库或长 reasoning 历史
 - 参数应用只能通过 `insar_set_processing_param`
-- 应用参数后必须调用 `insar_get_runconfig(format='yaml')` 展示完整 YAML，并等待用户明确继续
+- 应用参数后必须调用 `insar_get_runconfig(format='yaml')` 展示完整 YAML
+  - **interactive 模式**：展示后等待用户明确继续
+  - **auto 模式**：展示后直接继续，不等待用户输入
 - 必须向用户展示 `yaml_diff_preview` 或等效参数 diff
-- 必须保留三选一确认，不得代替用户自动决定
+- **interactive 模式**：必须保留三选一确认，不得代替用户自动决定
+- **auto 模式**：自动选择"采用建议参数"，跳过三选一确认直接应用
 - 若无 `project_id`，允许纯咨询模式，但不得调用 `insar_set_processing_param`
 
 ### ISCE3 特定约束
@@ -81,9 +82,7 @@ description: >
 ### project-level subagent 负责
 
 - 读取 evidence profile、runconfig 摘要和白名单参数摘要
-- 参考 engine-specific reference 文件：
-  - **engine=isce3**: `agents/references/param-advisor-isce3.md`
-  - **engine=isce2**: `agents/references/param-advisor-isce2.md`
+- 参考 engine-specific reference 文件（路径由 subagent 定义持有，主会话不读取）
 - 输出结构化 recommendation package
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
@@ -185,5 +184,4 @@ subagent 返回内容至少应包含：
 
 ## References
 
-- `agents/param-advisor.md` — unified project-level subagent contract
-- `agents/references/param-advisor-isce3.md` and `agents/references/param-advisor-isce2.md` — engine-specific 参数经验规则与参考知识
+- `agents/param-advisor.md` — unified project-level subagent contract（含 engine-specific reference 文件路径）

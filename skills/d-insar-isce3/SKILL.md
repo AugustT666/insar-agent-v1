@@ -21,9 +21,8 @@ description: >
 
 ## Execution modes
 
-- Default to `interaction_mode="interactive"`.
-- At the start, tell the user they can switch to `interaction_mode="auto"` if they want
-  the AI to keep going with minimal interruptions.
+- Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
+- Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
 - **interactive**: At Step 2.5, pause and ask the user whether to run param-advisor (engine=isce3).
   Wait for confirmation before proceeding.
 - **auto**: At Step 2.5, automatically enter param-advisor (engine=isce3) without asking.
