@@ -49,7 +49,7 @@ Each option generates shell scripts that can be launched manually or through `in
   If the user does not provide one, use the built-in default `insar` template exposed by MCP.
 - `param-advisor (engine=isce3)` is the only supported route for processing-parameter changes in
   this workflow. It must call `insar_describe_rslc`, delegate recommendation generation
-  to `.claude/agents/param-advisor.md`, present `yaml_diff_preview`, collect user
+  to `agents/param-advisor.md`, present `yaml_diff_preview`, collect user
   confirmation, apply accepted changes via `insar_set_processing_param`, then export the
   tuned YAML as the new `base_runconfig`.
 - Before the first actual execution, confirm the chosen ISCE3 runtime. If batch execution
@@ -82,7 +82,7 @@ Each option generates shell scripts that can be launched manually or through `in
 
 param-advisor (engine=isce3) 调用链（Path B）：
 - `insar_describe_rslc`（data_dir 中代表性 RSLC 的元数据）
-- `.claude/agents/param-advisor.md`（生成推荐）
+- `agents/param-advisor.md`（生成推荐）
 - interactive：展示 yaml_diff_preview，等待确认；auto：自动接受
 - 若接受：`insar_set_processing_param`（临时 project）
 - **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用

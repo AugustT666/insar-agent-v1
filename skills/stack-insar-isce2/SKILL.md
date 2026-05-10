@@ -144,7 +144,7 @@ The advisor flow should build a compressed evidence profile from:
 
 The skill then delegates recommendation generation to:
 
-- `.claude/agents/param-advisor.md`
+- `agents/param-advisor.md`
 
 and applies accepted changes via `insar_set_processing_param` only.
 

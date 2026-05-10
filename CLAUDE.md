@@ -46,18 +46,18 @@ Agent Client (Codex / Claude Code / etc.)
 
 Core persistence lives under `{workspace_root}/.insar_agent/project.json` and `.insar_agent/jobs/{job_id}.json`; batch and MintPy jobs persist beside their own output roots (see `docs/architecture.md` §Workspace Layout).
 
-**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). Covers env setup, data prep, Path A/B for each engine, MintPy, and param advisory. Invoke via the Skill tool; definitions live under `skills/<name>/SKILL.md`. Session entry point is `.claude/agents/insar-agent.md` (primary agent), not a skill.
+**`skills/`** — Claude Code skill files, packaged as a local plugin (`insar-agent-skills@insar-agent`). Covers the `insar-agent` entry router, env setup, data prep, Path A/B for each engine, MintPy, and param advisory. Invoke via the Skill tool; definitions live under `skills/<name>/SKILL.md`. Session entry point is `skills/insar-agent/SKILL.md`, a Claude Code plugin skill that routes to workflow skills and MCP tools. Claude Code agents are used as subagents/workers, not primary session takeovers.
 
 Plugin setup (run once, or after `skills/` changes):
 ```bash
-claude plugin marketplace add /home/august/insar-agent --scope project
+claude plugin marketplace add <insar-agent-repo> --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 
 For skill-aware clients, parameter advisory follows a plugin contract rather
 than an MCP contract. The `param-advisor` skill must call the engine-appropriate
 describe tool, then delegate recommendation generation to the project subagent
-defined in `.claude/agents/param-advisor.md`. That subagent is
+defined in `agents/param-advisor.md`. That subagent is
 advisory-only, cites evidence, and may use models such as `gpt-5.3-codex`
 depending on the host client. MCP tools do not enforce whether the subagent was
 spawned; they only validate and apply the requested changes.

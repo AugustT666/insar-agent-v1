@@ -28,10 +28,10 @@ description: >
 
 - 主会话必须先进入本 skill，再进入参数建议流程
 - 本 skill 负责收集最小上下文、组织 evidence profile、展示 diff 和收用户确认
-- 参数建议本身必须委派给 `.claude/agents/param-advisor.md`
+- 参数建议本身必须委派给 `agents/param-advisor.md`
 - 参数经验和参考规则保存在 engine-specific 文件：
-  - **ISCE3**: `.claude/agents/references/param-advisor-isce{engine}.md`
-  - **ISCE2**: `.claude/agents/references/param-advisor-isce{engine}.md`
+  - **ISCE3**: `agents/references/param-advisor-isce3.md`
+  - **ISCE2**: `agents/references/param-advisor-isce2.md`
 
 主会话不得在当前对话里直接充当"参数专家"生成建议。
 
@@ -42,7 +42,7 @@ description: >
 - 参数建议阶段必须先调用 engine-specific 的 describe 工具
   - **ISCE3**: `insar_describe_rslc`
   - **ISCE2**: `insar_describe_s1`（reference 和 secondary 或 stack 中 1–3 个代表场景）
-- 参数建议阶段必须调用 `.claude/agents/param-advisor.md`（传入 engine 参数）
+- 参数建议阶段必须调用 `agents/param-advisor.md`（传入 engine 参数）
 - 主会话不得直接调用经验规则替代 subagent
 - 传给 subagent 的内容必须是压缩后的 evidence profile，不得传完整长对话、完整 YAML、完整知识库或长 reasoning 历史
 - 参数应用只能通过 `insar_set_processing_param`
@@ -72,7 +72,7 @@ description: >
 - 确定 `engine` 参数（isce3 或 isce2）
 - 调 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）收集 metadata-first 证据
 - 构造压缩 evidence profile
-- 调 `.claude/agents/param-advisor.md`（传入 engine 参数）
+- 调 `agents/param-advisor.md`（传入 engine 参数）
 - 向用户展示建议摘要、风险摘要和 `yaml_diff_preview`
 - 执行三选一确认
 - 如用户确认，逐项调用 `insar_set_processing_param`
@@ -82,8 +82,8 @@ description: >
 
 - 读取 evidence profile、runconfig 摘要和白名单参数摘要
 - 参考 engine-specific reference 文件：
-  - **engine=isce3**: `.claude/agents/references/param-advisor-isce{engine}.md`
-  - **engine=isce2**: `.claude/agents/references/param-advisor-isce{engine}.md`
+  - **engine=isce3**: `agents/references/param-advisor-isce3.md`
+  - **engine=isce2**: `agents/references/param-advisor-isce2.md`
 - 输出结构化 recommendation package
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
@@ -127,7 +127,7 @@ description: >
 
 ### Phase 2 — 调 subagent
 
-把 Phase 1 的压缩结果交给 `.claude/agents/param-advisor.md`，传入 `engine` 参数。
+把 Phase 1 的压缩结果交给 `agents/param-advisor.md`，传入 `engine` 参数。
 
 subagent 返回内容至少应包含：
 
@@ -177,7 +177,7 @@ subagent 返回内容至少应包含：
 若用户没有 `project_id`，本 skill 仍可工作：
 
 - 允许调用 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）
-- 允许调用 `.claude/agents/param-advisor.md`（传入 engine 参数）
+- 允许调用 `agents/param-advisor.md`（传入 engine 参数）
 - 允许展示建议摘要、风险和 `yaml_diff_preview`
 - 允许执行"三选一确认"说明
 - 不调用 `insar_set_processing_param`
@@ -185,5 +185,5 @@ subagent 返回内容至少应包含：
 
 ## References
 
-- `.claude/agents/param-advisor.md` — unified project-level subagent contract
-- `.claude/agents/references/param-advisor-isce{engine}.md` — engine-specific 参数经验规则与参考知识
+- `agents/param-advisor.md` — unified project-level subagent contract
+- `agents/references/param-advisor-isce3.md` and `agents/references/param-advisor-isce2.md` — engine-specific 参数经验规则与参考知识

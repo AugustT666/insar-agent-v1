@@ -1,7 +1,7 @@
 # Param Advisor ISCE3 Reference Asset
 
 This document stores parameter-advisory heuristics and evidence patterns used by
-`.claude/agents/param-advisor.md` (engine=isce3). It is a reference asset, not the
+`agents/param-advisor.md` (engine=isce3). It is a reference asset, not the
 subagent contract.
 
 ## Evidence Profile Guidance

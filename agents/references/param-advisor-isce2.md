@@ -1,7 +1,7 @@
 # Param Advisor ISCE2 Reference Asset
 
 This document stores Sentinel / ISCE2 parameter-advisory heuristics and workflow templates used by
-`.claude/agents/param-advisor.md` (engine=isce2).
+`agents/param-advisor.md` (engine=isce2).
 
 ## Evidence Priority
 

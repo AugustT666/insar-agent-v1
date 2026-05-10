@@ -243,8 +243,8 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
    skill here with engine=isce3 (after paths are set, before validation). That skill
    starts by calling insar_describe_rslc(...) to build a metadata-first evidence
    profile, then delegates recommendation generation to the project-level subagent
-   defined in .claude/agents/param-advisor.md. The subagent may consult the
-   engine-specific reference asset at .claude/agents/references/param-advisor-isce{{engine}}.md
+   defined in agents/param-advisor.md. The subagent may consult the
+   engine-specific reference asset at agents/references/param-advisor-isce{{engine}}.md
    and may use automatic external search only when local evidence is insufficient.
    The main agent may only apply whitelist-controlled parameters via
    insar_set_processing_param after the subagent returns and the user confirms the plan.
@@ -311,9 +311,9 @@ to interaction_mode="auto" for minimal interruptions.
 If the user wants to tune multilook, filtering, unwrapping, or geocode output spacing,
 enter param-advisor first using a temporary insar project and engine=isce3. That skill
 must delegate recommendation generation to the project-level subagent defined in
-.claude/agents/param-advisor.md after calling insar_describe_rslc(...) to build a
+agents/param-advisor.md after calling insar_describe_rslc(...) to build a
 local metadata summary. The subagent may consult the engine-specific reference asset at
-.claude/agents/references/param-advisor-isce{{engine}}.md and may use automatic external
+agents/references/param-advisor-isce{{engine}}.md and may use automatic external
 search only when that evidence is insufficient, and the final recommendation must show
 provenance so the user can decide what to trust.
 Export the tuned YAML and pass that file as base_runconfig for both stack and
@@ -872,7 +872,7 @@ def insar_create_project(
                 "If you need to tune looks, filtering, ESD/coregistration, unwrapping, or stack connections, "
                 "enter the param-advisor skill with engine=isce2 before validate/run. That skill must call "
                 "insar_describe_s1, then delegate recommendation generation to the project-level subagent "
-                "defined in .claude/agents/param-advisor.md before applying changes via "
+                "defined in agents/param-advisor.md before applying changes via "
                 "insar_set_processing_param. "
                 "For S1 time-series (workflow='stack'), set slc_dir to the directory containing "
                 "all S1 SAFE/ZIP files, then call insar_run_workflow to run stackSentinel.py."
@@ -917,9 +917,9 @@ def insar_create_project(
             "If you need to tune multilook, filtering, unwrapping, or atmospheric corrections, "
             "enter the param-advisor skill with engine=isce3 before validate/export/run. That skill must "
             "call insar_describe_rslc, then delegate recommendation generation to the "
-            "project-level subagent defined in .claude/agents/param-advisor.md before "
+            "project-level subagent defined in agents/param-advisor.md before "
             "applying changes via insar_set_processing_param. The subagent may consult the "
-            "engine-specific reference asset at .claude/agents/references/param-advisor-isce{engine}.md and may use automatic "
+            "engine-specific reference asset at agents/references/param-advisor-isce{engine}.md and may use automatic "
             "external search only when local evidence is insufficient, and the user remains "
             "responsible for accepting or rejecting those sources."
         ),

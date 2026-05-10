@@ -50,17 +50,17 @@
     env-setup/SKILL.md              ← ISCE3 / ISCE2 / MintPy + MCP 安装指南
     insar-agent/SKILL.md            ← 会话路由入口
 
-  .claude/
-    settings.json                   ← PreToolUse hooks（在 insar_run_workflow /
+  hooks/
+    hooks.json                     ← PreToolUse hooks（在 insar_run_workflow /
                                       insar_prepare_stack / insar_prepare_network
                                       调用前注入 PARAM_ADVISOR_PROMPT，触发参数调优询问）
-    agents/
-      insar-agent.md          ← 主路由 primary agent（负责编排 workflow skills 与 MCP tools）
-      param-advisor.md        ← 参数专家 subagent 合约（不与用户对话，只输出
+
+  agents/
+    param-advisor.md               ← 参数专家 subagent 合约（不与用户对话，只输出
                                       结构化 recommendation package）
-      references/
-        param-advisor-isce2.md ← Sentinel/ISCE2 参数经验规则与 workflow 模板
-        param-advisor-isce3.md ← NISAR/ISCE3 参数经验规则与默认值调整依据
+    references/
+      param-advisor-isce2.md       ← Sentinel/ISCE2 参数经验规则与 workflow 模板
+      param-advisor-isce3.md       ← NISAR/ISCE3 参数经验规则与默认值调整依据
 ```
 
 ---
@@ -375,7 +375,7 @@ insar_set_runconfig_value() × 6
 [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
   → (可选) param-advisor 技能
     → insar_describe_rslc()      ← 读取 RSLC metadata，不写文件
-    → 调用 .claude/agents/param-advisor.md subagent
+    → 调用 agents/param-advisor.md subagent
     → insar_set_processing_param() × N
       → 更新 .insar_agent/project.json
     → insar_export_runconfig(output_dir="<workspace>/param_tuned")
@@ -397,7 +397,7 @@ insar_run_workflow()
 [Step 0] [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
   → (可选) param-advisor 技能（Path B 模式）
     → insar_describe_rslc()
-    → .claude/agents/param-advisor.md subagent
+    → agents/param-advisor.md subagent
     → insar_set_processing_param()（临时 project）
     → 写入 <data_dir>/base_runconfig_param_tuned.yaml
 

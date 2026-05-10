@@ -97,7 +97,7 @@ def test_process_insar_pair_contains_constraint_reminder():
     prompt = process_insar_pair()
     assert "core processing parameters" in prompt.lower() or "Constraints reminder" in prompt
     assert "param-advisor" in prompt
-    assert ".claude/agents/param-advisor.md" in prompt
+    assert "agents/param-advisor.md" in prompt
     assert "project-level subagent" in prompt.lower()
     assert "insar_describe_rslc" in prompt
     assert "external" in prompt.lower()
@@ -140,7 +140,7 @@ def test_process_insar_batch_mentions_run_parallel():
     assert "insar_run_batch" in prompt
     assert "insar_get_job" in prompt
     assert "param-advisor" in prompt
-    assert ".claude/agents/param-advisor.md" in prompt
+    assert "agents/param-advisor.md" in prompt
     assert "project-level subagent" in prompt.lower()
     assert "insar_describe_rslc" in prompt
     assert "external" in prompt.lower()
@@ -174,7 +174,7 @@ def test_create_project_returns_required_fields(insar_project):
     assert "runconfig.groups.worker.gpu_enabled" not in insar_project["required_fields"]
     assert "guidance" in insar_project
     assert "param-advisor" in insar_project["guidance"]
-    assert ".claude/agents/param-advisor.md" in insar_project["guidance"]
+    assert "agents/param-advisor.md" in insar_project["guidance"]
     assert "project-level subagent" in insar_project["guidance"].lower()
     assert "insar_describe_rslc" in insar_project["guidance"]
     assert "next_step" not in insar_project

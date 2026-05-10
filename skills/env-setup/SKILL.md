@@ -94,7 +94,7 @@ conda run -n isce2 bash -c 'python $ISCE_HOME/applications/topsApp.py --help 2>&
 ## Step 2 — Install insar-agent
 
 ```bash
-cd /home/august/insar-agent
+cd <insar-agent-repo>
 pip install -e ".[dev]"
 ```
 
@@ -118,7 +118,7 @@ claude mcp add insar-mcp-server python -- -m insar_agent.mcp.server
 ### 3b. Install skills plugin
 
 ```bash
-claude plugin marketplace add /home/august/insar-agent --scope project
+claude plugin marketplace add <insar-agent-repo> --scope project
 claude plugin install insar-agent-skills@insar-agent
 ```
 

@@ -149,7 +149,7 @@ The advisor flow must build a metadata-first evidence profile using:
 
 The skill then delegates recommendation generation to:
 
-- `.claude/agents/param-advisor.md`
+- `agents/param-advisor.md`
 
 and applies accepted changes via `insar_set_processing_param` only.
 

@@ -80,7 +80,7 @@ description: >
 
    param-advisor (engine=isce3) 调用链：
    - `insar_describe_rslc(reference_rslc, secondary_rslc, project_id)`
-   - `.claude/agents/param-advisor.md`（生成推荐 + yaml_diff_preview）
+   - `agents/param-advisor.md`（生成推荐 + yaml_diff_preview）
    - interactive：展示 diff，等待用户三选一确认；auto：自动接受推荐
    - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置

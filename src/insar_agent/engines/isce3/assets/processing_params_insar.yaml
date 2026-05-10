@@ -1,7 +1,7 @@
 # 参数专家可修改的处理参数注册表 — insar 工作流
 #
 # 扩展方式：在 parameters 列表末尾追加新条目，无需改动任何 Python 代码。
-# 相应地在 .claude/agents/references/param-advisor-isce3.md 中补充推理规则。
+# 相应地在 agents/references/param-advisor-isce3.md 中补充推理规则。
 #
 # risk_level:
 #   low    — 对处理结果影响小，可安全调整

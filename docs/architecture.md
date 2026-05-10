@@ -42,7 +42,7 @@ User / AI Model
 
 #### Plugin Skill Layer & Subagents
 - Workflow narrative, tool routing, and constraints live in the `skills/` directory as Markdown documents.
-- Parameter advisory logic delegates to `.claude/agents/param-advisor.md` to prevent context pollution in the main conversation.
+- Parameter advisory logic delegates to `agents/param-advisor.md` to prevent context pollution in the main conversation.
 
 ## MCP Tool Design Principles
 
@@ -138,7 +138,7 @@ Full signatures, parameters, and return structures are in `docs/developer-docume
 Parameter optimization is intentionally split between the MCP server and the host agent's plugin contract:
 
 - `skills/param-advisor/SKILL.md` gathers evidence and handles user confirmation for both engines.
-- `.claude/agents/param-advisor.md` produces the structured recommendation package using historical templates and advisory heuristics.
+- `agents/param-advisor.md` produces the structured recommendation package using historical templates and advisory heuristics.
 - `insar_set_processing_param` acts as the strict MCP enforcement layer, applying only whitelist-controlled changes.
 
 This keeps detailed reasoning out of the main conversation while preserving a visible diff-and-confirmation step for the user. The plugin contract owns advisory reasoning and user-facing confirmation flow, while the MCP contract stays focused on validated execution and state mutation.

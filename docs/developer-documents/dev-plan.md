@@ -37,8 +37,8 @@
   - `mintpy`
   - `param-advisor`
 - 当前 Claude/OpenCode agent 文件：
-  - `.claude/agents/insar-agent.md`
-  - `.claude/agents/param-advisor.md`
+  - `skills/insar-agent/SKILL.md`
+  - `agents/param-advisor.md`
 
 ### 已基本完成的能力
 
@@ -183,7 +183,7 @@ All checks passed!
    - 但 long-running execution 还没有本轮自动化通过记录。
 
 4. README 中插件 skill 数量已统一为 10。
-   - 当前 `skills/` 下是 10 个 workflow skills，主路由位于 `.claude/agents/insar-agent.md`，OpenCode 通过 `.opencode/agents/` 软链引用。
+   - 当前 `skills/` 下是 10 个 workflow skills，主路由位于 `skills/insar-agent/SKILL.md`，OpenCode 通过 `.opencode/agents/` 软链引用。
 
 ---
 
