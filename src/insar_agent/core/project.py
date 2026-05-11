@@ -89,6 +89,8 @@ class Project:
     conda_env: str | None = None
     created_at: str = field(default_factory=_utc_now)
     updated_at: str = field(default_factory=_utc_now)
+    # Explicit task_id for run-root layout; falls back to name if absent (legacy)
+    task_id: str | None = None
 
     # ── directories ────────────────────────────────────────────────────────────
 
@@ -130,6 +132,9 @@ class Project:
         if not project_file.exists():
             raise FileNotFoundError(project_file)
         data = json.loads(project_file.read_text())
+        # Drop unknown keys so old project JSONs load without error
+        known = {f.name for f in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+        data = {k: v for k, v in data.items() if k in known}
         return cls(**data)
 
     def to_dict(self) -> dict:
@@ -142,6 +147,7 @@ def new_project(
     workflow: str,
     workspace_root: str,
     conda_env: str | None = None,
+    task_id: str | None = None,
 ) -> Project:
     return Project(
         name=name,
@@ -149,4 +155,5 @@ def new_project(
         workflow=workflow,
         workspace_root=workspace_root,
         conda_env=conda_env,
+        task_id=task_id,
     )

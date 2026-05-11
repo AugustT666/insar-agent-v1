@@ -11,7 +11,7 @@ The system exposes a rich MCP and plugin surface tailored for automated workflow
 - **24 MCP Tools**: Covering discovery, project management, config tuning, execution, batch processing, data preparation, and export.
 - **2 MCP Resources**: Serving hard workflow constraints (`insar://workflow-guide`) and schema rules (`insar://allowed-fields/{workflow}`).
 - **2 MCP Prompts**: Pre-built instructions for single-pair and batch processing.
-- **10 Plugin Skills**: Providing domain guidance for data preparation, parameter advisory, environment setup, and path execution.
+- **11 Plugin Skills**: Providing the main `insar-agent` entry router plus domain guidance for data preparation, parameter advisory, environment setup, and path execution.
 - **Dual-Engine Execution**: Native support for both `isce3` (NISAR) and `isce2` (Sentinel-1) processing graphs.
 - **Runtime Support Layer**: Abstracted workspace layout, logging, and Conda environment orchestration.
 
@@ -47,6 +47,16 @@ pytest -m real_data tests/integration -q
 
 Real-data tests may launch actual processing workflows, so they are opt-in.
 
+## Plugin Entry Point
+
+For Claude Code plugin usage, start InSAR sessions through the `insar-agent` skill:
+
+```text
+/insar-agent-plugin:insar-agent
+```
+
+The entry skill routes to the engine-specific workflow skills and delegates parameter tuning to the `param-advisor` skill and `agents/param-advisor.md` subagent.
+
 ## Typical Workflows
 
 ### D-InSAR (Path A)
@@ -72,9 +82,11 @@ Real-data tests may launch actual processing workflows, so they are opt-in.
 
 ```text
 insar-agent/
+  agents/               Claude Code subagents and agent-local references
   docs/                 Architecture, API reference, archive, developer notes
   examples/             Reserved place for future sanitized example runconfigs
-  skills/               Workflow guidance for skill-aware hosts
+  hooks/                Claude Code plugin hooks for workflow gates
+  skills/               Workflow guidance and slash-style skill entry points
   src/insar_agent/      Core models, MCP server, ISCE3 & ISCE2 engine code, runtime logic
   tests/                Unit and integration coverage
 ```

@@ -46,10 +46,10 @@
 
   ↓ Claude 识别任务类型，触发 Skill
 
-Claude → Skill("insar-agent-skills:insar-agent")
+Claude → Skill("insar-agent-plugin:insar-agent")
          读取路由表：单对 → d-insar-isce3
 
-Claude → Skill("insar-agent-skills:d-insar-isce3")
+Claude → Skill("insar-agent-plugin:d-insar-isce3")
          加载完整步骤约束：create → set×6 → validate → export → run → poll → list
 
 Claude → 向用户确认缺失信息：
@@ -271,7 +271,7 @@ Claude → 用户：
 ```
 用户：我还没有 DEM
 
-Claude → Skill("insar-agent-skills:data-prep-nisar")
+Claude → Skill("insar-agent-plugin:data-prep-nisar")
 
 Claude → 用户：
   "请提供研究区 AOI 文件或明确 bbox，以及 RSLC URL 列表。"
@@ -310,7 +310,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 **核心原则：**
 - Skills 是工作流步骤和顺序的唯一来源。MCP 工具只执行动作、返回事实性结果。
 - Claude **只修改路径类字段**（input、output、DEM、scratch 路径）
-- 所有核心处理参数必须走 `param-advisor` → `.claude/agents/param-advisor.md` → `insar_set_processing_param` 白名单路径；
+- 所有核心处理参数必须走 `param-advisor` → `agents/param-advisor.md` → `insar_set_processing_param` 白名单路径；
   主对话不得直接产出参数建议，也不应通过手工改导出的 YAML 规避 MCP 约束
 - MCP 服务器是最终执行层，`key_not_allowed` 错误无法绕过
 
@@ -330,7 +330,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 | Path A Skill | `skills/d-insar-isce3/SKILL.md` | 单对流程步骤约束 |
 | Path B Skill | `skills/stack-insar-isce3/SKILL.md` | 批量流程步骤约束 |
 | 参数顾问 Skill | `skills/param-advisor/SKILL.md` | metadata-first 参数调优编排 |
-| 参数顾问 Reference | `.claude/agents/references/param-advisor.md` | 经验规则与参考知识 |
+| 参数顾问 Reference | `references/param-advisor/param-advisor-isce{engine}.md` | 经验规则与参考知识 |
 | 数据准备 Skill | `skills/data-prep-nisar/SKILL.md` | DEM + RSLC 准备流程 |
 | 环境安装 Skill | `skills/env-setup/SKILL.md` | ISCE3 / ISCE2 / MintPy + MCP 安装指引 |
 

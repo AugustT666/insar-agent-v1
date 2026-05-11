@@ -22,9 +22,8 @@ description: >
 
 ## Execution modes
 
-- Default to `interaction_mode="interactive"`.
-- At the start, tell the user they can switch to `interaction_mode="auto"` if they want
-  the AI to keep going with minimal interruptions.
+- Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
+- Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
 - **interactive**: At Step 4.5, pause and ask the user whether to run param-advisor (engine=isce2).
   Wait for confirmation before proceeding.
 - **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking.
@@ -89,9 +88,10 @@ The user still needs to provide:
 insar_create_project(
     engine="isce2",
     workflow="tops",
-    workspace_root="/mnt/HDD2T/August/<project>/<pair_name>",
-    name="s1-dinasr-<region>-<date>",
-    conda_env="isce2"
+    workspace_root=<workspace_root>,
+    name="s1-dinsar-<region>-<date>",
+    conda_env="isce2",
+    task_id=<task_id>        # short identifier, e.g. "E2" — drives outputs/<task_id>/<run_id>/
 )
 ```
 
@@ -149,7 +149,7 @@ The advisor flow must build a metadata-first evidence profile using:
 
 The skill then delegates recommendation generation to:
 
-- `.claude/agents/param-advisor.md`
+- `agents/param-advisor.md`
 
 and applies accepted changes via `insar_set_processing_param` only.
 
@@ -163,8 +163,11 @@ insar_run_workflow(project_id=project_id)
 
 ISCE2 will:
 1. Generate `configs/topsApp.xml` from project parameters
-2. Launch `topsApp.py` in the `isce2` conda env
-3. Return `job_id`, `log_path`, `pid`
+2. Set work_dir to `<workspace>/outputs/<task_id>/<run_id>/` (run-root layout)
+3. Launch `topsApp.py` in the `isce2` conda env with work_dir as the working directory
+4. Return `job_id`, `log_path`, `pid`, and `run_root`
+
+ISCE2 native outputs (`merged/`, `geom_reference/`, `fine_interferogram/`, etc.) land directly inside `run_root`.
 
 ---
 
@@ -182,7 +185,7 @@ Show the user the log path for real-time monitoring:
 ```bash
 tail -f <log_path>
 ```
-Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/`.
+Plugin-controlled launcher logs are written under `<run_root>/logs/` (returned as `log_path` in the response).
 
 ---
 
@@ -192,7 +195,7 @@ Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/
 insar_list_outputs(project_id=project_id)
 ```
 
-Key output files (located under `workspace_root/`):
+Key output files (located under `<run_root>/` returned by `insar_run_workflow`):
 
 | File | Description |
 |------|-------------|

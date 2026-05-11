@@ -50,17 +50,19 @@
     env-setup/SKILL.md              ← ISCE3 / ISCE2 / MintPy + MCP 安装指南
     insar-agent/SKILL.md            ← 会话路由入口
 
-  .claude/
-    settings.json                   ← PreToolUse hooks（在 insar_run_workflow /
+  hooks/
+    hooks.json                     ← PreToolUse hooks（在 insar_run_workflow /
                                       insar_prepare_stack / insar_prepare_network
                                       调用前注入 PARAM_ADVISOR_PROMPT，触发参数调优询问）
-    agents/
-      insar-agent.md          ← 主路由 primary agent（负责编排 workflow skills 与 MCP tools）
-      param-advisor.md        ← 参数专家 subagent 合约（不与用户对话，只输出
+
+  agents/
+    param-advisor.md               ← 参数专家 subagent 合约（不与用户对话，只输出
                                       结构化 recommendation package）
-      references/
-        param-advisor-isce2.md ← Sentinel/ISCE2 参数经验规则与 workflow 模板
-        param-advisor-isce3.md ← NISAR/ISCE3 参数经验规则与默认值调整依据
+
+  references/
+    param-advisor/
+      param-advisor-isce2.md       ← Sentinel/ISCE2 参数经验规则与 workflow 模板
+      param-advisor-isce3.md       ← NISAR/ISCE3 参数经验规则与默认值调整依据
 ```
 
 ---
@@ -86,9 +88,12 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
 
 ---
 
-### 2.2 Path A 工作区文件结构
+### 2.2 Path A 工作区文件结构（Run-root layout）
 
-`insar_create_project(workspace_root=<path>)` 后，所有 MCP 管理文件写入 `<workspace_root>/`：
+`insar_create_project(workspace_root=<path>)` 后：
+
+- `workspace_root` 必须是集成 workspace 根目录，不可以是 `outputs/…` 下的子目录
+- `insar_run_workflow` 为每次运行自动生成 `run_id`（格式 `<task_id>_<timestamp>`），输出隔离到 `run_root`
 
 ```
 <workspace_root>/
@@ -97,14 +102,26 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
     jobs/
       <uuid>.json           ← 每次 insar_run_workflow 产生一个 Job 元数据文件
   configs/
-    runconfig.yaml          ← 导出的 ISCE3 runconfig（由 insar_export_runconfig 或
-                              insar_run_workflow 在执行前自动写入）
-  logs/
-    <uuid>.log              ← ISCE3 执行日志（实时写入，可 tail -f 监控）
-    <uuid>.exitcode         ← 进程退出码（0=成功）
-  outputs/                  ← 保留目录，当前未使用
-  param_tuned/              ← 参数调优后落盘（可选，由 insar_export_runconfig 创建）
-    runconfig.yaml          ← 调优后的完整 runconfig 快照
+    runconfig.yaml          ← workspace 层兼容副本（latest，非正式审计记录）
+  .insar_logs/              ← legacy 日志目录（fallback）
+  outputs/
+    <task_id>/
+      <run_id>/             ← run_root（每次运行独立隔离）
+        products/           ← GUNW .h5 科学产品
+        scratch/            ← ISCE3 中间过程文件
+        configs/            ← 本次运行的权威 runconfig（正式审计记录）
+          runconfig.yaml
+        logs/               ← workflow 执行日志
+          insar_workflow.log
+          <uuid>.log
+          <uuid>.exitcode
+        param_advisor/      ← 参数调优建议（由 insar_record_param_advice 写入）
+          recommendation.json
+          recommendation.md
+        metrics/            ← 产品质量统计
+          product_metrics.json     ← 通用 GUNW 质量指标（可复用）
+          experiment_metrics.json  ← 实验 harness 专用汇总
+        browse/             ← GeoTIFF / PNG 导出（由 insar_export_geotiff 写入）
 ```
 
 **`project.json` 字段说明：**
@@ -133,8 +150,17 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
 | `submitted_at` / `started_at` / `finished_at` | 各阶段时间戳 |
 | `pid` | ISCE3 进程 ID |
 | `exit_code` | 退出码（0=成功，非0=失败） |
-| `log_path` | 执行日志文件路径 |
+| `log_path` | 执行日志文件路径（workflow 进程日志） |
 | `command` | 实际执行的命令列表 |
+| `task_id` | 任务代号（如 `E1`），由 project.name 推导 |
+| `run_id` | 本次运行唯一 ID（如 `E1_20260511T013000Z`） |
+| `run_root` | 本次运行输出根目录（`<workspace>/outputs/<task_id>/<run_id>`） |
+| `products_dir` | 科学产品目录（`<run_root>/products`） |
+| `scratch_dir` | 中间过程目录（`<run_root>/scratch`） |
+| `configs_dir` | 权威 runconfig 目录（`<run_root>/configs`） |
+| `logs_dir` | 日志目录（`<run_root>/logs`） |
+| `metrics_path` | 产品指标 JSON（`<run_root>/metrics/product_metrics.json`） |
+| `output_paths` | 预期输出路径列表（`[<products_dir>/<run_id>_GUNW.h5]`） |
 
 ---
 
@@ -375,7 +401,7 @@ insar_set_runconfig_value() × 6
 [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
   → (可选) param-advisor 技能
     → insar_describe_rslc()      ← 读取 RSLC metadata，不写文件
-    → 调用 .claude/agents/param-advisor.md subagent
+    → 调用 agents/param-advisor.md subagent
     → insar_set_processing_param() × N
       → 更新 .insar_agent/project.json
     → insar_export_runconfig(output_dir="<workspace>/param_tuned")
@@ -397,7 +423,7 @@ insar_run_workflow()
 [Step 0] [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
   → (可选) param-advisor 技能（Path B 模式）
     → insar_describe_rslc()
-    → .claude/agents/param-advisor.md subagent
+    → agents/param-advisor.md subagent
     → insar_set_processing_param()（临时 project）
     → 写入 <data_dir>/base_runconfig_param_tuned.yaml
 

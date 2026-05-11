@@ -6,7 +6,7 @@ The insar-agent repository implements a **clear delegation boundary** between Cl
 
 - **Skills own**: Workflow narrative, tool sequencing, parameter advisory logic, client-aware branching, user confirmation loops
 - **MCP owns**: ISCE3/ISCE2 command construction, conda execution, project persistence, allowlist enforcement, error handling
-- **Plugin Contract**: Parameter advisory logic explicitly delegates to `.claude/agents/param-advisor.md` subagent to prevent context pollution
+- **Plugin Contract**: Parameter advisory logic explicitly delegates to `agents/param-advisor.md` subagent to prevent context pollution
 
 This design answers the question: **Why not only use skills?** Because skills cannot enforce server-side validation, handle background processes, or provide reproducible tool contracts independent of the client model or personality.
 
@@ -31,7 +31,7 @@ This design answers the question: **Why not only use skills?** Because skills ca
 | **stack-insar-isce3** | `stack-insar-isce3/SKILL.md` | Multi-scene RSLC → stack/network batch (Path B, NISAR) | Coordinates `insar_prepare_stack` + `insar_prepare_network` sequencing; gates param-advisor |
 | **stack-insar-isce2** | `stack-insar-isce2/SKILL.md` | Multi-scene Sentinel-1 → ISCE2 batch stack | Manages parallel batch execution through MCP |
 | **mintpy** | `mintpy/SKILL.md` | Time-series analysis (baseline plot, displacement) | Enforces ISCE3/ISCE2 env separation (numpy<2); owns baseline review pause point |
-| **param-advisor** | `param-advisor/SKILL.md` | Unified parameter tuning orchestrator | **Plugin contract**: must call engine-specific `describe_*` tool, then delegate to `.claude/agents/param-advisor.md` subagent; cannot directly invoke `insar_set_processing_param` |
+| **param-advisor** | `param-advisor/SKILL.md` | Unified parameter tuning orchestrator | **Plugin contract**: must call engine-specific `describe_*` tool, then delegate to `agents/param-advisor.md` subagent; cannot directly invoke `insar_set_processing_param` |
 
 ---
 
@@ -95,13 +95,13 @@ This creates context pollution and makes the advice entangled with client model 
 **Main skill** (`skills/param-advisor/SKILL.md`):
 - Collects minimal evidence (engine, project context, scene metadata via `insar_describe_rslc` / `insar_describe_s1`)
 - Builds compressed evidence profile
-- **Delegates to project-level subagent** (`.claude/agents/param-advisor.md`)
+- **Delegates to project-level subagent** (`agents/param-advisor.md`)
 - Shows user a diff preview
 - Applies accepted changes via `insar_set_processing_param`
 
-**Subagent** (`.claude/agents/param-advisor.md`):
+**Subagent** (`agents/param-advisor.md`):
 - Advisory-only; does not call MCP tools
-- Reads compressed evidence + reference asset (`.claude/agents/references/param-advisor-isce{engine}.md`)
+- Reads compressed evidence + reference asset (`references/param-advisor/param-advisor-isce{engine}.md`)
 - Outputs structured recommendation package with:
   - `advisory_only: true`
   - `user_responsibility_notice`
@@ -115,8 +115,8 @@ This creates context pollution and makes the advice entangled with client model 
 For skill-aware clients, parameter advice is a plugin contract: the main agent
 must route into the unified advisor skill and that skill must
 delegate advice generation to its project-level subagent.
-  - NISAR / ISCE3: skills/param-advisor/SKILL.md + engine=isce3 → .claude/agents/param-advisor.md → insar_describe_rslc
-  - Sentinel / ISCE2: skills/param-advisor/SKILL.md + engine=isce2 → .claude/agents/param-advisor.md → insar_describe_s1
+  - NISAR / ISCE3: skills/param-advisor/SKILL.md + engine=isce3 → agents/param-advisor.md → insar_describe_rslc
+  - Sentinel / ISCE2: skills/param-advisor/SKILL.md + engine=isce2 → agents/param-advisor.md → insar_describe_s1
 MCP cannot verify this at protocol level; it only enforces the MCP contract (allowlists + validation).
 ```
 
@@ -236,7 +236,7 @@ Skills are **Claude Code specific**. MCP is **protocol-agnostic**.
 For skill-aware clients, parameter advisory follows a plugin contract rather
 than an MCP contract. The `param-advisor` skill must call the engine-appropriate
 describe tool, then delegate recommendation generation to the project subagent
-defined in `.claude/agents/param-advisor.md`. That subagent is
+defined in `agents/param-advisor.md`. That subagent is
 advisory-only, cites evidence, and may use models such as `gpt-5.3-codex`
 depending on the host client. MCP tools do not enforce whether the subagent was
 spawned; they only validate and apply the requested changes.
@@ -252,7 +252,7 @@ delegate advice generation to its project-level subagent.
 MCP cannot verify this at protocol level; it only enforces the MCP contract (allowlists + validation).
 ```
 
-### .claude/agents/param-advisor.md (Lines 26–44): Subagent Contract
+### agents/param-advisor.md (Lines 26–44): Subagent Contract
 
 ```
 Hard Constraints:
@@ -307,7 +307,7 @@ Together      → Complete, reproducible, client-aware InSAR processing system
 ### Completed Evolution: Router Skill as a Real Agent (2026-04-27)
 
 The `skills/insar-agent/SKILL.md` Markdown router has been upgraded to a
-project-level agent defined at `.claude/agents/insar-agent.md`.
+project-level agent defined at `skills/insar-agent/SKILL.md`.
 
 The agent owns session-level context (conda env choice, engine selection) and
 routes to workflow skills via the Skill tool, with inline fallback steps when
@@ -315,7 +315,7 @@ the Skill tool is unavailable. It can be invoked directly via the Agent tool
 without manual skill loading.
 
 The parameter-advisor split is preserved: the router agent routes and bootstraps;
-the dedicated `.claude/agents/param-advisor.md` subagent continues to own
+the dedicated `agents/param-advisor.md` subagent continues to own
 advisory package generation and does not communicate with the user directly.
 
 The skill file (`skills/insar-agent/SKILL.md`) is retained as a compatibility
@@ -345,9 +345,9 @@ no longer the authoritative definition.
 ```
 /home/august/insar-agent/CLAUDE.md                                       (80 lines) — Developer guidance; lines 57–63 define param-advisor contract
 /home/august/insar-agent/docs/agent-guide.md                            (51 lines) — Hard constraints; lines 16–21 define skill/subagent contract
-/home/august/insar-agent/.claude/agents/param-advisor.md                (129 lines) — Subagent contract; lines 26–44 hard constraints
-/home/august/insar-agent/.claude/agents/references/param-advisor-isce3.md    (evidence patterns, heuristics)
-/home/august/insar-agent/.claude/agents/references/param-advisor-isce2.md    (workflow-specific templates)
+/home/august/insar-agent/agents/param-advisor.md                (129 lines) — Subagent contract; lines 26–44 hard constraints
+/home/august/insar-agent/references/param-advisor/param-advisor-isce3.md    (evidence patterns, heuristics)
+/home/august/insar-agent/references/param-advisor/param-advisor-isce2.md    (workflow-specific templates)
 /home/august/insar-agent/docs/developer-documents/mcp-knowledge-base-mapping.md — Tool provenance
 /home/august/insar-agent/docs/architecture.md                           (147 lines) — Layer boundaries; lines 43–45 define skill layer
 ```

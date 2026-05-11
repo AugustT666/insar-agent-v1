@@ -30,7 +30,10 @@ Path B tools operate directly on the filesystem and do not use the project regis
 - `network_dir` (ISCE3 only): completed interferogram network directory with real GUNW products under
   `runs/*/products/*.h5`
 - `stack_work_dir` (ISCE2 only): completed ISCE2 topsStack directory with `merged/interferograms`, `merged/geom_reference`, and `merged/baselines`
-- `mintpy_work_dir`: output directory for MintPy results
+- `mintpy_work_dir`: output directory for MintPy results. Recommended run-root path:
+  `<workspace>/outputs/<task_id>/<run_id>/mintpy`. A depth check warns if the path is too
+  shallow (< 4 levels from workspace root); `insar_run_mintpy` adds `layout_warning` to the
+  response if depth is insufficient.
 - `mintpy_config`: path to MintPy smallbaselineApp config file (`.cfg` or `.txt`). **Optional for ISCE3** — omit or pass `""` to auto-generate a minimal NISAR default config.
 - `dem_path` (ISCE3 only): path to DEM GeoTIFF (`.tif`) — same DEM used in ISCE3 processing
 - `conda_env`:

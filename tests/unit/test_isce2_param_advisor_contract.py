@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _isce2_reference_path() -> Path:
-    return REPO_ROOT / ".claude" / "agents" / "references" / ("param-advisor-isce" + "2.md")
+    return REPO_ROOT / "references" / "param-advisor" / ("param-advisor-isce" + "2.md")
 
 
 def test_isce2_create_project_guidance_mentions_unified_param_advisor(tmp_path, monkeypatch):
@@ -21,13 +21,13 @@ def test_isce2_create_project_guidance_mentions_unified_param_advisor(tmp_path, 
     )
     guidance = result["guidance"].lower()
     assert "param-advisor" in guidance
-    assert ".claude/agents/param-advisor.md" in result["guidance"]
+    assert "agents/param-advisor.md" in result["guidance"]
     assert "engine=isce2" in guidance
     assert "insar_describe_s1" in guidance
 
 
 def test_isce2_skills_route_to_unified_param_advisor_skill():
-    router_skill = (REPO_ROOT / ".claude" / "agents" / "insar-agent.md").read_text(encoding="utf-8")
+    router_skill = (REPO_ROOT / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
     pair_skill = (REPO_ROOT / "skills" / "d-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
     stack_skill = (REPO_ROOT / "skills" / "stack-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
     advisor_skill = (REPO_ROOT / "skills" / "param-advisor" / "SKILL.md").read_text(encoding="utf-8")
@@ -38,17 +38,17 @@ def test_isce2_skills_route_to_unified_param_advisor_skill():
         assert "engine=isce2" in text
 
     assert "insar_describe_s1" in advisor_skill
-    assert ".claude/agents/param-advisor.md" in advisor_skill
+    assert "agents/param-advisor.md" in advisor_skill
     assert "insar_set_processing_param" in advisor_skill
     assert "yaml_diff_preview" in advisor_skill.lower() or "diff" in advisor_skill.lower()
-    assert "param-advisor-isce{engine}.md" in advisor_skill
+    assert "param-advisor-isce2.md" not in advisor_skill
     assert "sentinel-isce2-dinsar" in advisor_reference
     assert "sentinel-isce2-stack" in advisor_reference
     assert "num_connections" in advisor_reference
 
 
 def test_project_level_isce2_param_advisor_agent_exists_and_declares_contract():
-    agent_path = REPO_ROOT / ".claude" / "agents" / "param-advisor.md"
+    agent_path = REPO_ROOT / "agents" / "param-advisor.md"
     assert agent_path.exists()
     agent = agent_path.read_text(encoding="utf-8")
     lowered = agent.lower()
@@ -59,7 +59,7 @@ def test_project_level_isce2_param_advisor_agent_exists_and_declares_contract():
     assert "yaml_diff_preview" in lowered
     assert "advisory_only" in lowered
     assert "provenance" in lowered
-    assert "param-advisor-isce{engine}.md" in agent
+    assert "references/param-advisor/param-advisor-isce2.md" in agent
 
 
 def test_isce2_workflow_skills_expose_execution_modes_and_conservative_param_reuse_text():

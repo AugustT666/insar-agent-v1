@@ -243,6 +243,10 @@ class TestGetJobStatusLiveness:
 
         assert result["status"] == "failed"
 
+    def test_invalid_job_id_returns_structured_error(self, ready_project):
+        result = insar_get_job(job_id="../evil", project_id=ready_project)
+        assert result["error"] == "invalid_job_id"
+
     def test_already_done_job_not_reprocessed(self, ready_project):
         """If job.status is already 'done', os.kill is never called."""
         job_id = self._launch_job(ready_project, pid=55555)

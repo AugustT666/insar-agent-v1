@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _isce3_reference_path() -> Path:
-    return REPO_ROOT / ".claude" / "agents" / "references" / ("param-advisor-isce" + "3.md")
+    return REPO_ROOT / "references" / "param-advisor" / ("param-advisor-isce" + "3.md")
 
 
 def test_create_project_guidance_mentions_unified_subagent_requirement(tmp_path, monkeypatch):
@@ -24,7 +24,7 @@ def test_create_project_guidance_mentions_unified_subagent_requirement(tmp_path,
     assert "skill" in guidance
     assert "subagent" in guidance
     assert "param-advisor" in guidance
-    assert ".claude/agents/param-advisor.md" in result["guidance"]
+    assert "agents/param-advisor.md" in result["guidance"]
     assert "engine=isce3" in guidance
     assert "insar_describe_rslc" in guidance
 
@@ -34,18 +34,18 @@ def test_process_prompts_require_unified_subagent_delegation():
     batch_prompt = process_insar_batch()
     assert "param-advisor" in pair_prompt
     assert "subagent" in pair_prompt.lower()
-    assert ".claude/agents/param-advisor.md" in pair_prompt
+    assert "agents/param-advisor.md" in pair_prompt
     assert "engine=isce3" in pair_prompt.lower()
     assert "insar_describe_rslc" in pair_prompt
     assert "param-advisor" in batch_prompt
     assert "subagent" in batch_prompt.lower()
-    assert ".claude/agents/param-advisor.md" in batch_prompt
+    assert "agents/param-advisor.md" in batch_prompt
     assert "engine=isce3" in batch_prompt.lower()
     assert "insar_describe_rslc" in batch_prompt
 
 
 def test_upper_skills_route_to_unified_param_advisor_skill():
-    router_skill = (REPO_ROOT / ".claude" / "agents" / "insar-agent.md").read_text(encoding="utf-8")
+    router_skill = (REPO_ROOT / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
     pair_skill = (REPO_ROOT / "skills" / "d-insar-isce3" / "SKILL.md").read_text(encoding="utf-8")
     stack_skill = (REPO_ROOT / "skills" / "stack-insar-isce3" / "SKILL.md").read_text(encoding="utf-8")
     advisor_skill = (REPO_ROOT / "skills" / "param-advisor" / "SKILL.md").read_text(encoding="utf-8")
@@ -60,7 +60,7 @@ def test_upper_skills_route_to_unified_param_advisor_skill():
 
     advisor_lowered = advisor_skill.lower()
     assert "insar_describe_rslc" in advisor_skill
-    assert ".claude/agents/param-advisor.md" in advisor_skill
+    assert "agents/param-advisor.md" in advisor_skill
     assert "insar_set_processing_param" in advisor_skill
     assert "insar_get_runconfig(format='yaml')" in advisor_skill
     assert "yaml_diff_preview" in advisor_lowered or "diff" in advisor_lowered
@@ -69,17 +69,24 @@ def test_upper_skills_route_to_unified_param_advisor_skill():
     assert "使用默认参数" in advisor_skill
     assert "采用以上建议参数" in advisor_skill
     assert "自行指定参数" in advisor_skill
-    assert "param-advisor-isce{engine}.md" in advisor_skill
+    assert "insar_record_param_advice" in advisor_skill
+    assert "external_context" in advisor_skill
+    assert "NASA/JPL/NISAR" in advisor_skill
+    assert "param-advisor-isce3.md" not in advisor_skill
+    assert "param-advisor-isce2.md" not in advisor_skill
 
     reference_lowered = advisor_reference.lower()
     assert "crossmul" in reference_lowered
     assert "snaphu" in reference_lowered
     assert "ionosphere" in reference_lowered
     assert "troposphere" in reference_lowered
+    assert "nasa/jpl/nisar" in reference_lowered
+    assert "usgs" in reference_lowered
+    assert "revisit cycle" in reference_lowered
 
 
 def test_project_level_param_advisor_agent_exists_and_declares_contract():
-    agent_path = REPO_ROOT / ".claude" / "agents" / "param-advisor.md"
+    agent_path = REPO_ROOT / "agents" / "param-advisor.md"
     assert agent_path.exists()
     agent = agent_path.read_text(encoding="utf-8")
     lowered = agent.lower()
@@ -97,8 +104,14 @@ def test_project_level_param_advisor_agent_exists_and_declares_contract():
     assert "sources" in lowered
     assert "changes" in lowered
     assert "yaml_diff_preview" in lowered
+    assert "external_context" in lowered
     assert "user_responsibility_notice" in lowered
-    assert "param-advisor-isce{engine}.md" in agent
+    assert "nasa/jpl/nisar" in lowered
+    assert "usgs" in lowered
+    assert "revisit cycle" in lowered
+    assert "geology" in lowered
+    assert "references/param-advisor/param-advisor-isce3.md" in agent
+    assert "references/param-advisor/param-advisor-isce2.md" in agent
     assert "gpt-5.3-codex" in agent or "gpt codex5.3" in lowered
     assert "claude sonnet 4.6" in lowered or "claude sonnet4.6" in lowered
 
@@ -114,7 +127,7 @@ def test_core_docs_describe_skill_aware_subagent_boundary():
     assert "subagent" in claude.lower()
     assert "insar_describe_rslc" in guide
     assert "param-advisor" in guide
-    assert ".claude/agents/param-advisor.md" in guide
-    assert ".claude/agents/param-advisor.md" in architecture
+    assert "agents/param-advisor.md" in guide
+    assert "agents/param-advisor.md" in architecture
     assert "every parameter advisory call should perform web search" in guide.lower() or "每次参数建议都执行网络搜索" in guide
     assert "gpt-5.3-codex" in claude.lower() or "gpt codex5.3" in claude.lower()

@@ -19,9 +19,8 @@ Each option generates shell scripts that can be launched manually or through `in
 
 ## Execution modes
 
-- Default to `interaction_mode="interactive"`.
-- At the start, tell the user they can switch to `interaction_mode="auto"` if they want
-  the AI to keep going with minimal interruptions.
+- Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
+- Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
 - In `interactive` mode, obey the MCP response: when `handoff_required=true`, stop and
   let the user review the listed artifacts before continuing.
 - In `auto` mode, keep executing when inputs are complete, but still show `log_path`,
@@ -35,9 +34,15 @@ Each option generates shell scripts that can be launched manually or through `in
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
+  - **Run-root layout**: use `<workspace>/outputs/<task_id>/<run_id>/stack` for stack,
+    `<workspace>/outputs/<task_id>/<run_id>/network` for network.
+    `task_id` is the short task identifier from the task context (e.g. `E3`); `run_id` is
+    auto-generated as `<task_id>_<YYYYMMDDTHHMMSSz>`.
+    Do NOT pass `<workspace>` or `<workspace>/outputs/<task_id>` directly.
+  - After batch completes, use `<run_root>/mintpy` as `mintpy_work_dir` when invoking the `mintpy` skill.
 - Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
 - Number of parallel jobs (`N`) for the shell scripts
-- Interaction mode: `interactive` (default) or `auto`
+- Interaction mode: determined by CLAUDE.md (auto if declared) or user preference (ask only in interactive mode)
 
 ## Hard constraints
 
@@ -49,7 +54,7 @@ Each option generates shell scripts that can be launched manually or through `in
   If the user does not provide one, use the built-in default `insar` template exposed by MCP.
 - `param-advisor (engine=isce3)` is the only supported route for processing-parameter changes in
   this workflow. It must call `insar_describe_rslc`, delegate recommendation generation
-  to `.claude/agents/param-advisor.md`, present `yaml_diff_preview`, collect user
+  to `agents/param-advisor.md`, present `yaml_diff_preview`, collect user
   confirmation, apply accepted changes via `insar_set_processing_param`, then export the
   tuned YAML as the new `base_runconfig`.
 - Before the first actual execution, confirm the chosen ISCE3 runtime. If batch execution
@@ -82,7 +87,7 @@ Each option generates shell scripts that can be launched manually or through `in
 
 param-advisor (engine=isce3) 调用链（Path B）：
 - `insar_describe_rslc`（data_dir 中代表性 RSLC 的元数据）
-- `.claude/agents/param-advisor.md`（生成推荐）
+- `agents/param-advisor.md`（生成推荐）
 - interactive：展示 yaml_diff_preview，等待确认；auto：自动接受
 - 若接受：`insar_set_processing_param`（临时 project）
 - **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用

@@ -28,10 +28,8 @@ description: >
 
 - 主会话必须先进入本 skill，再进入参数建议流程
 - 本 skill 负责收集最小上下文、组织 evidence profile、展示 diff 和收用户确认
-- 参数建议本身必须委派给 `.claude/agents/param-advisor.md`
-- 参数经验和参考规则保存在 engine-specific 文件：
-  - **ISCE3**: `.claude/agents/references/param-advisor-isce{engine}.md`
-  - **ISCE2**: `.claude/agents/references/param-advisor-isce{engine}.md`
+- 参数建议本身必须委派给 `agents/param-advisor.md`
+- 参数经验和参考规则保存在 engine-specific 参考文件中，路径由 subagent 定义内部持有，主会话不读取
 
 主会话不得在当前对话里直接充当"参数专家"生成建议。
 
@@ -42,13 +40,16 @@ description: >
 - 参数建议阶段必须先调用 engine-specific 的 describe 工具
   - **ISCE3**: `insar_describe_rslc`
   - **ISCE2**: `insar_describe_s1`（reference 和 secondary 或 stack 中 1–3 个代表场景）
-- 参数建议阶段必须调用 `.claude/agents/param-advisor.md`（传入 engine 参数）
+- 参数建议阶段必须调用 `agents/param-advisor.md`（传入 engine 参数）
 - 主会话不得直接调用经验规则替代 subagent
 - 传给 subagent 的内容必须是压缩后的 evidence profile，不得传完整长对话、完整 YAML、完整知识库或长 reasoning 历史
 - 参数应用只能通过 `insar_set_processing_param`
-- 应用参数后必须调用 `insar_get_runconfig(format='yaml')` 展示完整 YAML，并等待用户明确继续
+- 应用参数后必须调用 `insar_get_runconfig(format='yaml')` 展示完整 YAML
+  - **interactive 模式**：展示后等待用户明确继续
+  - **auto 模式**：展示后直接继续，不等待用户输入
 - 必须向用户展示 `yaml_diff_preview` 或等效参数 diff
-- 必须保留三选一确认，不得代替用户自动决定
+- **interactive 模式**：必须保留三选一确认，不得代替用户自动决定
+- **auto 模式**：自动选择"采用建议参数"，跳过三选一确认直接应用
 - 若无 `project_id`，允许纯咨询模式，但不得调用 `insar_set_processing_param`
 
 ### ISCE3 特定约束
@@ -72,7 +73,7 @@ description: >
 - 确定 `engine` 参数（isce3 或 isce2）
 - 调 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）收集 metadata-first 证据
 - 构造压缩 evidence profile
-- 调 `.claude/agents/param-advisor.md`（传入 engine 参数）
+- 调 `agents/param-advisor.md`（传入 engine 参数）
 - 向用户展示建议摘要、风险摘要和 `yaml_diff_preview`
 - 执行三选一确认
 - 如用户确认，逐项调用 `insar_set_processing_param`
@@ -81,9 +82,7 @@ description: >
 ### project-level subagent 负责
 
 - 读取 evidence profile、runconfig 摘要和白名单参数摘要
-- 参考 engine-specific reference 文件：
-  - **engine=isce3**: `.claude/agents/references/param-advisor-isce{engine}.md`
-  - **engine=isce2**: `.claude/agents/references/param-advisor-isce{engine}.md`
+- 参考 engine-specific reference 文件（路径由 subagent 定义持有，主会话不读取）
 - 输出结构化 recommendation package
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
@@ -127,7 +126,7 @@ description: >
 
 ### Phase 2 — 调 subagent
 
-把 Phase 1 的压缩结果交给 `.claude/agents/param-advisor.md`，传入 `engine` 参数。
+把 Phase 1 的压缩结果交给 `agents/param-advisor.md`，传入 `engine` 参数。
 
 subagent 返回内容至少应包含：
 
@@ -135,9 +134,12 @@ subagent 返回内容至少应包含：
 - `changes`
 - `yaml_diff_preview`
 - `sources`
+- `external_context`
 - `provenance`
 - `advisory_only`
 - `user_responsibility_notice`
+
+真实数据处理时，subagent 必须执行网络搜索来补充研究区和传感器背景：地质/构造或火山背景、已知形变类型、重访周期、波段/波长、分辨率或像元间距。优先采用 NASA/JPL/NISAR、ASF、USGS/国家地调、ESA/Copernicus、同行评议论文、ISCE/SNAPHU 官方资料等权威信源。
 
 ### Phase 3 — 三选一确认
 
@@ -153,9 +155,10 @@ subagent 返回内容至少应包含：
 
 如果用户选择采用建议参数或自行指定参数：
 
-1. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
-2. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
-3. **落盘（防重复调优）：**
+1. 先调用 `insar_record_param_advice(project_id, recommendation_package=<subagent完整结构化输出>, task_id=<任务代号如E1>)`，把建议、理论依据、外部信源和 diff 固定格式落盘为 JSON + Markdown
+2. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
+3. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
+4. **落盘（防重复调优）：**
    - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
      → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`
      → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
@@ -165,7 +168,7 @@ subagent 返回内容至少应包含：
    - **ISCE2（当前限制）**：除非后续 MCP 明确补齐支持（unless MCP support is added），否则不要假设当前会返回可复用的
      `param_tuned_found` / `param_tuned_config` 信号。当前文案应说明**始终重新调优**，
      或在用户明确接受默认参数时直接继续；不要宣称今天已经能自动复用。
-4. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
+5. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
 
 如果用户选择默认参数：
 
@@ -177,7 +180,7 @@ subagent 返回内容至少应包含：
 若用户没有 `project_id`，本 skill 仍可工作：
 
 - 允许调用 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）
-- 允许调用 `.claude/agents/param-advisor.md`（传入 engine 参数）
+- 允许调用 `agents/param-advisor.md`（传入 engine 参数）
 - 允许展示建议摘要、风险和 `yaml_diff_preview`
 - 允许执行"三选一确认"说明
 - 不调用 `insar_set_processing_param`
@@ -185,5 +188,4 @@ subagent 返回内容至少应包含：
 
 ## References
 
-- `.claude/agents/param-advisor.md` — unified project-level subagent contract
-- `.claude/agents/references/param-advisor-isce{engine}.md` — engine-specific 参数经验规则与参考知识
+- `agents/param-advisor.md` — unified project-level subagent contract（含 engine-specific reference 文件路径）

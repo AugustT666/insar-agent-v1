@@ -1,6 +1,7 @@
 {
-  "name": "insar-agent-skills",
-  "description": "Claude Code skills for NISAR InSAR processing with ISCE3 via insar-agent MCP tools",
+  "name": "insar-agent-plugin",
+  "version": "0.1.0",
+  "description": "Claude Code skills and agents for NISAR/ISCE3 and Sentinel-1/ISCE2 InSAR workflows via insar-agent MCP tools",
   "author": {
     "name": "insar-agent project",
     "email": "user@local"
