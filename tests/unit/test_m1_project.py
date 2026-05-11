@@ -366,7 +366,10 @@ def test_run_workflow_writes_plugin_log_under_dot_insar_logs(insar_project):
         result = insar_run_workflow(pid, dry_run=False)
 
     assert "error" not in result
-    assert Path(result["log_path"]).parent == workspace / ".insar_logs"
+    log_parent = Path(result["log_path"]).parent
+    # New layout: log goes into <workspace>/outputs/<task_id>/<run_id>/logs/
+    # Legacy fallback: <workspace>/.insar_logs
+    assert log_parent == workspace / ".insar_logs" or "logs" in log_parent.parts
 
 
 def test_run_workflow_invalid_runconfig_fails(insar_project):
@@ -439,7 +442,11 @@ class TestListOutputs:
         result = insar_list_outputs(job_id, pid)
         assert result["job_id"] == job_id
         assert result["status"] == "done"
-        assert result["outputs"] == []
+        # No science products (h5, tif, png) should appear; runconfig yaml may be listed
+        science_types = {a["artifact_type"] for a in result["outputs"]}
+        assert "hdf5" not in science_types
+        assert "geotiff" not in science_types
+        assert "preview" not in science_types
 
     def test_files_typed_correctly(self, insar_project, tmp_path):
         pid = insar_project["project_id"]
@@ -471,6 +478,53 @@ class TestListOutputs:
 
         result = insar_list_outputs(job_id, pid)
         assert any(item["path"] == str(product) for item in result["outputs"])
+
+    def test_finds_relative_sas_output_written_to_workspace_root(self, insar_project):
+        pid = insar_project["project_id"]
+        job_id = self._make_done_job(pid)
+
+        from insar_agent.core.project import Project
+        project = Project.load(pid)
+        product = Path(project.workspace_root) / "GUNW.h5"
+        product.write_text("fake")
+
+        result = insar_list_outputs(job_id, pid)
+        assert any(item["path"] == str(product) for item in result["outputs"])
+
+    def test_run_workflow_applies_run_layout_paths(self, insar_project):
+        """insar_run_workflow forces product/scratch/sas paths to run-root layout."""
+        from unittest.mock import MagicMock, patch
+
+        pid = insar_project["project_id"]
+        project = Project.load(pid)
+        workspace = Path(project.workspace_root)
+        for key, val in [
+            ("runconfig.groups.input_file_group.reference_rslc_file", "/data/ref.h5"),
+            ("runconfig.groups.input_file_group.secondary_rslc_file", "/data/sec.h5"),
+            ("runconfig.groups.dynamic_ancillary_file_group.dem_file", "/data/dem.tif"),
+            # These will be overridden by the run-layout
+            ("runconfig.groups.product_path_group.product_path", str(workspace / "outputs" / "E1")),
+            ("runconfig.groups.product_path_group.scratch_path", str(workspace / "scratch" / "E1")),
+            ("runconfig.groups.product_path_group.sas_output_file", "GUNW.h5"),
+        ]:
+            insar_set_runconfig_value(pid, key, val)
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc):
+            result = insar_run_workflow(pid, dry_run=False)
+
+        assert "error" not in result
+        # New layout: run_root is returned in the result
+        assert "run_root" in result
+        run_root = Path(result["run_root"])
+        # run_root must be inside workspace/outputs/
+        assert run_root.is_relative_to(workspace / "outputs")
+        # sas_output_file is now inside run_root/products/
+        updated = Project.load(pid)
+        sas = get_path(updated.runconfig, "runconfig.groups.product_path_group.sas_output_file")
+        assert Path(sas).parent == run_root / "products"
+        assert Path(sas).suffix == ".h5"
 
     def test_job_not_done_returns_error(self, insar_project):
         pid = insar_project["project_id"]

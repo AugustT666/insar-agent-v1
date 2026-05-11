@@ -34,6 +34,12 @@ Each option generates shell scripts that can be launched manually or through `in
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
+  - **Run-root layout**: use `<workspace>/outputs/<task_id>/<run_id>/stack` for stack,
+    `<workspace>/outputs/<task_id>/<run_id>/network` for network.
+    `task_id` is the short task identifier from the task context (e.g. `E3`); `run_id` is
+    auto-generated as `<task_id>_<YYYYMMDDTHHMMSSz>`.
+    Do NOT pass `<workspace>` or `<workspace>/outputs/<task_id>` directly.
+  - After batch completes, use `<run_root>/mintpy` as `mintpy_work_dir` when invoking the `mintpy` skill.
 - Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
 - Number of parallel jobs (`N`) for the shell scripts
 - Interaction mode: determined by CLAUDE.md (auto if declared) or user preference (ask only in interactive mode)

@@ -330,7 +330,7 @@ Claude → 继续 d-insar-isce3 或 stack-insar-isce3 主流程
 | Path A Skill | `skills/d-insar-isce3/SKILL.md` | 单对流程步骤约束 |
 | Path B Skill | `skills/stack-insar-isce3/SKILL.md` | 批量流程步骤约束 |
 | 参数顾问 Skill | `skills/param-advisor/SKILL.md` | metadata-first 参数调优编排 |
-| 参数顾问 Reference | `agents/references/param-advisor-isce{engine}.md` | 经验规则与参考知识 |
+| 参数顾问 Reference | `references/param-advisor/param-advisor-isce{engine}.md` | 经验规则与参考知识 |
 | 数据准备 Skill | `skills/data-prep-nisar/SKILL.md` | DEM + RSLC 准备流程 |
 | 环境安装 Skill | `skills/env-setup/SKILL.md` | ISCE3 / ISCE2 / MintPy + MCP 安装指引 |
 

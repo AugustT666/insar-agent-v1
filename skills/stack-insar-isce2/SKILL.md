@@ -89,9 +89,10 @@ The user still needs to provide:
 insar_create_project(
     engine="isce2",
     workflow="stack",
-    workspace_root="/mnt/HDD2T/August/<project>/<stack_name>",
+    workspace_root=<workspace_root>,
     name="s1-stack-<region>",
-    conda_env="isce2"
+    conda_env="isce2",
+    task_id=<task_id>        # short identifier, e.g. "E4" — drives outputs/<task_id>/<run_id>/stack
 )
 ```
 
@@ -158,18 +159,20 @@ insar_run_workflow(project_id=project_id)
 This calls `stackSentinel.py` which:
 1. Reads the SAFE inputs from the selected grouped directory
 2. Downloads orbit files if needed
-3. Generates a series of `run_*` shell scripts in `<workspace>/run_files/`
-4. Executes those scripts in order (coregistration → interferogram → unwrap)
+3. Sets work_dir to `<workspace>/outputs/<task_id>/<run_id>/stack` (run-root layout)
+4. Executes stack processing inside that work_dir
+
+Returns `job_id`, `log_path`, `pid`, and `run_root`.
 
 For multi-hour stack jobs, rely on the background job returned by `insar_run_workflow`. Always return:
 
 - the job id
-- the absolute log path
+- the absolute log path (`<run_root>/logs/<job_id>.log`)
+- the `run_root` (use it for MintPy: `mintpy_work_dir=<run_root>/mintpy`)
 - the exact `insar_get_job` polling call
 
 Monitor only with `insar_get_job(job_id=job_id, project_id=project_id)`.
-Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/`.
-Do not execute generated `run_*` scripts manually; the MCP tool owns stack execution.
+Do not execute generated run scripts manually; the MCP tool owns stack execution.
 
 > Runtime: several hours to days depending on scene count and AOI size.
 
@@ -177,13 +180,13 @@ Do not execute generated `run_*` scripts manually; the MCP tool owns stack execu
 
 ### Step 7 — MintPy time-series analysis
 
-After stack processing completes, delegate to the unified **mintpy** skill with `engine=isce2` and the exact current stack workspace:
+After stack processing completes, delegate to the unified **mintpy** skill with `engine=isce2`:
 
 ```
 Invoke the /insar-agent:mintpy skill
 - engine: isce2
-- stack_work_dir: the absolute workspace_root of the stack project whose job just reported done/completed
-- mintpy_work_dir: the task/user specified MintPy output directory
+- stack_work_dir: <run_root>/stack   (returned by insar_run_workflow as run_root + "/stack")
+- mintpy_work_dir: <run_root>/mintpy  (recommended run-root layout)
 - conda_env: the task/user specified MintPy env, or "isce2" if none was specified
 - interaction_mode: interactive (default) or auto
 ```

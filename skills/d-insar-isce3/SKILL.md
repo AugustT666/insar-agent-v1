@@ -17,7 +17,8 @@ description: >
 - Secondary RSLC path (`.h5`)
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Workspace / output directory (absolute path)
-- Conda environment name — run `conda env list` and let user choose from ISCE-related envs
+- Conda environment name — use the value from the project instructions or `insar_check_env`;
+  do not run shell commands to inspect conda environments.
 
 ## Execution modes
 
@@ -52,12 +53,31 @@ description: >
 
 2. **Set required path fields** (6 calls via `insar_set_runconfig_value`)
 
-   See `references/runconfig-fields.md` for the full dotted-key names.
+   Use these exact dotted-key names:
 
-   Required fields: reference_rslc_file, secondary_rslc_file, dem_file,
-   product_path, scratch_path, sas_output_file.
+   - Reference RSLC: `runconfig.groups.input_file_group.reference_rslc_file`
+   - Secondary RSLC: `runconfig.groups.input_file_group.secondary_rslc_file`
+   - DEM: `runconfig.groups.dynamic_ancillary_file_group.dem_file`
+   - Output directory: `runconfig.groups.product_path_group.product_path`
+   - Scratch directory: `runconfig.groups.product_path_group.scratch_path`
+   - Output filename: `runconfig.groups.product_path_group.sas_output_file`
 
-   Optional: `worker.gpu_enabled`, `worker.gpu_id`, `logging.path`
+   **Run-root layout (mandatory for all runs):**
+   - `workspace_root` must be the integration workspace root, NOT a subdirectory of `outputs/`.
+   - `insar_run_workflow` automatically sets:
+     - `product_path = <workspace>/outputs/<task_id>/<run_id>/products`
+     - `scratch_path = <workspace>/outputs/<task_id>/<run_id>/scratch`
+     - `sas_output_file = <workspace>/outputs/<task_id>/<run_id>/products/<run_id>_GUNW.h5`
+   - You only need to set the RSLC paths, DEM, and GPU settings; path fields are enforced by the server.
+   - The returned `run_root` shows the exact output directory for this run.
+   - **Never** set `workspace_root` to an `outputs/…` subdirectory.
+
+   Optional exact dotted-key names:
+
+   - GPU enabled: `runconfig.groups.worker.gpu_enabled`
+   - GPU device ID: `runconfig.groups.worker.gpu_id`
+   - Log path: `runconfig.groups.logging.path`
+   - Water mask: `runconfig.groups.dynamic_ancillary_file_group.water_mask_file`
 
 2.5. **参数调优**
 
@@ -83,8 +103,7 @@ description: >
    - interactive：展示 diff，等待用户三选一确认；auto：自动接受推荐
    - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置
-   - **落盘**：`insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
-     → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`，供后续复用
+   - **落盘**：调优完成后 `insar_record_param_advice` 自动写入 `<run_root>/param_advisor/recommendation.json`
    完成后继续 Step 3。
 
 3. **Run workflow**
@@ -116,8 +135,10 @@ description: >
 
 7. **Export GeoTIFF (optional)** — if the user wants raster visualization:
    ```
-   insar_export_geotiff(h5_path=<GUNW .h5 path>, output_dir=<workspace>/browse)
+   insar_export_geotiff(h5_path=<GUNW .h5 path>, output_dir=<run_root>)
    ```
+   Use `run_root` returned by `insar_run_workflow` (e.g. `<workspace>/outputs/<task_id>/<run_id>`).
+   The exporter writes files under `<output_dir>/browse/`; do not pass a path that already ends in `browse`.
    Requires GDAL in the isce3 conda environment.
 
 ## Output requirements (report after completion)
@@ -128,7 +149,3 @@ description: >
 - Product output path and filename
 - Final job status (`done` / `failed`)
 - List of output artifacts from `insar_list_outputs`
-
-## References
-
-- `references/runconfig-fields.md` — full dotted-key paths for all settable fields

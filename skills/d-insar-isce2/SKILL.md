@@ -88,9 +88,10 @@ The user still needs to provide:
 insar_create_project(
     engine="isce2",
     workflow="tops",
-    workspace_root="/mnt/HDD2T/August/<project>/<pair_name>",
-    name="s1-dinasr-<region>-<date>",
-    conda_env="isce2"
+    workspace_root=<workspace_root>,
+    name="s1-dinsar-<region>-<date>",
+    conda_env="isce2",
+    task_id=<task_id>        # short identifier, e.g. "E2" — drives outputs/<task_id>/<run_id>/
 )
 ```
 
@@ -162,8 +163,11 @@ insar_run_workflow(project_id=project_id)
 
 ISCE2 will:
 1. Generate `configs/topsApp.xml` from project parameters
-2. Launch `topsApp.py` in the `isce2` conda env
-3. Return `job_id`, `log_path`, `pid`
+2. Set work_dir to `<workspace>/outputs/<task_id>/<run_id>/` (run-root layout)
+3. Launch `topsApp.py` in the `isce2` conda env with work_dir as the working directory
+4. Return `job_id`, `log_path`, `pid`, and `run_root`
+
+ISCE2 native outputs (`merged/`, `geom_reference/`, `fine_interferogram/`, etc.) land directly inside `run_root`.
 
 ---
 
@@ -181,7 +185,7 @@ Show the user the log path for real-time monitoring:
 ```bash
 tail -f <log_path>
 ```
-Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/`.
+Plugin-controlled launcher logs are written under `<run_root>/logs/` (returned as `log_path` in the response).
 
 ---
 
@@ -191,7 +195,7 @@ Plugin-controlled launcher logs are written under `<workspace_root>/.insar_logs/
 insar_list_outputs(project_id=project_id)
 ```
 
-Key output files (located under `workspace_root/`):
+Key output files (located under `<run_root>/` returned by `insar_run_workflow`):
 
 | File | Description |
 |------|-------------|

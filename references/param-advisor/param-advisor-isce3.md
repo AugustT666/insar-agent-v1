@@ -13,6 +13,18 @@ Prefer evidence in this order:
 3. explicit user-provided scene facts
 4. external references adopted after web search
 
+For real-data runs, web search is expected rather than optional. Use it to enrich,
+not override, local metadata with study-area and sensor context.
+
+Preferred external source classes:
+
+1. NASA/JPL/NISAR mission and product documentation
+2. ASF / Alaska Satellite Facility data and SAR documentation
+3. USGS or relevant national geological survey resources for geology / hazards
+4. ESA / Copernicus documentation for Sentinel-1 comparisons
+5. Peer-reviewed papers for study-area deformation mechanisms
+6. Official ISCE / SNAPHU documentation for algorithm behavior
+
 Each inferred fact should be tagged as one of:
 
 - `user_provided`
@@ -27,10 +39,12 @@ local observational facts remain primary.
 
 - sensor / satellite
 - band (`L`, `C`, `X`)
+- wavelength and nominal resolution / pixel spacing
+- revisit cycle and temporal baseline
 - polarization
 - orbit direction
-- temporal baseline
 - perpendicular baseline when available
+- study-area geology, tectonic / volcanic setting, and known deformation style
 - terrain relief
 - land cover type
 - climate / moisture regime

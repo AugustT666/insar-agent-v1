@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _isce3_reference_path() -> Path:
-    return REPO_ROOT / "agents" / "references" / ("param-advisor-isce" + "3.md")
+    return REPO_ROOT / "references" / "param-advisor" / ("param-advisor-isce" + "3.md")
 
 
 def test_create_project_guidance_mentions_unified_subagent_requirement(tmp_path, monkeypatch):
@@ -69,14 +69,20 @@ def test_upper_skills_route_to_unified_param_advisor_skill():
     assert "使用默认参数" in advisor_skill
     assert "采用以上建议参数" in advisor_skill
     assert "自行指定参数" in advisor_skill
-    assert "agents/references/param-advisor-isce3.md" in advisor_skill
-    assert "agents/references/param-advisor-isce2.md" in advisor_skill
+    assert "insar_record_param_advice" in advisor_skill
+    assert "external_context" in advisor_skill
+    assert "NASA/JPL/NISAR" in advisor_skill
+    assert "param-advisor-isce3.md" not in advisor_skill
+    assert "param-advisor-isce2.md" not in advisor_skill
 
     reference_lowered = advisor_reference.lower()
     assert "crossmul" in reference_lowered
     assert "snaphu" in reference_lowered
     assert "ionosphere" in reference_lowered
     assert "troposphere" in reference_lowered
+    assert "nasa/jpl/nisar" in reference_lowered
+    assert "usgs" in reference_lowered
+    assert "revisit cycle" in reference_lowered
 
 
 def test_project_level_param_advisor_agent_exists_and_declares_contract():
@@ -98,9 +104,14 @@ def test_project_level_param_advisor_agent_exists_and_declares_contract():
     assert "sources" in lowered
     assert "changes" in lowered
     assert "yaml_diff_preview" in lowered
+    assert "external_context" in lowered
     assert "user_responsibility_notice" in lowered
-    assert "agents/references/param-advisor-isce3.md" in agent
-    assert "agents/references/param-advisor-isce2.md" in agent
+    assert "nasa/jpl/nisar" in lowered
+    assert "usgs" in lowered
+    assert "revisit cycle" in lowered
+    assert "geology" in lowered
+    assert "references/param-advisor/param-advisor-isce3.md" in agent
+    assert "references/param-advisor/param-advisor-isce2.md" in agent
     assert "gpt-5.3-codex" in agent or "gpt codex5.3" in lowered
     assert "claude sonnet 4.6" in lowered or "claude sonnet4.6" in lowered
 

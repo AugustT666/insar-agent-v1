@@ -134,9 +134,12 @@ subagent 返回内容至少应包含：
 - `changes`
 - `yaml_diff_preview`
 - `sources`
+- `external_context`
 - `provenance`
 - `advisory_only`
 - `user_responsibility_notice`
+
+真实数据处理时，subagent 必须执行网络搜索来补充研究区和传感器背景：地质/构造或火山背景、已知形变类型、重访周期、波段/波长、分辨率或像元间距。优先采用 NASA/JPL/NISAR、ASF、USGS/国家地调、ESA/Copernicus、同行评议论文、ISCE/SNAPHU 官方资料等权威信源。
 
 ### Phase 3 — 三选一确认
 
@@ -152,9 +155,10 @@ subagent 返回内容至少应包含：
 
 如果用户选择采用建议参数或自行指定参数：
 
-1. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
-2. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
-3. **落盘（防重复调优）：**
+1. 先调用 `insar_record_param_advice(project_id, recommendation_package=<subagent完整结构化输出>, task_id=<任务代号如E1>)`，把建议、理论依据、外部信源和 diff 固定格式落盘为 JSON + Markdown
+2. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
+3. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
+4. **落盘（防重复调优）：**
    - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
      → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`
      → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
@@ -164,7 +168,7 @@ subagent 返回内容至少应包含：
    - **ISCE2（当前限制）**：除非后续 MCP 明确补齐支持（unless MCP support is added），否则不要假设当前会返回可复用的
      `param_tuned_found` / `param_tuned_config` 信号。当前文案应说明**始终重新调优**，
      或在用户明确接受默认参数时直接继续；不要宣称今天已经能自动复用。
-4. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
+5. 等用户明确确认后，再返回原 workflow 继续 validate / export / run
 
 如果用户选择默认参数：
 

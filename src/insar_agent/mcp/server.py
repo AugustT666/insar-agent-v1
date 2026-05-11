@@ -18,9 +18,18 @@ from pathlib import Path
 import yaml
 from mcp.server.fastmcp import FastMCP
 
-from insar_agent.core.config import set_path, unset_path
+from insar_agent.core.config import get_path, set_path, unset_path
 from insar_agent.core.jobs import BatchJob, DownloadJob, Job
+from insar_agent.core.layout import RunLayout
 from insar_agent.core.project import Project, new_project, resolve_plugin_logs_dir
+from insar_agent.mcp.layout_helpers import (
+    apply_run_layout_to_runconfig as _apply_run_layout_to_runconfig,
+    check_output_dir_depth as _check_output_dir_depth,
+    param_advice_output_dir as _param_advice_output_dir,
+    render_param_advice_markdown as _render_param_advice_markdown,
+    resolve_run_layout as _resolve_run_layout,
+    validate_param_advice_format_version,
+)
 from insar_agent.engines.isce3.adapter import ISCE3Adapter
 from insar_agent.engines.isce3.defaults import (
     ALLOWED_SET_FIELDS as ISCE3_ALLOWED_SET_FIELDS,
@@ -144,14 +153,72 @@ def _ensure_project_logging(project: Project) -> None:
         _ensure_logging_group(project.runconfig_template, project.workspace_root)
 
 
-def _prepare_tool_log(paths: list[str | Path | None], prefix: str, params: dict, *, fallback_root: str | Path | None = None) -> tuple[str, Path, Path]:
+def _normalize_isce3_output_paths(project: Project) -> None:
+    """Legacy path normaliser: resolve relative paths and create directories.
+
+    Kept for backward compatibility.  New code should prefer
+    ``_apply_run_layout_to_runconfig``.
+    """
+    product_path_key = "runconfig.groups.product_path_group.product_path"
+    scratch_path_key = "runconfig.groups.product_path_group.scratch_path"
+    sas_output_key = "runconfig.groups.product_path_group.sas_output_file"
+
+    try:
+        product_path = get_path(project.runconfig, product_path_key)
+    except KeyError:
+        product_path = None
+    try:
+        scratch_path = get_path(project.runconfig, scratch_path_key)
+    except KeyError:
+        scratch_path = None
+    try:
+        sas_output_file = get_path(project.runconfig, sas_output_key)
+    except KeyError:
+        sas_output_file = None
+
+    workspace_root = Path(project.workspace_root).resolve()
+    if isinstance(product_path, str) and product_path:
+        product_dir = Path(product_path)
+        resolved_product_dir = product_dir.resolve()
+        if resolved_product_dir.is_relative_to(workspace_root):
+            product_dir.mkdir(parents=True, exist_ok=True)
+        if isinstance(sas_output_file, str) and sas_output_file and not Path(sas_output_file).is_absolute():
+            set_path(project.runconfig, sas_output_key, str(product_dir / sas_output_file))
+
+    if isinstance(scratch_path, str) and scratch_path:
+        scratch_dir = Path(scratch_path)
+        if scratch_dir.resolve().is_relative_to(workspace_root):
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+
+
+_SENSITIVE_PARAM_KEYS = {"orbit_password", "password", "token", "access_token", "refresh_token"}
+
+
+def _redact_sensitive_params(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            str(key): "<redacted>" if str(key).lower() in _SENSITIVE_PARAM_KEYS else _redact_sensitive_params(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive_params(item) for item in value]
+    return value
+
+
+def _prepare_tool_log(
+    paths: list[str | Path | None],
+    prefix: str,
+    params: dict,
+    *,
+    fallback_root: str | Path | None = None,
+) -> tuple[str, Path, Path]:
     job_id = uuid.uuid4().hex[:12]
     logs_dir = resolve_plugin_logs_dir(*paths, fallback_root=fallback_root)
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / f"{prefix}_{job_id}.log"
     params_path = logs_dir / f"{prefix}_{job_id}_params.json"
     log_path.touch()
-    params_path.write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
+    params_path.write_text(json.dumps(_redact_sensitive_params(params), indent=2, ensure_ascii=False), encoding="utf-8")
     return job_id, log_path, params_path
 
 
@@ -244,7 +311,7 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
    starts by calling insar_describe_rslc(...) to build a metadata-first evidence
    profile, then delegates recommendation generation to the project-level subagent
    defined in agents/param-advisor.md. The subagent may consult the
-   engine-specific reference asset at agents/references/param-advisor-isce{{engine}}.md
+   engine-specific reference asset at references/param-advisor/param-advisor-isce{{engine}}.md
    and may use automatic external search only when local evidence is insufficient.
    The main agent may only apply whitelist-controlled parameters via
    insar_set_processing_param after the subagent returns and the user confirms the plan.
@@ -313,7 +380,7 @@ enter param-advisor first using a temporary insar project and engine=isce3. That
 must delegate recommendation generation to the project-level subagent defined in
 agents/param-advisor.md after calling insar_describe_rslc(...) to build a
 local metadata summary. The subagent may consult the engine-specific reference asset at
-agents/references/param-advisor-isce{{engine}}.md and may use automatic external
+references/param-advisor/param-advisor-isce{{engine}}.md and may use automatic external
 search only when that evidence is insufficient, and the final recommendation must show
 provenance so the user can decide what to trust.
 Export the tuned YAML and pass that file as base_runconfig for both stack and
@@ -803,6 +870,7 @@ def insar_create_project(
     workspace_root: str,
     name: str = "",
     conda_env: str = "",
+    task_id: str = "",
 ) -> dict:
     """
     Create a new InSAR processing project.
@@ -816,6 +884,10 @@ def insar_create_project(
         workspace_root: Absolute path where project files will be written
         name: Human-readable project name (auto-generated if omitted)
         conda_env: Conda environment name for workflow execution (e.g. 'isce3')
+        task_id: Short identifier used as the top-level directory under
+            outputs/ (e.g. 'E1'). Drives the run-root layout
+            outputs/<task_id>/<run_id>/. Falls back to a sanitized name if
+            omitted. Always pass the task_id from the task description.
     """
     if engine not in _ENGINES:
         return _engine_error(engine)
@@ -847,6 +919,7 @@ def insar_create_project(
             workflow=workflow,
             workspace_root=str(ws.resolve()),
             conda_env=conda_env.strip() or None,
+            task_id=task_id.strip() or None,
         )
         project.runconfig = default_params
         project.runconfig_template = default_params
@@ -891,6 +964,7 @@ def insar_create_project(
         workflow=workflow,
         workspace_root=str(ws.resolve()),
         conda_env=conda_env.strip() or None,
+        task_id=task_id.strip() or None,
     )
     project.runconfig = default_runconfig
     project.runconfig_template = default_runconfig
@@ -919,7 +993,7 @@ def insar_create_project(
             "call insar_describe_rslc, then delegate recommendation generation to the "
             "project-level subagent defined in agents/param-advisor.md before "
             "applying changes via insar_set_processing_param. The subagent may consult the "
-            "engine-specific reference asset at agents/references/param-advisor-isce{engine}.md and may use automatic "
+            "engine-specific reference asset at references/param-advisor/param-advisor-isce{engine}.md and may use automatic "
             "external search only when local evidence is insufficient, and the user remains "
             "responsible for accepting or rejecting those sources."
         ),
@@ -1015,6 +1089,63 @@ def insar_set_runconfig_value(project_id: str, key: str, value: object) -> dict:
         "key": key,
         "value": value,
         "updated_at": project.updated_at,
+    }
+
+
+@mcp.tool()
+def insar_record_param_advice(
+    project_id: str,
+    recommendation_package: dict,
+    output_dir: str = "",
+    task_id: str = "",
+    format_version: str = "param-advisor.v1",
+) -> dict:
+    """Persist a fixed-format parameter advisory package for audit and papers."""
+    try:
+        project = Project.load(project_id)
+    except (KeyError, FileNotFoundError):
+        return _project_error(project_id)
+
+    if not isinstance(recommendation_package, dict):
+        return {"error": "invalid_recommendation_package", "message": "recommendation_package must be an object"}
+
+    try:
+        validate_param_advice_format_version(format_version)
+    except ValueError as exc:
+        return {"error": "invalid_format_version", "message": str(exc)}
+
+    try:
+        advice_dir = _param_advice_output_dir(project, output_dir, task_id)
+    except ValueError as exc:
+        return {"error": "invalid_output_dir", "message": str(exc)}
+
+    try:
+        advice_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return {"error": "output_dir_not_writable", "message": str(exc)}
+
+    record = {
+        "format_version": format_version,
+        "created_at": _utc_now(),
+        "project_id": project.project_id,
+        "engine": project.engine,
+        "workflow": project.workflow,
+        "recommendation_package": recommendation_package,
+    }
+    json_path = advice_dir / "recommendation.json"
+    markdown_path = advice_dir / "recommendation.md"
+    try:
+        json_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        markdown_path.write_text(_render_param_advice_markdown(record), encoding="utf-8")
+    except Exception as exc:
+        return {"error": "write_failed", "message": str(exc)}
+
+    return {
+        "project_id": project.project_id,
+        "advice_dir": str(advice_dir),
+        "recommendation_json": str(json_path),
+        "recommendation_markdown": str(markdown_path),
+        "format_version": format_version,
     }
 
 
@@ -1337,7 +1468,17 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
     configs_dir = project.configs_dir()
     configs_dir.mkdir(parents=True, exist_ok=True)
 
+    _isce2_layout: RunLayout | None = None
+
     if project.workflow == "tops":
+        # Apply run-root layout so ISCE2 native outputs (merged/, geom_reference/, etc.)
+        # land inside <run_root>/ rather than scattering at workspace root.
+        _isce2_layout = _resolve_run_layout(project)
+        if _isce2_layout:
+            _isce2_layout.run_root.mkdir(parents=True, exist_ok=True)
+            _isce2_layout.logs_dir.mkdir(parents=True, exist_ok=True)
+        isce2_work_dir = str(_isce2_layout.run_root) if _isce2_layout else project.workspace_root
+
         try:
             dem_file = materialize_dem_for_tops(params["dem_file"], project.workspace_root)
             xml_content = build_topsapp_xml({**params, "dem_file": dem_file})
@@ -1358,9 +1499,15 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
 
     elif project.workflow == "stack":
         # stackSentinel.py args are passed directly (no config file)
+        # Apply run-root layout: work_dir = <run_root>/stack to avoid scatter at workspace root
+        _isce2_layout = _resolve_run_layout(project)
+        isce2_work_dir = str(_isce2_layout.stack_dir) if _isce2_layout else project.workspace_root
+        if _isce2_layout:
+            _isce2_layout.stack_dir.mkdir(parents=True, exist_ok=True)
+            _isce2_layout.logs_dir.mkdir(parents=True, exist_ok=True)
         command = isce2_build_stack_command(
             params=params,
-            work_dir=project.workspace_root,
+            work_dir=isce2_work_dir,
             conda_env=project.conda_env,
         )
         config_path = None
@@ -1368,28 +1515,50 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
     else:
         return {"error": "workflow_not_found", "message": f"Unknown ISCE2 workflow: {project.workflow!r}"}
 
-    job = Job(
-        project_id=project.project_id,
-        engine=project.engine,
-        workflow=project.workflow,
-        command=command,
-        runconfig_path=str(config_path) if config_path else "",
-    )
-    log_path = str(project.logs_dir() / f"{job.job_id}.log")
-    exit_code_path = str(project.logs_dir() / f"{job.job_id}.exitcode")
+    # Build Job — include run-layout metadata when available (both tops and stack)
+    if _isce2_layout is not None:
+        job = Job(
+            project_id=project.project_id,
+            engine=project.engine,
+            workflow=project.workflow,
+            command=command,
+            runconfig_path=str(config_path) if config_path else "",
+            task_id=_isce2_layout.task_id,
+            run_id=_isce2_layout.run_id,
+            run_root=str(_isce2_layout.run_root),
+            logs_dir=str(_isce2_layout.logs_dir),
+        )
+        _logs_dir = _isce2_layout.logs_dir
+    else:
+        job = Job(
+            project_id=project.project_id,
+            engine=project.engine,
+            workflow=project.workflow,
+            command=command,
+            runconfig_path=str(config_path) if config_path else "",
+        )
+        _logs_dir = project.logs_dir()
+
+    log_path = str(_logs_dir / f"{job.job_id}.log")
+    exit_code_path = str(_logs_dir / f"{job.job_id}.exitcode")
     job.log_path = log_path
     job.exit_code_path = exit_code_path
 
     if dry_run:
-        return {
+        result: dict = {
             "job_id": job.job_id,
             "project_id": project.project_id,
             "command": command,
             "status": "dry_run",
             "dry_run": True,
         }
+        if _isce2_layout is not None:
+            result["run_root"] = str(_isce2_layout.run_root)
+            if project.workflow == "stack":
+                result["stack_dir"] = str(_isce2_layout.stack_dir)
+        return result
 
-    project.logs_dir().mkdir(parents=True, exist_ok=True)
+    _logs_dir.mkdir(parents=True, exist_ok=True)
     project.outputs_dir().mkdir(parents=True, exist_ok=True)
 
     job.started_at = _utc_now()
@@ -1405,7 +1574,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         )
         job.pid = _launch_detached_shell_job(
             shell_command,
-            cwd=project.workspace_root,
+            cwd=isce2_work_dir,
             env=_conda_safe_env(),
             log_path=log_path,
         )
@@ -1417,7 +1586,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         job.save(project.jobs_dir())
         return {"error": "launch_failed", "message": str(exc)}
 
-    return {
+    response: dict = {
         "job_id": job.job_id,
         "project_id": project.project_id,
         "command": command,
@@ -1428,6 +1597,9 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         "dry_run": False,
         "poll": f"insar_get_job(job_id='{job.job_id}', project_id='{project.project_id}')",
     }
+    if _isce2_layout is not None:
+        response["run_root"] = str(_isce2_layout.run_root)
+    return response
 
 
 @mcp.tool()
@@ -1452,7 +1624,15 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
     if project.engine == "isce2":
         return _run_workflow_isce2(project, dry_run)
 
-    _ensure_project_logging(project)
+    # Resolve run layout (enforces workspace_root structure, generates run_id)
+    run_layout = _resolve_run_layout(project)
+    if run_layout is not None:
+        _apply_run_layout_to_runconfig(project, run_layout)
+    else:
+        # Fallback for legacy projects with non-conforming workspace_root
+        _ensure_project_logging(project)
+        _normalize_isce3_output_paths(project)
+
     _param_tuned_path = Path(project.workspace_root) / "param_tuned" / "runconfig.yaml"
     _param_tuned_found = _param_tuned_path.exists()
     # Step 1: validate
@@ -1464,16 +1644,25 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             "errors": errors,
         }
 
-    # Step 2: export YAML to configs_dir
-    configs_dir = project.configs_dir()
+    # Step 2: export YAML — authoritative copy in run_root/configs/, legacy copy in workspace/configs/
+    if run_layout is not None:
+        auth_configs_dir = run_layout.configs_dir
+    else:
+        auth_configs_dir = project.configs_dir()
+
     try:
-        configs_dir.mkdir(parents=True, exist_ok=True)
-        yaml_path = configs_dir / "runconfig.yaml"
-        yaml_path.write_text(
-            yaml.dump(project.runconfig, default_flow_style=False, allow_unicode=True)
-        )
+        auth_configs_dir.mkdir(parents=True, exist_ok=True)
+        yaml_path = auth_configs_dir / "runconfig.yaml"
+        yaml_content = yaml.dump(project.runconfig, default_flow_style=False, allow_unicode=True)
+        yaml_path.write_text(yaml_content)
+        # Legacy workspace-level copy
+        if run_layout is not None:
+            legacy_configs_dir = project.configs_dir()
+            legacy_configs_dir.mkdir(parents=True, exist_ok=True)
+            (legacy_configs_dir / "runconfig.yaml").write_text(yaml_content)
     except Exception as exc:
         return {"error": "export_failed", "message": str(exc)}
+
     project.runconfig_exported_path = str(yaml_path)
     project.save()
     runconfig_path = str(yaml_path)
@@ -1484,20 +1673,44 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         conda_env=project.conda_env,
     )
 
-    job = Job(
-        project_id=project.project_id,
-        engine=project.engine,
-        workflow=project.workflow,
-        command=command,
-        runconfig_path=runconfig_path,
-    )
-    log_path = str(project.logs_dir() / f"{job.job_id}.log")
-    exit_code_path = str(project.logs_dir() / f"{job.job_id}.exitcode")
+    if run_layout is not None:
+        logs_dir = run_layout.logs_dir
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        expected_output = str(run_layout.products_dir / f"{run_layout.run_id}_GUNW.h5")
+        job = Job(
+            project_id=project.project_id,
+            engine=project.engine,
+            workflow=project.workflow,
+            command=command,
+            runconfig_path=runconfig_path,
+            task_id=run_layout.task_id,
+            run_id=run_layout.run_id,
+            run_root=str(run_layout.run_root),
+            products_dir=str(run_layout.products_dir),
+            scratch_dir=str(run_layout.scratch_dir),
+            configs_dir=str(run_layout.configs_dir),
+            logs_dir=str(run_layout.logs_dir),
+            metrics_path=str(run_layout.metrics_dir / "product_metrics.json"),
+            output_paths=[expected_output],
+        )
+    else:
+        logs_dir = project.logs_dir()
+        expected_output = None
+        job = Job(
+            project_id=project.project_id,
+            engine=project.engine,
+            workflow=project.workflow,
+            command=command,
+            runconfig_path=runconfig_path,
+        )
+
+    log_path = str(logs_dir / f"{job.job_id}.log")
+    exit_code_path = str(logs_dir / f"{job.job_id}.exitcode")
     job.log_path = log_path
     job.exit_code_path = exit_code_path
 
     if dry_run:
-        return {
+        result: dict = {
             "job_id": job.job_id,
             "project_id": project_id,
             "command": command,
@@ -1506,8 +1719,17 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             "param_tuned_found": _param_tuned_found,
             "param_tuned_config": str(_param_tuned_path) if _param_tuned_found else None,
         }
+        if run_layout is not None:
+            result.update({
+                "run_root": str(run_layout.run_root),
+                "products_dir": str(run_layout.products_dir),
+                "scratch_dir": str(run_layout.scratch_dir),
+                "configs_dir": str(run_layout.configs_dir),
+                "expected_output": expected_output,
+            })
+        return result
 
-    project.logs_dir().mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
     project.outputs_dir().mkdir(parents=True, exist_ok=True)
 
     job.started_at = _utc_now()
@@ -1535,7 +1757,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         job.save(project.jobs_dir())
         return {"error": "launch_failed", "message": str(exc)}
 
-    return {
+    result = {
         "job_id": job.job_id,
         "project_id": project_id,
         "command": command,
@@ -1548,6 +1770,15 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         "param_tuned_found": _param_tuned_found,
         "param_tuned_config": str(_param_tuned_path) if _param_tuned_found else None,
     }
+    if run_layout is not None:
+        result.update({
+            "run_root": str(run_layout.run_root),
+            "products_dir": str(run_layout.products_dir),
+            "scratch_dir": str(run_layout.scratch_dir),
+            "configs_dir": str(run_layout.configs_dir),
+            "expected_output": expected_output,
+        })
+    return result
 
 
 @mcp.tool()
@@ -1580,6 +1811,8 @@ def insar_get_job(
             return {"error": "path_not_found", "message": f"output_dir not found: {output_dir!r}"}
         try:
             dl_job = DownloadJob.load(job_id, output_dir)
+        except ValueError as exc:
+            return {"error": "invalid_job_id", "message": str(exc)}
         except FileNotFoundError:
             return {"error": "job_not_found", "message": f"No download job {job_id!r} in {output_dir!r}"}
         except Exception as exc:
@@ -1635,11 +1868,15 @@ def insar_get_job(
             return {"error": "path_not_found", "message": f"batch_dir not found: {batch_dir!r}"}
         try:
             batch_job = BatchJob.load(job_id, batch_dir)
+        except ValueError as exc:
+            return {"error": "invalid_job_id", "message": str(exc)}
         except FileNotFoundError:
             return {"error": "job_not_found", "message": f"No batch job {job_id!r} in {batch_dir!r}"}
         except TypeError:
             try:
                 legacy_job = Job.load(job_id, BatchJob.jobs_dir_for(batch_dir))
+            except ValueError as exc:
+                return {"error": "invalid_job_id", "message": str(exc)}
             except (FileNotFoundError, json.JSONDecodeError, TypeError) as exc:
                 return {"error": "load_failed", "message": str(exc)}
             return _job_result(legacy_job, include_logs=include_logs)
@@ -1735,6 +1972,8 @@ def insar_get_job(
 
     try:
         job = Job.load(job_id, project.jobs_dir())
+    except ValueError as exc:
+        return {"error": "invalid_job_id", "message": str(exc)}
     except FileNotFoundError:
         return _job_error(job_id)
 
@@ -1885,22 +2124,99 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
     }
 
     artifacts = []
-    candidate_dirs = [project.outputs_dir() / job_id]
+    workspace_root = Path(project.workspace_root)
+    candidate_dirs: list[Path] = []
+    candidate_files: list[Path] = []
+
+    # Priority 1: paths explicitly stored in job metadata (run-layout aware)
+    for p in job.output_paths:
+        candidate_files.append(Path(p))
+
+    if job.run_root:
+        run_root_path = Path(job.run_root)
+        if run_root_path not in candidate_dirs:
+            candidate_dirs.append(run_root_path)
+
+    if job.products_dir:
+        products_path = Path(job.products_dir)
+        if products_path not in candidate_dirs:
+            candidate_dirs.append(products_path)
+
+    # Priority 2: runconfig product_path / sas_output_file
+    try:
+        product_path = get_path(project.runconfig, "runconfig.groups.product_path_group.product_path")
+    except KeyError:
+        product_path = None
+    if isinstance(product_path, str) and product_path:
+        product_dir = Path(product_path)
+        if product_dir not in candidate_dirs:
+            candidate_dirs.append(product_dir)
+
+    try:
+        sas_output_file = get_path(project.runconfig, "runconfig.groups.product_path_group.sas_output_file")
+    except KeyError:
+        sas_output_file = None
+    if isinstance(sas_output_file, str) and sas_output_file:
+        sas_output_path = Path(sas_output_file)
+        if sas_output_path.is_absolute():
+            candidate_files.append(sas_output_path)
+        else:
+            candidate_files.append(workspace_root / sas_output_path)
+            if isinstance(product_path, str) and product_path:
+                candidate_files.append(Path(product_path) / sas_output_path)
+
+    # Priority 3: legacy fallback directories
+    legacy_by_job = project.outputs_dir() / job_id
+    if legacy_by_job not in candidate_dirs:
+        candidate_dirs.append(legacy_by_job)
     if project.outputs_dir() not in candidate_dirs:
         candidate_dirs.append(project.outputs_dir())
+
+    if project.engine == "isce3":
+        candidate_files.extend(sorted(workspace_root.glob("*.h5")))
     if project.engine == "isce2":
         candidate_dirs.extend(
             [
-                Path(project.workspace_root) / "merged",
-                Path(project.workspace_root) / "reference",
-                Path(project.workspace_root) / "secondary",
-                Path(project.workspace_root) / "geom_reference",
-                Path(project.workspace_root) / "fine_interferogram",
-                Path(project.workspace_root) / "fine_coreg",
+                workspace_root / "merged",
+                workspace_root / "reference",
+                workspace_root / "secondary",
+                workspace_root / "geom_reference",
+                workspace_root / "fine_interferogram",
+                workspace_root / "fine_coreg",
             ]
         )
 
+    def _make_artifact(f: Path) -> dict:
+        ext = f.suffix.lower()
+        artifact_type, description, viewer = _TYPE_MAP.get(ext, ("other", "Output file", ""))
+        entry: dict = {
+            "path": str(f),
+            "artifact_type": artifact_type,
+            "description": description,
+            "recommended_viewer": viewer,
+        }
+        try:
+            entry["relative_path"] = str(f.relative_to(workspace_root))
+        except ValueError:
+            entry["relative_path"] = str(f)
+        if job.task_id:
+            entry["task_id"] = job.task_id
+        if job.run_id:
+            entry["run_id"] = job.run_id
+        if job.run_root:
+            entry["run_root"] = job.run_root
+        return entry
+
     seen_paths: set[str] = set()
+    for f in candidate_files:
+        if not f.is_file():
+            continue
+        path_str = str(f)
+        if path_str in seen_paths:
+            continue
+        seen_paths.add(path_str)
+        artifacts.append(_make_artifact(f))
+
     for outputs_dir in candidate_dirs:
         if not outputs_dir.exists():
             continue
@@ -1910,18 +2226,14 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
                 if path_str in seen_paths:
                     continue
                 seen_paths.add(path_str)
-                ext = f.suffix.lower()
-                artifact_type, description, viewer = _TYPE_MAP.get(ext, ("other", "Output file", ""))
-                artifacts.append({
-                    "path": path_str,
-                    "artifact_type": artifact_type,
-                    "description": description,
-                    "recommended_viewer": viewer,
-                })
+                artifacts.append(_make_artifact(f))
 
     return {
         "job_id": job_id,
         "status": job.status,
+        "task_id": job.task_id,
+        "run_id": job.run_id,
+        "run_root": job.run_root,
         "outputs": artifacts,
     }
 
@@ -1967,6 +2279,13 @@ def insar_prepare_stack(
         _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
         result["param_tuned_found"] = _param_tuned.exists()
         result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
+        # Warn if output_dir is too shallow for run-root layout
+        _workspace_guess = Path(data_dir).parents[0]
+        _depth_warn = _check_output_dir_depth(output_dir, _workspace_guess, "stack")
+        if _depth_warn:
+            result["layout_warning"] = (
+                _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/stack"
+            )
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -2044,6 +2363,13 @@ def insar_prepare_network(
         _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
         result["param_tuned_found"] = _param_tuned.exists()
         result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
+        # Warn if output_dir is too shallow for run-root layout
+        _workspace_guess = Path(data_dir).parents[0]
+        _depth_warn = _check_output_dir_depth(output_dir, _workspace_guess, "network")
+        if _depth_warn:
+            result["layout_warning"] = (
+                _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/network"
+            )
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -2317,6 +2643,34 @@ def _resolve_bbox_input(
 
 
 @mcp.tool()
+def insar_task_done(signal_file: str, summary: str = "") -> dict:
+    """
+    Write a completion signal file to notify the test harness that the task is done.
+
+    Call this as the very last step of every workflow skill, after all outputs,
+    metrics, and GeoTIFF exports are complete.  The test harness (launch script)
+    watches for this file and uses it to trigger terminal-output capture.
+
+    Args:
+        signal_file: Absolute path to write the signal to.  Provided by the
+            harness in the task prompt (look for 'done.signal' in the prompt).
+        summary: One-line human-readable task outcome, e.g. 'E1 done: GUNW at ...'.
+    """
+    import json as _json
+    from datetime import datetime, UTC
+
+    path = Path(signal_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "done": True,
+        "summary": summary,
+        "written_at": datetime.now(UTC).isoformat(),
+    }
+    path.write_text(_json.dumps(payload, indent=2))
+    return {"signal_file": str(path), "summary": summary}
+
+
+@mcp.tool()
 def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
     """
     Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images.
@@ -2405,7 +2759,7 @@ def insar_run_mintpy(
         return {"error": "launch_failed", "message": str(exc)}
 
     job_id = result["job_id"]
-    return {
+    response: dict = {
         "job_id": job_id,
         "pid": result["pid"],
         "status": result["status"],
@@ -2420,6 +2774,14 @@ def insar_run_mintpy(
         "poll": f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')",
         "work_dir": mintpy_work_dir,
     }
+    # Warn if mintpy_work_dir is too shallow for run-root layout
+    _workspace_guess = Path(mintpy_work_dir).parent
+    _depth_warn = _check_output_dir_depth(mintpy_work_dir, _workspace_guess.parent, "mintpy")
+    if _depth_warn:
+        response["layout_warning"] = (
+            _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/mintpy"
+        )
+    return response
 
 
 @mcp.tool()
@@ -2466,7 +2828,7 @@ def insar_run_mintpy_isce2(
         return {"error": "launch_failed", "message": str(exc)}
 
     job_id = result["job_id"]
-    return {
+    isce2_mintpy_response: dict = {
         "job_id": job_id,
         "pid": result["pid"],
         "status": result["status"],
@@ -2483,6 +2845,13 @@ def insar_run_mintpy_isce2(
         "work_dir": mintpy_work_dir,
         "stack_work_dir": stack_work_dir,
     }
+    # Warn if mintpy_work_dir is too shallow for run-root layout
+    _depth_warn = _check_output_dir_depth(mintpy_work_dir, Path(mintpy_work_dir).parent.parent, "mintpy")
+    if _depth_warn:
+        isce2_mintpy_response["layout_warning"] = (
+            _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/mintpy"
+        )
+    return isce2_mintpy_response
 
 
 def insar_get_mintpy_status(job_id: str, mintpy_work_dir: str) -> dict:
@@ -3049,11 +3418,14 @@ def _launch_sentinel_prepare_background(params: dict) -> dict:
     params_path = logs_dir / f"sentinel_prepare_{job.job_id}_params.json"
     runner_path = logs_dir / f"sentinel_prepare_{job.job_id}_run.py"
     log_path.touch()
-    params_path.write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
+    orbit_password = params.get("orbit_password")
+    params_for_disk = {key: value for key, value in params.items() if key != "orbit_password"}
+    params_path.write_text(json.dumps(params_for_disk, indent=2, ensure_ascii=False), encoding="utf-8")
 
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
 import json
+import os
 import sys
 import traceback
 sys.path.insert(0, {src_dir!r})
@@ -3062,6 +3434,9 @@ from insar_agent.mcp.server import insar_download_dem
 
 with open({str(params_path)!r}, encoding="utf-8") as _f:
     _params = json.load(_f)
+_orbit_password = os.environ.get("INSAR_AGENT_ORBIT_PASSWORD")
+if _orbit_password is not None:
+    _params["orbit_password"] = _orbit_password
 
 try:
     _result = prepare_sentinel_data(**_params, dem_downloader=insar_download_dem)
@@ -3072,13 +3447,14 @@ except Exception as _exc:
     runner_path.write_text(runner_script, encoding="utf-8")
     job.log_path = str(log_path)
 
+    env_overrides = {"INSAR_AGENT_ORBIT_PASSWORD": str(orbit_password)} if orbit_password else None
     try:
         with open(log_path, "w", encoding="utf-8") as log_file:
             proc = subprocess.Popen(
                 [sys.executable, str(runner_path)],
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
-                env=_conda_safe_env(),
+                env=_conda_safe_env(env_overrides),
                 start_new_session=True,
             )
     except Exception as exc:

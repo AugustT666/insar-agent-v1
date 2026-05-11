@@ -101,7 +101,7 @@ This creates context pollution and makes the advice entangled with client model 
 
 **Subagent** (`agents/param-advisor.md`):
 - Advisory-only; does not call MCP tools
-- Reads compressed evidence + reference asset (`agents/references/param-advisor-isce{engine}.md`)
+- Reads compressed evidence + reference asset (`references/param-advisor/param-advisor-isce{engine}.md`)
 - Outputs structured recommendation package with:
   - `advisory_only: true`
   - `user_responsibility_notice`
@@ -346,8 +346,8 @@ no longer the authoritative definition.
 /home/august/insar-agent/CLAUDE.md                                       (80 lines) — Developer guidance; lines 57–63 define param-advisor contract
 /home/august/insar-agent/docs/agent-guide.md                            (51 lines) — Hard constraints; lines 16–21 define skill/subagent contract
 /home/august/insar-agent/agents/param-advisor.md                (129 lines) — Subagent contract; lines 26–44 hard constraints
-/home/august/insar-agent/agents/references/param-advisor-isce3.md    (evidence patterns, heuristics)
-/home/august/insar-agent/agents/references/param-advisor-isce2.md    (workflow-specific templates)
+/home/august/insar-agent/references/param-advisor/param-advisor-isce3.md    (evidence patterns, heuristics)
+/home/august/insar-agent/references/param-advisor/param-advisor-isce2.md    (workflow-specific templates)
 /home/august/insar-agent/docs/developer-documents/mcp-knowledge-base-mapping.md — Tool provenance
 /home/august/insar-agent/docs/architecture.md                           (147 lines) — Layer boundaries; lines 43–45 define skill layer
 ```
