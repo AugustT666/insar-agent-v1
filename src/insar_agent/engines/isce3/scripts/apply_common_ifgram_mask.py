@@ -65,7 +65,8 @@ def main() -> int:
             valid &= unw_rel != 0.0
             valid &= conn > 0
             valid &= coh >= args.coherence_threshold
-            common_mask[row0:row1, :] = np.all(valid, axis=0)
+            # Require pixel valid in at least half of pairs (not all)
+            common_mask[row0:row1, :] = np.sum(valid, axis=0) >= max(1, num_ifg // 2)
 
         if ref_y is not None and ref_x is not None:
             common_mask[ref_y, ref_x] = True

@@ -50,10 +50,10 @@ def read_text(path: Path) -> str:
 
 
 def replace_scalar(text: str, key: str, value: str) -> str:
-    pattern = re.compile(rf"(?m)^(?P<prefix>\s*{re.escape(key)}:\s*).*$")
+    pattern = re.compile(rf"(?m)^(?P<prefix>[ \t]*{re.escape(key)}):[ \t]*.*$")
     if not pattern.search(text):
         raise ValueError(f"Key '{key}' not found in template runconfig")
-    return pattern.sub(rf"\g<prefix>{value}", text, count=1)
+    return pattern.sub(rf"\g<prefix>: {value}", text, count=1)
 
 
 def ensure_logging_group(text: str) -> str:
