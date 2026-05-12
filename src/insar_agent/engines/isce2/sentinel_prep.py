@@ -265,6 +265,7 @@ def _extract_annotation_product(xml_path: Path, swath: str, polarization: str) -
             continue
         source_filename = product.attrib.get("source_filename") or f"{swath.lower()}-{polarization.lower()}.xml"
         trimmed = _trim_annotation_to_single_burst(content)
+        trimmed.tag = "product"
         return source_filename, ET.tostring(trimmed, encoding="unicode")
     return None
 
