@@ -57,3 +57,6 @@ echo "Re-applying common mask after reference_point"
 
 echo "Resuming MintPy from correct_unwrap_error to reference_date (skip quick_overview bug and optional steps)"
 "$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$CUSTOM_CFG" --start correct_unwrap_error --end reference_date
+
+echo "Running velocity estimation and geocoding"
+"$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$CUSTOM_CFG" --start velocity --end geocode
