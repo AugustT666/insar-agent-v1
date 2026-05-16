@@ -277,6 +277,18 @@ def prepare_stack_common_grid(
             f["coherence"][i] = cor_resampled
             f["connectComponent"][i] = conn_resampled
             f["bperp"][i] = pbase
+            f.flush()
+
+            # Verify coherence was written correctly; retry once if all-zero.
+            written = f["coherence"][i]
+            if prep_nisar.np.nanmax(prep_nisar.np.abs(written)) == 0.0:
+                _log.warning(
+                    "pair %s: coherence written as all-zero — retrying write",
+                    date12_list[i],
+                )
+                f["coherence"][i] = cor_resampled
+                f.flush()
+
             prog_bar.update(i + 1, suffix=date12_list[i])
         prog_bar.close()
 
