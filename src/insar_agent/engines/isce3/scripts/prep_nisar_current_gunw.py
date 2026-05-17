@@ -279,13 +279,25 @@ def prepare_stack_common_grid(
             f["bperp"][i] = pbase
             f.flush()
 
-            # Verify coherence was written correctly; retry once if all-zero.
-            written = f["coherence"][i]
-            if prep_nisar.np.nanmax(prep_nisar.np.abs(written)) == 0.0:
+            # Verify coherence; if all-zero, the source GUNW may not have been
+            # fully flushed to disk by the upstream ISCE3 process yet.
+            # Re-read the source file and resample again (up to 3 attempts).
+            for _attempt in range(3):
+                written = f["coherence"][i]
+                if prep_nisar.np.nanmax(prep_nisar.np.abs(written)) != 0.0:
+                    break
+                import time as _time
+                _time.sleep(2)
                 _log.warning(
-                    "pair %s: coherence written as all-zero — retrying write",
-                    date12_list[i],
+                    "pair %s: coherence all-zero (attempt %d) — re-reading source and retrying",
+                    date12_list[i], _attempt + 1,
                 )
+                with prep_nisar.h5py.File(file, "r") as _ds:
+                    cor_data = _ds[prep_nisar.DATASETS["cor"]][:]
+                cor_resampled = resample_to_common_grid(
+                    cor_data, src_xcoord, src_ycoord,
+                    xcoord_common, ycoord_common, method="nearest",
+                ).astype(prep_nisar.np.float32)
                 f["coherence"][i] = cor_resampled
                 f.flush()
 

@@ -41,6 +41,9 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 1
 fi
 
+echo "Syncing filesystem before reading GUNW files (allow kernel page cache to flush)"
+sync
+
 echo "Preparing MintPy inputs from ${#files[@]} GUNW files"
 "$PYTHON_BIN" "$ROOT_DIR/scripts/prep_nisar_current_gunw.py" -i "$GUNW_GLOB" -d "$DEM_FILE" -o "$WORK_DIR" --force
 "$PYTHON_BIN" "$ROOT_DIR/scripts/apply_common_ifgram_mask.py" "$WORK_DIR/inputs/ifgramStack.h5" --coherence-threshold 0.4
