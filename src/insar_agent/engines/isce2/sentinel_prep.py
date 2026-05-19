@@ -270,6 +270,121 @@ def _extract_annotation_product(xml_path: Path, swath: str, polarization: str) -
     return None
 
 
+def _extract_burst_content(xml_path: Path, swath: str, polarization: str) -> tuple[str, ET.Element] | None:
+    """Extract (source_filename, raw content element) from a burst XML without trimming bursts."""
+    root = ET.fromstring(xml_path.read_bytes())
+    for product in root.findall("./metadata/product"):
+        if (product.findtext("swath") or "").strip().upper() != swath.upper():
+            continue
+        if (product.findtext("polarisation") or "").strip().upper() != polarization.upper():
+            continue
+        content = product.find("content")
+        if content is None:
+            continue
+        source_filename = product.attrib.get("source_filename") or f"{swath.lower()}-{polarization.lower()}.xml"
+        return source_filename, _clone_xml(content)
+    return None
+
+
+def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, scene_id: str) -> tuple[str, str]:
+    """Build a single multi-burst annotation XML from per-burst XMLs.
+
+    Returns (annotation_filename, annotation_xml_text).
+    """
+    burst_elements: list[ET.Element] = []
+    base_annotation: ET.Element | None = None
+    base_source_filename: str | None = None
+
+    for xml_path in sorted_xmls:
+        result = _extract_burst_content(xml_path, swath, pol)
+        if result is None:
+            continue
+        source_filename, content = result
+        if base_annotation is None:
+            base_annotation = content
+            base_source_filename = source_filename
+        burst_list = content.find("swathTiming/burstList")
+        if burst_list is not None:
+            burst_elements.extend(list(burst_list))
+
+    if base_annotation is None or not burst_elements:
+        fallback_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}-synthetic.xml"
+        return fallback_name, f"<product/>"
+
+    # Merge all bursts into the base annotation
+    merged = _clone_xml(base_annotation)
+    burst_list = merged.find("swathTiming/burstList")
+    if burst_list is not None:
+        for child in list(burst_list):
+            burst_list.remove(child)
+        for burst_el in burst_elements:
+            burst_list.append(_clone_xml(burst_el))
+        burst_list.set("count", str(len(burst_elements)))
+
+    # Update numberOfLines to reflect total burst count
+    num_lines_el = merged.find("imageAnnotation/imageInformation/numberOfLines")
+    if num_lines_el is not None and burst_elements:
+        first_valid = burst_elements[0].findtext("firstValidSample", "")
+        lines_per_burst = len(first_valid.split()) if first_valid.strip() else 0
+        if lines_per_burst:
+            num_lines_el.text = str(lines_per_burst * len(burst_elements))
+
+    # Update auxiliary list counts to match burst count
+    for path in [
+        "generalAnnotation/azimuthFmRateList",
+        "dopplerCentroid/dcEstimateList",
+        "antennaPattern/antennaPatternList",
+    ]:
+        node = merged.find(path)
+        if node is not None and "count" in node.attrib:
+            node.set("count", str(len(list(node))))
+
+    merged.tag = "product"
+    # Strip burst-number suffix (-005, -006 …) to get the swath-level name
+    annotation_name = re.sub(r"-\d{3}(\.xml)$", r"\1", base_source_filename or "")
+    if not annotation_name.endswith(".xml"):
+        annotation_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}.xml"
+
+    return annotation_name, ET.tostring(merged, encoding="unicode")
+
+
+def _concatenate_burst_tiffs(sorted_tiffs: list[Path], output: Path) -> None:
+    """Vertically concatenate per-burst GeoTIFFs into a single swath TIFF using GDAL."""
+    from osgeo import gdal  # available in both base and isce2 envs
+
+    if not sorted_tiffs:
+        return
+
+    ds0 = gdal.Open(str(sorted_tiffs[0]))
+    n_cols = ds0.RasterXSize
+    n_bands = ds0.RasterCount
+    datatype = ds0.GetRasterBand(1).DataType
+    ds0 = None
+
+    total_rows = 0
+    rows_per_file: list[int] = []
+    for p in sorted_tiffs:
+        ds = gdal.Open(str(p))
+        rows_per_file.append(ds.RasterYSize)
+        total_rows += ds.RasterYSize
+        ds = None
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(output), n_cols, total_rows, n_bands, datatype)
+
+    y_offset = 0
+    for p, nrows in zip(sorted_tiffs, rows_per_file):
+        ds = gdal.Open(str(p))
+        for b in range(1, n_bands + 1):
+            data = ds.GetRasterBand(b).ReadAsArray()
+            out_ds.GetRasterBand(b).WriteArray(data, 0, y_offset)
+        y_offset += nrows
+        ds = None
+
+    out_ds.FlushCache()
+    out_ds = None
+
+
 def _synthesize_annotation_and_measurement(scene_id: str, scene_paths: list[Path], safe_dir: Path) -> None:
     annotation_dir = _ensure_dir(safe_dir / "annotation")
     measurement_dir = _ensure_dir(safe_dir / "measurement")
@@ -290,20 +405,24 @@ def _synthesize_annotation_and_measurement(scene_id: str, scene_paths: list[Path
     for (swath, pol), bucket in groups.items():
         if not bucket["xml"] or not bucket["tiff"]:
             continue
-        representative_xml = sorted(bucket["xml"])[0]
-        representative_tiff = sorted(bucket["tiff"])[0]
-        extracted = _extract_annotation_product(representative_xml, swath, pol)
 
-        if extracted is not None:
-            annotation_name, annotation_text = extracted
-        else:
-            annotation_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}-synthetic.xml"
-            annotation_text = representative_xml.read_text(encoding="utf-8")
+        sorted_xmls = sorted(bucket["xml"])
+        sorted_tiffs = sorted(bucket["tiff"])
 
+        annotation_name, annotation_text = _build_combined_annotation(
+            sorted_xmls, swath, pol, scene_id
+        )
         annotation_path = annotation_dir / annotation_name
         annotation_path.write_text(annotation_text, encoding="utf-8")
+
         measurement_name = annotation_name.replace(".xml", ".tiff")
-        _safe_link(representative_tiff, measurement_dir / measurement_name)
+        measurement_path = measurement_dir / measurement_name
+        if measurement_path.exists() or measurement_path.is_symlink():
+            pass  # already synthesized; skip to avoid overwriting
+        elif len(sorted_tiffs) == 1:
+            _safe_link(sorted_tiffs[0], measurement_path)
+        else:
+            _concatenate_burst_tiffs(sorted_tiffs, measurement_path)
 
 
 def _normalize_satellite(family: str | None, number: str | None, scene_id: str | None = None) -> str | None:
