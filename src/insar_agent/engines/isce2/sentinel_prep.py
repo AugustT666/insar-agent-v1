@@ -289,6 +289,11 @@ def _extract_burst_content(xml_path: Path, swath: str, polarization: str) -> tup
 def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, scene_id: str) -> tuple[str, str]:
     """Build a single multi-burst annotation XML from per-burst XMLs.
 
+    OPERA burst XMLs embed the FULL swath annotation (all 9 bursts) in every
+    per-burst file.  We must extract only the one burst that corresponds to
+    each file, identified by the -NNN suffix in the source_filename attribute
+    (1-based burst index into the full burstList).
+
     Returns (annotation_filename, annotation_xml_text).
     """
     burst_elements: list[ET.Element] = []
@@ -303,9 +308,20 @@ def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, sc
         if base_annotation is None:
             base_annotation = content
             base_source_filename = source_filename
+
+        # Parse 1-based burst index from source_filename suffix (-NNN.xml)
+        m = re.search(r"-(\d+)\.xml$", source_filename)
         burst_list = content.find("swathTiming/burstList")
         if burst_list is not None:
-            burst_elements.extend(list(burst_list))
+            all_bursts = list(burst_list)
+            if m and all_bursts:
+                idx = int(m.group(1)) - 1          # convert to 0-based index
+                if 0 <= idx < len(all_bursts):
+                    burst_elements.append(all_bursts[idx])
+                    continue
+            # Fallback: single burst in this content → take it directly
+            if len(all_bursts) == 1:
+                burst_elements.append(all_bursts[0])
 
     if base_annotation is None or not burst_elements:
         fallback_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}-synthetic.xml"
