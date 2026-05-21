@@ -123,9 +123,10 @@ Key optional parameters:
 | `swaths` | `[1,2,3]` | Process subset for speed |
 | `num_connections` | 3 | Interferogram connections per scene |
 | `coregistration` | `"NESD"` | ESD-based; use `"geometry"` if ESD fails |
-| `range_looks` / `azimuth_looks` | 20 / 4 | Multilook factors |
+| `range_looks` / `azimuth_looks` | 9 / 3 | Multilook factors (~90 m pixel) |
 | `filter_strength` | 0.5 | Goldstein filter strength |
 | `unwrap_method` | `"snaphu"` | Unwrapping algorithm |
+| `do_unwrap` | `true` | Set false to skip unwrapping for fast test runs |
 
 ---
 
@@ -227,7 +228,12 @@ baseline text products inside the stack work directory or continue through the u
 
 ```
 insar_list_outputs(project_id=project_id)
-insar_export_geotiff(project_id=project_id, product="velocity")
+
+# Export velocity map — velocity.h5 is at <run_root>/mintpy/velocity.h5
+insar_export_geotiff(
+    h5_path="<run_root>/mintpy/velocity.h5",
+    output_dir="<run_root>"
+)
 ```
 
 Key MintPy outputs:

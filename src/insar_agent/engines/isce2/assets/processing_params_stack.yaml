@@ -126,6 +126,15 @@ parameters:
     description: >
       Azimuth multilook factor.
 
+  - key: do_unwrap
+    label: Enable phase unwrapping
+    type: bool
+    required: false
+    risk_level: medium
+    description: >
+      Whether to run SNAPHU phase unwrapping. Set to false to skip unwrapping
+      for faster validation runs.
+
   - key: unwrap_method
     label: Phase unwrapping algorithm
     type: str
