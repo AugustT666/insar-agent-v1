@@ -1,11 +1,12 @@
 ---
 name: data-prep-nisar
 description: >
-  Use when NISAR RSLC input files or a DEM are missing before running D-InSAR or
-  Stack-InSAR processing. Invoke when the user says "I don't have a DEM", "download
+  This skill should be used when NISAR RSLC input files or a DEM are missing before
+  running D-InSAR or Stack-InSAR processing. Invoke when the user says "I don't have a DEM", "download
   RSLC", "prepare DEM", "prepare AOI", mentions Copernicus 30m DEM, or asks how to
   get started with data. Also invoke before d-insar-isce3 or stack-insar-isce3
   whenever input files are not yet confirmed to exist on disk.
+version: 0.1.0
 ---
 
 # Data Preparation: NISAR RSLC + DEM

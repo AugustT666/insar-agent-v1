@@ -6,14 +6,15 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, TypeVar
 from uuid import uuid4
 from xml.etree import ElementTree as ET
 
-import time
 from insar_agent.core.project import resolve_plugin_logs_dir
 
 
@@ -286,21 +287,69 @@ def _extract_burst_content(xml_path: Path, swath: str, polarization: str) -> tup
     return None
 
 
+def _path_burst_index(path: Path) -> int | None:
+    if path.stem.isdigit():
+        return int(path.stem)
+    match = re.search(r"-(\d+)$", path.stem)
+    return int(match.group(1)) if match else None
+
+
+def _burst_sort_key(path: Path) -> tuple[int, int | str]:
+    index = _path_burst_index(path)
+    return (0, index) if index is not None else (1, path.name)
+
+
+def _source_burst_index(source_filename: str) -> int | None:
+    match = re.search(r"-(\d+)\.xml$", source_filename)
+    return int(match.group(1)) if match else None
+
+
+def _set_text(root: ET.Element, path: str, value: str) -> None:
+    node = root.find(path)
+    if node is not None:
+        node.text = value
+
+
+def _format_annotation_time(value: datetime) -> str:
+    return value.isoformat(timespec="microseconds")
+
+
+def _update_annotation_time_bounds(merged: ET.Element, burst_elements: list[ET.Element]) -> None:
+    first_time = burst_elements[0].findtext("azimuthTime")
+    last_time = burst_elements[-1].findtext("azimuthTime")
+    dt_text = merged.findtext("imageAnnotation/imageInformation/azimuthTimeInterval")
+    last_valid = burst_elements[-1].findtext("firstValidSample", "")
+    if not first_time or not last_time or not dt_text:
+        return
+
+    try:
+        first_dt = datetime.fromisoformat(first_time)
+        last_dt = datetime.fromisoformat(last_time)
+        interval = float(dt_text)
+    except ValueError:
+        return
+
+    lines = len(last_valid.split()) if last_valid.strip() else 1
+    last_line_dt = last_dt + timedelta(seconds=interval * max(lines - 1, 0))
+    _set_text(
+        merged,
+        "imageAnnotation/imageInformation/productFirstLineUtcTime",
+        _format_annotation_time(first_dt),
+    )
+    _set_text(
+        merged,
+        "imageAnnotation/imageInformation/productLastLineUtcTime",
+        _format_annotation_time(last_line_dt),
+    )
+
+
 def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, scene_id: str) -> tuple[str, str]:
-    """Build a single multi-burst annotation XML from per-burst XMLs.
-
-    OPERA burst XMLs embed the FULL swath annotation (all 9 bursts) in every
-    per-burst file.  We must extract only the one burst that corresponds to
-    each file, identified by the -NNN suffix in the source_filename attribute
-    (1-based burst index into the full burstList).
-
-    Returns (annotation_filename, annotation_xml_text).
-    """
+    """Build a single multi-burst annotation XML from per-burst XMLs."""
     burst_elements: list[ET.Element] = []
     base_annotation: ET.Element | None = None
     base_source_filename: str | None = None
 
-    for xml_path in sorted_xmls:
+    for xml_path in sorted(sorted_xmls, key=_burst_sort_key):
         result = _extract_burst_content(xml_path, swath, pol)
         if result is None:
             continue
@@ -309,25 +358,25 @@ def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, sc
             base_annotation = content
             base_source_filename = source_filename
 
-        # Parse 1-based burst index from source_filename suffix (-NNN.xml)
-        m = re.search(r"-(\d+)\.xml$", source_filename)
         burst_list = content.find("swathTiming/burstList")
-        if burst_list is not None:
-            all_bursts = list(burst_list)
-            if m and all_bursts:
-                idx = int(m.group(1)) - 1          # convert to 0-based index
-                if 0 <= idx < len(all_bursts):
-                    burst_elements.append(all_bursts[idx])
-                    continue
-            # Fallback: single burst in this content → take it directly
-            if len(all_bursts) == 1:
-                burst_elements.append(all_bursts[0])
+        if burst_list is None:
+            continue
+        all_bursts = list(burst_list)
+        path_index = _path_burst_index(xml_path)
+        source_index = _source_burst_index(source_filename)
+        index = path_index if path_index is not None else source_index
+        if index is not None and all_bursts:
+            idx = index - 1
+            if 0 <= idx < len(all_bursts):
+                burst_elements.append(all_bursts[idx])
+                continue
+        if len(all_bursts) == 1:
+            burst_elements.append(all_bursts[0])
 
     if base_annotation is None or not burst_elements:
         fallback_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}-synthetic.xml"
         return fallback_name, f"<product/>"
 
-    # Merge all bursts into the base annotation
     merged = _clone_xml(base_annotation)
     burst_list = merged.find("swathTiming/burstList")
     if burst_list is not None:
@@ -337,15 +386,17 @@ def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, sc
             burst_list.append(_clone_xml(burst_el))
         burst_list.set("count", str(len(burst_elements)))
 
-    # Update numberOfLines to reflect total burst count
     num_lines_el = merged.find("imageAnnotation/imageInformation/numberOfLines")
-    if num_lines_el is not None and burst_elements:
-        first_valid = burst_elements[0].findtext("firstValidSample", "")
-        lines_per_burst = len(first_valid.split()) if first_valid.strip() else 0
-        if lines_per_burst:
-            num_lines_el.text = str(lines_per_burst * len(burst_elements))
+    if num_lines_el is not None:
+        total_lines = sum(
+            len(first_valid.split())
+            for burst_el in burst_elements
+            if (first_valid := burst_el.findtext("firstValidSample", "")).strip()
+        )
+        if total_lines:
+            num_lines_el.text = str(total_lines)
+    _update_annotation_time_bounds(merged, burst_elements)
 
-    # Update auxiliary list counts to match burst count
     for path in [
         "generalAnnotation/azimuthFmRateList",
         "dopplerCentroid/dcEstimateList",
@@ -356,7 +407,6 @@ def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, sc
             node.set("count", str(len(list(node))))
 
     merged.tag = "product"
-    # Strip burst-number suffix (-005, -006 …) to get the swath-level name
     annotation_name = re.sub(r"-\d{3}(\.xml)$", r"\1", base_source_filename or "")
     if not annotation_name.endswith(".xml"):
         annotation_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}.xml"
@@ -422,8 +472,8 @@ def _synthesize_annotation_and_measurement(scene_id: str, scene_paths: list[Path
         if not bucket["xml"] or not bucket["tiff"]:
             continue
 
-        sorted_xmls = sorted(bucket["xml"])
-        sorted_tiffs = sorted(bucket["tiff"])
+        sorted_xmls = sorted(bucket["xml"], key=_burst_sort_key)
+        sorted_tiffs = sorted(bucket["tiff"], key=_burst_sort_key)
 
         annotation_name, annotation_text = _build_combined_annotation(
             sorted_xmls, swath, pol, scene_id
@@ -550,6 +600,188 @@ def _track_dir(satellite: str, pass_direction: str, relative_orbit: int) -> str:
     return f"{satellite.lower()}_{'asc' if pass_direction.upper().startswith('ASC') else 'desc'}_rel{relative_orbit:03d}"
 
 
+def _detect_safe_swaths(safe_path: Path) -> list[int]:
+    annotation_dir = safe_path / "annotation"
+    swaths = {
+        int(match.group(1))
+        for path in annotation_dir.glob("*.xml")
+        if (match := re.search(r"-iw([123])-slc-", path.name.lower()))
+    }
+    return sorted(swaths)
+
+
+def _detect_safe_polarization(safe_path: Path) -> str:
+    annotation_dir = safe_path / "annotation"
+    polarizations = [
+        match.group(1)
+        for path in sorted(annotation_dir.glob("*.xml"))
+        if (match := re.search(r"-slc-([a-z]{2})-", path.name.lower()))
+    ]
+    if "vv" in polarizations:
+        return "vv"
+    return polarizations[0] if polarizations else "vv"
+
+
+def _write_isce2_import_config(
+    *,
+    config_path: Path,
+    safe_path: Path,
+    swaths: list[int],
+    orbit_dir: Path,
+    outdir: Path,
+    auxdir: Path,
+    polarization: str,
+) -> None:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "[Common]",
+                "##########################",
+                "##########################",
+                "[Function-1]",
+                "Sentinel1_TOPS : ",
+                f"dirname : {safe_path}",
+                f"swaths : {' '.join(str(swath) for swath in swaths)}",
+                f"orbitdir : {orbit_dir}",
+                f"outdir : {outdir}",
+                f"auxdir : {auxdir}",
+                f"pol : {polarization}",
+                "##########################",
+                "##########################",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _validate_isce2_imports(
+    scenes: list[SceneRecord],
+    *,
+    orbit_dir: Path,
+    validation_root: Path,
+) -> dict:
+    validation_root.mkdir(parents=True, exist_ok=True)
+    wrapper = _fetch_sentinel_wrapper_path()
+    results: list[dict] = []
+
+    for scene in scenes:
+        safe_path = Path(scene.safe_path)
+        swaths = _detect_safe_swaths(safe_path)
+        polarization = _detect_safe_polarization(safe_path)
+        scene_root = validation_root / scene.scene_id
+        outdir = scene_root / "import"
+        auxdir = scene_root / "aux_cal"
+        log_path = scene_root / "sentinel1_tops_import.log"
+        config_path = scene_root / "config_import"
+        scene_root.mkdir(parents=True, exist_ok=True)
+
+        if not swaths:
+            result = {
+                "scene_id": scene.scene_id,
+                "safe_path": scene.safe_path,
+                "status": "failed",
+                "message": "No annotation swaths found in synthesized SAFE",
+                "swaths": [],
+                "polarization": polarization,
+                "config_path": str(config_path),
+                "output_dir": str(outdir),
+                "log_path": str(log_path),
+                "returncode": None,
+                "stdout": "",
+                "stderr": "",
+            }
+            log_path.write_text(result["message"], encoding="utf-8")
+            results.append(result)
+            continue
+
+        _write_isce2_import_config(
+            config_path=config_path,
+            safe_path=safe_path,
+            swaths=swaths,
+            orbit_dir=orbit_dir,
+            outdir=outdir,
+            auxdir=auxdir,
+            polarization=polarization,
+        )
+        command = [
+            "conda",
+            "run",
+            "-n",
+            "isce2",
+            "--no-capture-output",
+            "python",
+            str(wrapper),
+            "-c",
+            str(config_path),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                env=_conda_safe_env(),
+            )
+            stdout = completed.stdout
+            stderr = completed.stderr
+            returncode = completed.returncode
+            message = "ISCE2 Sentinel1_TOPS import failed"
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            returncode = None
+            message = "ISCE2 Sentinel1_TOPS import timed out"
+        except subprocess.SubprocessError as exc:
+            stdout = ""
+            stderr = str(exc)
+            returncode = None
+            message = "ISCE2 Sentinel1_TOPS import subprocess failed"
+
+        log_path.write_text(
+            f"COMMAND {' '.join(command)}\n\nSTDOUT\n{stdout}\n\nSTDERR\n{stderr}",
+            encoding="utf-8",
+        )
+        expected = [outdir / f"IW{swath}.xml" for swath in swaths]
+        burst_xmls = list(outdir.glob("IW*/burst_*.slc.xml"))
+        passed = returncode == 0 and all(path.exists() for path in expected) and bool(burst_xmls)
+        results.append(
+            {
+                "scene_id": scene.scene_id,
+                "safe_path": scene.safe_path,
+                "status": "passed" if passed else "failed",
+                "message": "ISCE2 Sentinel1_TOPS import succeeded" if passed else message,
+                "swaths": swaths,
+                "polarization": polarization,
+                "config_path": str(config_path),
+                "output_dir": str(outdir),
+                "log_path": str(log_path),
+                "returncode": returncode,
+                "stdout": stdout,
+                "stderr": stderr,
+            }
+        )
+
+    if not results:
+        return {
+            "status": "skipped",
+            "validated_count": 0,
+            "failed_count": 0,
+            "validation_root": str(validation_root),
+            "results": [],
+        }
+
+    failed_count = sum(1 for item in results if item["status"] != "passed")
+    return {
+        "status": "passed" if failed_count == 0 else "failed",
+        "validated_count": len(results),
+        "failed_count": failed_count,
+        "validation_root": str(validation_root),
+        "results": results,
+    }
+
+
 def _link_burst_sources(paths: Iterable[Path], target_root: Path, scene_id: str) -> None:
     for src in paths:
         try:
@@ -563,6 +795,13 @@ def _fetch_orbit_script_path() -> Path:
     script = Path.home() / "miniconda3" / "envs" / "isce2" / "share" / "isce2" / "topsStack" / "fetchOrbit.py"
     if not script.exists():
         raise FileNotFoundError(f"ISCE2 fetchOrbit.py not found: {script}")
+    return script
+
+
+def _fetch_sentinel_wrapper_path() -> Path:
+    script = Path.home() / "miniconda3" / "envs" / "isce2" / "share" / "isce2" / "topsStack" / "SentinelWrapper.py"
+    if not script.exists():
+        raise FileNotFoundError(f"ISCE2 SentinelWrapper.py not found: {script}")
     return script
 
 
@@ -720,6 +959,7 @@ def prepare_sentinel_data(
     include_pair: bool = True,
     include_stack: bool = True,
     resume: bool = True,
+    validate_isce2_import: bool = False,
     dem_downloader: Callable[..., dict] | None = None,
 ) -> dict:
     _ = (mode, include_pair, include_stack)
@@ -746,6 +986,7 @@ def prepare_sentinel_data(
                 "source_paths": source_paths,
                 "burst_manifest": burst_manifest,
                 "resume": resume,
+                "validate_isce2_import": validate_isce2_import,
             },
             indent=2,
             ensure_ascii=False,
@@ -948,6 +1189,66 @@ def prepare_sentinel_data(
         resolved_orbit_dir = str(orbit_target)
         _append_log(prep_log_path, f"ORBIT existing {resolved_orbit_dir}")
 
+    isce2_import_validation: dict | None = None
+    if validate_isce2_import:
+        validation_root = root / "isce2_import_validation" / job_id
+        if resolved_orbit_dir is None:
+            isce2_import_validation = {
+                "status": "failed",
+                "validated_count": 0,
+                "failed_count": len(scenes),
+                "validation_root": str(validation_root),
+                "results": [
+                    {
+                        "scene_id": scene.scene_id,
+                        "safe_path": scene.safe_path,
+                        "status": "failed",
+                        "message": "ISCE2 import validation requires orbit_dir or download_orbits=True",
+                        "swaths": _detect_safe_swaths(Path(scene.safe_path)),
+                        "polarization": _detect_safe_polarization(Path(scene.safe_path)),
+                        "config_path": None,
+                        "output_dir": None,
+                        "log_path": None,
+                        "returncode": None,
+                        "stdout": "",
+                        "stderr": "",
+                    }
+                    for scene in scenes
+                ],
+            }
+        else:
+            try:
+                isce2_import_validation = _validate_isce2_imports(
+                    scenes,
+                    orbit_dir=Path(resolved_orbit_dir),
+                    validation_root=validation_root,
+                )
+            except FileNotFoundError as exc:
+                isce2_import_validation = {
+                    "status": "failed",
+                    "validated_count": 0,
+                    "failed_count": len(scenes),
+                    "validation_root": str(validation_root),
+                    "results": [
+                        {
+                            "scene_id": scene.scene_id,
+                            "safe_path": scene.safe_path,
+                            "status": "failed",
+                            "message": str(exc),
+                            "swaths": _detect_safe_swaths(Path(scene.safe_path)),
+                            "polarization": _detect_safe_polarization(Path(scene.safe_path)),
+                            "config_path": None,
+                            "output_dir": None,
+                            "log_path": None,
+                            "returncode": None,
+                            "stdout": "",
+                            "stderr": "",
+                        }
+                        for scene in scenes
+                    ],
+                }
+        _append_log(prep_log_path, f"ISCE2_IMPORT_VALIDATION {isce2_import_validation['status']}")
+
     result = {
         "project_root": str(root),
         "safe_root": str(safe_root),
@@ -961,6 +1262,7 @@ def prepare_sentinel_data(
         "prep_params_path": str(prep_params_path),
         "orbit_log_path": str(orbit_log_path) if download_orbits else None,
         "dem_log_path": dem_log_path,
+        "isce2_import_validation": isce2_import_validation,
     }
     _append_log(prep_log_path, json.dumps({"scene_count": len(scenes), "track_dirs": sorted(grouped_safe_paths)}, ensure_ascii=False))
     return result

@@ -1,10 +1,11 @@
 ---
 name: data-prep-sentinel
 description: >
-  Use when Sentinel-1 SAFE, ZIP, or burst inputs are not yet prepared for ISCE2,
-  when the user needs grouped SAFE outputs, DEM download, or precise orbit
+  This skill should be used when Sentinel-1 SAFE, ZIP, or burst inputs are not yet
+  prepared for ISCE2, when the user needs grouped SAFE outputs, DEM download, or precise orbit
   download, or when the user wants all Sentinel-1 preprocessing paths prepared
   before running d-insar-isce2 or stack-insar-isce2.
+version: 0.1.0
 ---
 
 # Data Preparation: Sentinel-1 SAFE, DEM, and Orbits
@@ -92,9 +93,12 @@ insar_prepare_sentinel_data(
     dem_type="version3",    # only for dem_backend="isce2"
     download_orbits=True,
     orbit_dir="/path/to/project-root/orbits",
+    validate_isce2_import=True,  # required for burst_manifest inputs
     resume=True,
 )
 ```
+
+For `burst_manifest` inputs, treat `isce2_import_validation.status != "passed"` as a data-prep failure and report each failed scene's `scene_id`, `safe_path`, `message`, and `log_path` before running D-InSAR or stack workflows.
 
 This returns:
 
@@ -106,6 +110,7 @@ This returns:
 - `prep_log_path`
 - `dem_log_path`
 - `orbit_log_path`
+- `isce2_import_validation` when `validate_isce2_import=True`
 
 Grouped SAFE paths are organized under:
 

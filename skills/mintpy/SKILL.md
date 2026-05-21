@@ -1,13 +1,14 @@
 ---
 name: mintpy
 description: >
-  Use when the user wants to run MintPy time-series analysis on an interferogram
-  network, or wants to visualise the spatiotemporal baseline network. Works with both
+  This skill should be used when the user wants to run MintPy time-series analysis
+  on an interferogram network, or wants to visualise the spatiotemporal baseline network. Works with both
   ISCE3 (GUNW products) and ISCE2 (topsStack-style) interferograms. Invoke when the
   user mentions MintPy, time-series, displacement time series, smallbaselineApp,
   temporal coherence, baseline plot, or asks to analyse results from insar_prepare_network
   or stack-insar-isce2. If the interferogram network is not yet ready, invoke
   stack-insar-isce3 or stack-insar-isce2 first.
+version: 0.1.0
 ---
 
 # MintPy Time-Series Analysis (Path B)

@@ -7,6 +7,7 @@ description: >
   setup, parameter tuning, or unclear InSAR workflow requests. It is the main
   InSAR workflow entry point for the insar-agent plugin and routes users to the
   correct workflow skill and insar_* MCP tools.
+version: 0.1.0
 ---
 
 # insar-agent — Main InSAR Workflow Entry Skill

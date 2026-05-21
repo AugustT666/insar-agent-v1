@@ -1,12 +1,13 @@
 ---
 name: stack-insar-isce3
 description: >
-  Use when the user has multiple NISAR RSLC files and wants to run Stack processing
-  (single-reference hub-and-spoke pairs), Network processing (short-baseline any-to-any
+  This skill should be used when the user has multiple NISAR RSLC files and wants
+  to run Stack processing (single-reference hub-and-spoke pairs), Network processing (short-baseline any-to-any
   pairs for MintPy), or both. Invoke when the user mentions Stack-InSAR, batch processing,
   interferogram network, MintPy, time-series, multiple scenes, temporal baseline, or asks
   to process more than two RSLC files. Stack and Network are independent — either can be
   run alone. If the DEM or RSLC files are missing, invoke `data-prep` first.
+version: 0.1.0
 ---
 
 # Stack-InSAR: Multi-scene Batch Processing (Path B)

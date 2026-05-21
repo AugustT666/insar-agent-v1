@@ -49,13 +49,16 @@ Real-data tests may launch actual processing workflows, so they are opt-in.
 
 ## Plugin Entry Point
 
-For Claude Code plugin usage, start InSAR sessions through the `insar-agent` skill:
+For Claude Code plugin usage, start InSAR sessions through the packaged command:
 
 ```text
-/insar-agent-plugin:insar-agent
+/insar-agent
 ```
 
-The entry skill routes to the engine-specific workflow skills and delegates parameter tuning to the `param-advisor` skill and `agents/param-advisor.md` subagent.
+The command checks the installed MCP/plugin surface, reads `insar://workflow-guide`,
+and routes through the main `insar-agent` skill. The entry skill then routes to the
+engine-specific workflow skills and delegates parameter tuning to the `param-advisor`
+skill and `agents/param-advisor.md` subagent.
 
 ## Typical Workflows
 
@@ -96,7 +99,7 @@ Historical source materials that informed the current implementation live under 
 ## Primary Docs
 
 - `docs/architecture.md`: System overview, layer boundaries, and core data model.
-- `docs/mcp-tools.md`: Tools, resources, prompts, and behavior contracts.
+- `docs/developer-documents/mcp-tools.md`: Tools, resources, prompts, and behavior contracts.
 - `docs/agent-guide.md`: Hard workflow constraints served as `insar://workflow-guide`.
 - `CLAUDE.md`: Developer-facing collaboration guide for Claude Code and Codex.
 - `docs/developer-documents/dev-plan.md`: Internal progress and planned work.

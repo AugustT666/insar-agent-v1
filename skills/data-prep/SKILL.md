@@ -1,12 +1,13 @@
 ---
 name: data-prep
 description: >
-  Use when data inputs are not yet prepared before running InSAR processing.
+  This skill should be used when data inputs are not yet prepared before running InSAR processing.
   For NISAR/ISCE3: invoke when RSLC input files or DEM are missing, user says
   "download RSLC", "prepare DEM", "get started with data", mentions Copernicus 30m DEM.
   For Sentinel-1/ISCE2: invoke when SAFE/ZIP/burst inputs are not prepared, user needs
   grouped SAFE outputs, DEM, or precise orbits. Also invoke before d-insar or stack-insar
   workflows whenever input files are not confirmed to exist on disk.
+version: 0.1.0
 ---
 
 # Data Preparation: Unified Router

@@ -1,31 +1,34 @@
 {
-  "PreToolUse": [
-    {
-      "matcher": "mcp__insar-agent__insar_run_workflow",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "echo 'PARAM_ADVISOR_PROMPT [Path A]: 即将运行 insar_run_workflow。这是调整处理参数的最后机会。'"
-        }
-      ]
-    },
-    {
-      "matcher": "mcp__insar-agent__insar_prepare_stack",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "echo 'PARAM_ADVISOR_PROMPT [Path B]: 即将写入 stack runconfigs，此后无法通过模板修改处理参数。'"
-        }
-      ]
-    },
-    {
-      "matcher": "mcp__insar-agent__insar_prepare_network",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "echo 'PARAM_ADVISOR_PROMPT [Path B]: 即将写入 network runconfigs，此后无法通过模板修改处理参数。'"
-        }
-      ]
-    }
-  ]
+  "description": "Non-blocking parameter-advisor reminders before irreversible InSAR execution steps.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__insar-agent__insar_run_workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'PARAM_ADVISOR_PROMPT [Path A]: 即将运行 insar_run_workflow。这是调整处理参数的最后机会。'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__insar-agent__insar_prepare_stack",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'PARAM_ADVISOR_PROMPT [Path B]: 即将写入 stack runconfigs，此后无法通过模板修改处理参数。'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__insar-agent__insar_prepare_network",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'PARAM_ADVISOR_PROMPT [Path B]: 即将写入 network runconfigs，此后无法通过模板修改处理参数。'"
+          }
+        ]
+      }
+    ]
+  }
 }

@@ -1,12 +1,13 @@
 ---
 name: d-insar-isce3
 description: >
-  Use when the user wants to process a single pair of NISAR RSLC files into a GUNW
-  interferogram product. Invoke when the user provides reference and secondary RSLC
+  This skill should be used when the user wants to process a single pair of NISAR
+  RSLC files into a GUNW interferogram product. Invoke when the user provides reference and secondary RSLC
   paths, mentions D-InSAR, interferogram, coherence map, unwrapped phase, GUNW, or
   asks to "process a pair". Also invoke when the user has finished data preparation
   and has two RSLC files ready. If the DEM or RSLC files are missing, invoke
   `data-prep` first.
+version: 0.1.0
 ---
 
 # D-InSAR: Single RSLC Pair → GUNW (Path A)

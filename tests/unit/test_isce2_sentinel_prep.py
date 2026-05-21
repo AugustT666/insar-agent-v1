@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from xml.etree import ElementTree as ET
+import subprocess
 import zipfile
 
-from insar_agent.engines.isce2.sentinel_prep import SCENE_ID_RE
+from insar_agent.engines.isce2.sentinel_prep import SCENE_ID_RE, _build_combined_annotation
 from insar_agent.mcp.server import (
     build_server_description,
     insar_describe_s1,
@@ -238,6 +240,195 @@ def test_prepare_sentinel_data_synthesizes_burst_scene(tmp_path):
     assert result["grouped_safe_paths"] == {"s1a_desc_rel079": [str(synthesized)]}
 
 
+def test_prepare_sentinel_data_validates_isce2_import_for_synthesized_bursts(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    burst_root = tmp_path / "bursts"
+    scene_id = "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA"
+    scene_dir = make_fake_burst_scene(
+        burst_root,
+        scene_id,
+        pass_direction="DESCENDING",
+        relative_orbit=79,
+    )
+    manifest_path = tmp_path / "burst_manifest.txt"
+    manifest_path.write_text(
+        f"{scene_dir / 'IW2' / 'VV' / '0.xml'}\n{scene_dir / 'IW2' / 'VV' / '0.tiff'}\n",
+        encoding="utf-8",
+    )
+    orbit_dir = tmp_path / "orbits"
+    orbit_dir.mkdir()
+    calls = []
+
+    def fake_run(command, capture_output, text, timeout, env=None):
+        calls.append(command)
+        config_path = Path(command[command.index("-c") + 1])
+        config_text = config_path.read_text(encoding="utf-8")
+        outdir_line = next(line for line in config_text.splitlines() if line.startswith("outdir : "))
+        outdir = Path(outdir_line.removeprefix("outdir : "))
+        (outdir / "IW2").mkdir(parents=True)
+        (outdir / "IW2.xml").write_text("<product/>", encoding="utf-8")
+        (outdir / "IW2" / "burst_01.slc.xml").write_text("<image/>", encoding="utf-8")
+
+        class Result:
+            returncode = 0
+            stdout = "import ok"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        burst_manifest=str(manifest_path),
+        orbit_dir=str(orbit_dir),
+        validate_isce2_import=True,
+    )
+
+    assert "error" not in result
+    assert len(calls) == 1
+    validation = result["isce2_import_validation"]
+    assert validation["status"] == "passed"
+    assert validation["validated_count"] == 1
+    assert validation["results"][0]["status"] == "passed"
+    assert validation["results"][0]["scene_id"] == scene_id
+    assert validation["results"][0]["swaths"] == [2]
+
+
+def test_prepare_sentinel_data_reports_isce2_import_failure(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    safe_root = tmp_path / "source"
+    safe_dir = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    (safe_dir / "annotation").mkdir()
+    _write_text(safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml", "<product/>")
+    orbit_dir = tmp_path / "orbits"
+    orbit_dir.mkdir()
+
+    def fake_run(command, capture_output, text, timeout, env=None):
+        class Result:
+            returncode = 2
+            stdout = ""
+            stderr = "bad safe"
+
+        return Result()
+
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(safe_dir)],
+        orbit_dir=str(orbit_dir),
+        validate_isce2_import=True,
+    )
+
+    assert "error" not in result
+    validation = result["isce2_import_validation"]
+    assert validation["status"] == "failed"
+    assert validation["failed_count"] == 1
+    assert validation["results"][0]["status"] == "failed"
+    assert validation["results"][0]["returncode"] == 2
+    assert validation["results"][0]["stderr"] == "bad safe"
+
+
+def test_prepare_sentinel_data_reports_isce2_import_timeout(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    safe_root = tmp_path / "source"
+    safe_dir = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    (safe_dir / "annotation").mkdir()
+    _write_text(safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml", "<product/>")
+    orbit_dir = tmp_path / "orbits"
+    orbit_dir.mkdir()
+
+    def fake_run(command, capture_output, text, timeout, env=None):
+        raise subprocess.TimeoutExpired(command, timeout, output="partial", stderr="timeout")
+
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(safe_dir)],
+        orbit_dir=str(orbit_dir),
+        validate_isce2_import=True,
+    )
+
+    validation = result["isce2_import_validation"]
+    assert validation["status"] == "failed"
+    assert validation["results"][0]["message"] == "ISCE2 Sentinel1_TOPS import timed out"
+    assert validation["results"][0]["stdout"] == "partial"
+    assert validation["results"][0]["stderr"] == "timeout"
+
+
+def test_prepare_sentinel_data_reports_missing_isce2_wrapper_as_validation_failure(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    safe_root = tmp_path / "source"
+    safe_dir = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    (safe_dir / "annotation").mkdir()
+    _write_text(safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml", "<product/>")
+    orbit_dir = tmp_path / "orbits"
+    orbit_dir.mkdir()
+
+    def missing_wrapper():
+        raise FileNotFoundError("ISCE2 SentinelWrapper.py not found: /missing/SentinelWrapper.py")
+
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", missing_wrapper)
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(safe_dir)],
+        orbit_dir=str(orbit_dir),
+        validate_isce2_import=True,
+    )
+
+    assert "error" not in result
+    validation = result["isce2_import_validation"]
+    assert validation["status"] == "failed"
+    assert validation["failed_count"] == 1
+    assert validation["results"][0]["message"] == "ISCE2 SentinelWrapper.py not found: /missing/SentinelWrapper.py"
+
+
+def test_prepare_sentinel_data_import_validation_requires_orbits(tmp_path):
+    project_root = tmp_path / "project"
+    safe_root = tmp_path / "source"
+    safe_dir = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    (safe_dir / "annotation").mkdir()
+    _write_text(safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml", "<product/>")
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(safe_dir)],
+        validate_isce2_import=True,
+    )
+
+    validation = result["isce2_import_validation"]
+    assert validation["status"] == "failed"
+    assert validation["validated_count"] == 0
+    assert validation["failed_count"] == 1
+    assert validation["results"][0]["message"] == "ISCE2 import validation requires orbit_dir or download_orbits=True"
+
+
 def test_prepare_sentinel_data_normalizes_real_family_name(tmp_path):
     project_root = tmp_path / "project"
     safe_root = tmp_path / "source"
@@ -384,6 +575,7 @@ def test_prepare_sentinel_data_can_prepare_dem_and_orbits(tmp_path, monkeypatch)
         return Result()
 
     monkeypatch.setattr("insar_agent.mcp.server.insar_download_dem", fake_download_dem)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file", lambda *args, **kwargs: None)
 
@@ -655,6 +847,7 @@ def test_orbit_download_retries_on_transient_failures(tmp_path, monkeypatch):
             stderr = ""
         return Result()
     
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file", lambda *args, **kwargs: None)
     
@@ -722,6 +915,7 @@ def test_orbit_download_fails_after_exhausting_retries(tmp_path, monkeypatch):
             stderr = "Permanent authentication failure"
         return Result()
     
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file", lambda *args, **kwargs: None)
     
@@ -738,3 +932,75 @@ def test_orbit_download_fails_after_exhausting_retries(tmp_path, monkeypatch):
     assert failed[0]["returncode"] == 1
     assert failed[0]["stderr"] == "Permanent authentication failure"
     assert call_count["count"] == 3  # Tried 3 times
+
+
+def _write_burst_wrapper(path: Path, *, source_filename: str) -> None:
+    bursts = "".join(
+        f"""
+        <burst>
+          <azimuthTime>2026-01-12T00:00:{index:02d}.000000</azimuthTime>
+          <sensingTime>2026-01-12T00:00:{index + 1:02d}.000000</sensingTime>
+          <firstValidSample>1 2</firstValidSample>
+        </burst>
+        """
+        for index in range(1, 10)
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""
+        <root>
+          <metadata>
+            <product source_filename=\"{source_filename}\">
+              <swath>IW1</swath>
+              <polarisation>VV</polarisation>
+              <content>
+                <imageAnnotation>
+                  <imageInformation>
+                    <numberOfLines>18</numberOfLines>
+                    <azimuthTimeInterval>1</azimuthTimeInterval>
+                    <productFirstLineUtcTime>2026-01-12T00:00:01.000000</productFirstLineUtcTime>
+                    <productLastLineUtcTime>2026-01-12T00:00:18.000000</productLastLineUtcTime>
+                  </imageInformation>
+                </imageAnnotation>
+                <swathTiming><burstList count=\"9\">{bursts}</burstList></swathTiming>
+              </content>
+            </product>
+          </metadata>
+        </root>
+        """,
+        encoding="utf-8",
+    )
+
+
+def test_combined_burst_annotation_prefers_path_index_over_repeated_source_filename(tmp_path):
+    source_filename = "s1a-iw1-slc-vv-20260112t152731-20260112t152756-062736-07ddec-004.xml"
+    xml4 = tmp_path / "4.xml"
+    xml5 = tmp_path / "5.xml"
+    _write_burst_wrapper(xml4, source_filename=source_filename)
+    _write_burst_wrapper(xml5, source_filename=source_filename)
+
+    name, text = _build_combined_annotation(
+        [xml5, xml4],
+        "IW1",
+        "VV",
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+    )
+
+    root = ET.fromstring(text)
+    burst_list = root.find("swathTiming/burstList")
+    assert burst_list is not None
+    bursts = list(burst_list)
+    assert name == "s1a-iw1-slc-vv-20260112t152731-20260112t152756-062736-07ddec.xml"
+    assert [burst.findtext("azimuthTime") for burst in bursts] == [
+        "2026-01-12T00:00:04.000000",
+        "2026-01-12T00:00:05.000000",
+    ]
+    assert root.findtext("imageAnnotation/imageInformation/numberOfLines") == "4"
+    assert (
+        root.findtext("imageAnnotation/imageInformation/productFirstLineUtcTime")
+        == "2026-01-12T00:00:04.000000"
+    )
+    assert (
+        root.findtext("imageAnnotation/imageInformation/productLastLineUtcTime")
+        == "2026-01-12T00:00:06.000000"
+    )

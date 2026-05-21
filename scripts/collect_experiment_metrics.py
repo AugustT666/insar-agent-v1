@@ -109,12 +109,21 @@ def count_tool_calls(tool_log: Path) -> tuple[int, int]:
     return total, param_calls
 
 
-def iter_output_paths(workspace: Path, experiment_id: str, output_root: str) -> list[Path]:
+def iter_output_paths(
+    workspace: Path,
+    experiment_id: str,
+    output_root: str,
+    run_root: str = "",
+) -> list[Path]:
     roots: list[Path] = []
-    if output_root:
-        roots.append(Path(output_root))
-    roots.append(workspace / "outputs" / experiment_id)
-    legacy_h5 = sorted(workspace.glob("*GUNW*.h5"))
+    if run_root:
+        roots.append(Path(run_root))
+        legacy_h5: list[Path] = []
+    else:
+        if output_root:
+            roots.append(Path(output_root))
+        roots.append(workspace / "outputs" / experiment_id)
+        legacy_h5 = sorted(workspace.glob("*GUNW*.h5"))
 
     paths: list[Path] = []
     seen: set[Path] = set()
@@ -288,7 +297,12 @@ def main() -> None:
     elif args.run_id and args.task_id:
         run_root = workspace / "outputs" / args.task_id / args.run_id
 
-    output_paths = iter_output_paths(workspace, args.experiment_id, args.output_root)
+    output_paths = iter_output_paths(
+        workspace,
+        args.experiment_id,
+        args.output_root,
+        str(run_root) if run_root is not None else "",
+    )
     job = load_job(workspace, args.job_id)
 
     start_time = parse_time(job.get("started_at") or job.get("submitted_at"))

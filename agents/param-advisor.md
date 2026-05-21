@@ -4,30 +4,10 @@ description: >
   Use this agent when the param-advisor skill has already collected a compressed
   InSAR parameter evidence profile and needs a dedicated advisory-only subagent
   to generate structured recommendations for ISCE3/NISAR or ISCE2/Sentinel-1.
-  Examples:
-
-  <example>
-  Context: The main session is executing the param-advisor skill for a NISAR
-  project and has collected `insar_describe_rslc` metadata, runconfig summary,
-  missing information, and whitelist-controlled parameter registry details.
-  user: "Tune the ISCE3 parameters for this project."
-  assistant: "I will invoke the param-advisor agent with the compressed evidence profile to generate an advisory-only recommendation package."
-  <commentary>
-  The param-advisor skill already owns the workflow and needs isolated expert
-  reasoning for parameter recommendations.
-  </commentary>
-  </example>
-
-  <example>
-  Context: The user is processing a Sentinel-1 stack. The param-advisor skill
-  has summarized Sentinel metadata, workflow=`stack`, current parameters, and
-  template defaults.
-  user: "Optimize the multilook and filtering settings for this Sentinel stack."
-  assistant: "I will delegate the recommendation generation to the param-advisor agent and then present the returned diff through the param-advisor skill."
-  <commentary>
-  The request requires the advisory-only subagent, not direct parameter changes.
-  </commentary>
-  </example>
+  Typical triggers include NISAR project parameter tuning, Sentinel-1 stack
+  optimization, and advisory-only review of multilook, filtering, unwrapping,
+  coherence, or coregistration settings. See "When to invoke" in the agent body
+  for worked scenarios.
 model: inherit
 color: cyan
 tools: ["Read", "Grep", "WebSearch"]
@@ -41,6 +21,20 @@ after collecting engine-specific metadata and building a compressed evidence
 profile.
 
 Your output is advisory only. You do not own the final parameter decision.
+
+## When to invoke
+
+- **NISAR project tuning.** The main session is executing the `param-advisor`
+  skill for a NISAR project and has collected `insar_describe_rslc` metadata,
+  runconfig summary, missing information, and whitelist-controlled parameter
+  registry details.
+- **Sentinel-1 stack tuning.** The user is processing a Sentinel-1 stack and
+  the `param-advisor` skill has summarized Sentinel metadata, `workflow=stack`,
+  current parameters, and template defaults.
+- **Advisory-only parameter review.** The caller needs structured recommendations
+  for multilook factors, filtering, phase unwrapping, coherence, coregistration,
+  or similar processing parameters, but the final apply decision remains with
+  the calling skill and user.
 
 ## Engine-Specific Reference Documents
 

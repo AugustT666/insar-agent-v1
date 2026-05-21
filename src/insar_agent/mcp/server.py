@@ -2643,34 +2643,6 @@ def _resolve_bbox_input(
 
 
 @mcp.tool()
-def insar_task_done(signal_file: str, summary: str = "") -> dict:
-    """
-    Write a completion signal file to notify the test harness that the task is done.
-
-    Call this as the very last step of every workflow skill, after all outputs,
-    metrics, and GeoTIFF exports are complete.  The test harness (launch script)
-    watches for this file and uses it to trigger terminal-output capture.
-
-    Args:
-        signal_file: Absolute path to write the signal to.  Provided by the
-            harness in the task prompt (look for 'done.signal' in the prompt).
-        summary: One-line human-readable task outcome, e.g. 'E1 done: GUNW at ...'.
-    """
-    import json as _json
-    from datetime import datetime, UTC
-
-    path = Path(signal_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "done": True,
-        "summary": summary,
-        "written_at": datetime.now(UTC).isoformat(),
-    }
-    path.write_text(_json.dumps(payload, indent=2))
-    return {"signal_file": str(path), "summary": summary}
-
-
-@mcp.tool()
 def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
     """
     Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images.
@@ -3495,6 +3467,7 @@ def insar_prepare_sentinel_data(
     include_pair: bool = True,
     include_stack: bool = True,
     resume: bool = True,
+    validate_isce2_import: bool = False,
     background: bool = False,
 ) -> dict:
     """
@@ -3503,7 +3476,8 @@ def insar_prepare_sentinel_data(
     This tool only prepares grouped SAFE outputs. It can organize existing
     SAFE/ZIP inputs or synthesize lightweight SAFE directories from local burst
     files. It can also optionally prepare DEM and Sentinel-1 orbit files for
-    downstream ISCE2 workflows.
+    downstream ISCE2 workflows. Set validate_isce2_import=True to run an
+    import-only Sentinel1_TOPS validation for each prepared SAFE.
     """
     params = {
         "project_root": project_root,
@@ -3525,6 +3499,7 @@ def insar_prepare_sentinel_data(
         "include_pair": include_pair,
         "include_stack": include_stack,
         "resume": resume,
+        "validate_isce2_import": validate_isce2_import,
     }
     if background:
         return _launch_sentinel_prepare_background(params)
@@ -3550,6 +3525,7 @@ def insar_prepare_sentinel_data(
             include_pair=include_pair,
             include_stack=include_stack,
             resume=resume,
+            validate_isce2_import=validate_isce2_import,
             dem_downloader=insar_download_dem,
         )
     except FileNotFoundError as exc:
@@ -3660,7 +3636,7 @@ def insar_check_env() -> dict:
 
     # Check installed/configured skills for both Claude Code and OpenCode clients.
     expected_skills = [
-        "env-setup", "data-prep", "data-prep-nisar", "data-prep-sentinel",
+        "insar-agent", "env-setup", "data-prep", "data-prep-nisar", "data-prep-sentinel",
         "d-insar-isce3", "stack-insar-isce3", "param-advisor", "mintpy",
         "d-insar-isce2", "stack-insar-isce2",
     ]

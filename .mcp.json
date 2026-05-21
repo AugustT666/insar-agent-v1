@@ -1,0 +1,13 @@
+{
+  "insar-mcp-server": {
+    "command": "python",
+    "args": [
+      "-m",
+      "insar_agent.mcp.server",
+      "--stdio"
+    ],
+    "env": {
+      "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/src"
+    }
+  }
+}

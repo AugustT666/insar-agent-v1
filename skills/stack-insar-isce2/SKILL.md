@@ -1,13 +1,15 @@
 ---
 name: stack-insar-isce2
 description: >
-  Use for Sentinel-1 time-series InSAR processing with ISCE2 (stackSentinel.py + MintPy).
+  This skill should be used when the user needs Sentinel-1 time-series InSAR
+  processing with ISCE2 (stackSentinel.py + MintPy).
   Invoke when the user wants to process multiple S1 scenes to produce a deformation
   time series or velocity map.
   Triggers on: "S1 time series", "Sentinel-1 stack", "stackSentinel", "S1 velocity",
   "s1 time-series insar", "sentinel stack processing", "isce2 stack".
   If Sentinel SAFE/ZIP inputs are not already organized into grouped SAFE paths,
   invoke `data-prep` first.
+version: 0.1.0
 ---
 
 # Sentinel-1 Time-Series InSAR with ISCE2
@@ -51,7 +53,7 @@ If the user only has raw SAFE ZIP / SAFE / burst inputs, stop and invoke:
 data-prep
 ```
 
-Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_dir` as the handoff for this skill.
+Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_dir` as the handoff for this skill. For burst-derived SAFE inputs, require `data-prep` to return `isce2_import_validation.status == "passed"`; if it fails, stop and report the failed scene messages/logs instead of running stackSentinel.
 
 ---
 

@@ -1,12 +1,13 @@
 ---
 name: param-advisor
 description: >
-  Use when the user wants InSAR parameter tuning recommendations for either
-  ISCE3 (NISAR/RSLC) or ISCE2 (Sentinel-1) processing. Asks about multilook
+  This skill should be used when the user wants InSAR parameter tuning recommendations
+  for either ISCE3 (NISAR/RSLC) or ISCE2 (Sentinel-1) processing. Asks about multilook
   factors, filtering, phase unwrapping, coherence, coregistration, or says
   "tune parameters", "optimize parameters", "参数调优". This is the unified
   parameter advisory entry point supporting both engines. Supports both
   project-backed tuning and pure consultation mode when no project_id exists.
+version: 0.1.0
 ---
 
 # 参数专家：统一参数优化入口

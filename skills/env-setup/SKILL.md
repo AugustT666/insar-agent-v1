@@ -1,11 +1,12 @@
 ---
 name: env-setup
 description: >
-  Use when the user needs to set up or verify the insar-agent environment.
+  This skill should be used when the user needs to set up or verify the insar-agent environment.
   Invoke when the user says "first time setup", "install isce2/isce3/mintpy",
   "MCP not found", "check environment", "env not working", "how do I install",
   "set up the environment", or asks how to get started with insar-agent.
   Also invoke when any tool returns an environment-related error.
+version: 0.1.0
 ---
 
 # Environment Setup & Verification
@@ -105,21 +106,23 @@ python -m pytest tests/unit/ -q
 
 ---
 
-## Step 3 — Register MCP server & install skills plugin
+## Step 3 — Install plugin and verify MCP registration
 
 If `insar_check_env()` shows MCP or skills as missing:
 
-### 3a. Add MCP server
-
-```bash
-claude mcp add insar-mcp-server python -- -m insar_agent.mcp.server
-```
-
-### 3b. Install skills plugin
+### 3a. Install skills plugin
 
 ```bash
 claude plugin marketplace add <insar-agent-repo> --scope project
 claude plugin install insar-agent-plugin@insar-agent
+```
+
+The plugin declares `mcpServers` through `.claude-plugin/plugin.json` and `.mcp.json`.
+If the MCP server still does not appear after reinstalling the plugin, use this manual
+fallback:
+
+```bash
+claude mcp add insar-mcp-server python -- -m insar_agent.mcp.server
 ```
 
 ---

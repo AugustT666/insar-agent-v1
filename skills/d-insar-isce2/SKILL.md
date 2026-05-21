@@ -1,13 +1,15 @@
 ---
 name: d-insar-isce2
 description: >
-  Use for Sentinel-1 single-pair D-InSAR processing with ISCE2 (topsApp.py).
+  This skill should be used when the user needs Sentinel-1 single-pair D-InSAR
+  processing with ISCE2 (topsApp.py).
   Invoke when the user wants to process a pair of Sentinel-1 scenes to produce
   an interferogram, coherence map, or unwrapped displacement.
   Triggers on: "S1 interferogram", "Sentinel-1 DInSAR", "topsApp", "isce2 process",
   "S1 pair", "sentinel deformation", "C-band interferogram".
   If Sentinel SAFE/ZIP inputs are not already organized into grouped SAFE paths,
   invoke `data-prep` first.
+version: 0.1.0
 ---
 
 # Sentinel-1 D-InSAR with ISCE2 (Single Pair)

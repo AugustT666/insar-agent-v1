@@ -182,8 +182,8 @@ All checks passed!
    - Path B、MintPy、Sentinel 数据准备已经实现并通过快速真实回归；
    - 但 long-running execution 还没有本轮自动化通过记录。
 
-4. README 中插件 skill 数量已统一为 10。
-   - 当前 `skills/` 下是 10 个 workflow skills，主路由位于 `skills/insar-agent/SKILL.md`，OpenCode 通过 `.opencode/agents/` 软链引用。
+4. README 中插件 skill 数量已统一为 11。
+   - 当前 `skills/` 下是 10 个 workflow skills 加 1 个主路由 skill，主路由位于 `skills/insar-agent/SKILL.md`，OpenCode 通过 `.opencode/agents/` 软链引用。
 
 ---
 
@@ -288,7 +288,7 @@ All checks passed!
 
 建议动作：
 
-1. 同步 README 中 skill/agent 数量；
+1. 持续同步 README 中 skill/agent 数量；
 2. 更新中文镜像文档中旧路径和旧测试结论；
 3. 给真实数据测试写一页运行指南；
 4. 保留 `dev-plan.md` 为短基线文档，历史记录交给 Git。

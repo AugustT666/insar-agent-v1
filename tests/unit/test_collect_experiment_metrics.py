@@ -49,3 +49,28 @@ def test_hdf5_metrics_uses_gunw_science_datasets_only(tmp_path):
     assert "velocity_rms_mm_yr" not in metrics
     assert "coherence" in sources
     assert all("correlationSurfacePeak" not in source for source in sources["coherence"])
+
+
+def test_iter_output_paths_prefers_explicit_run_root(tmp_path):
+    module = _load_module()
+
+    workspace = tmp_path / "workspace"
+    completed = workspace / "outputs" / "E2" / "E2_20260512T080952Z"
+    failed = workspace / "outputs" / "E2" / "E2_20260512T080047Z"
+    completed.mkdir(parents=True)
+    failed.mkdir(parents=True)
+
+    completed_file = completed / "completed.txt"
+    failed_file = failed / "failed.txt"
+    completed_file.write_text("completed", encoding="utf-8")
+    failed_file.write_text("failed", encoding="utf-8")
+
+    paths = module.iter_output_paths(
+        workspace=workspace,
+        experiment_id="E2",
+        output_root="",
+        run_root=str(completed),
+    )
+
+    assert completed_file in paths
+    assert failed_file not in paths
