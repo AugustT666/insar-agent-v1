@@ -11,12 +11,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from insar_agent.mcp.server import (
+    _finalize_job_status_from_artifacts,
+    _workflow_log_has_failure,
     insar_create_project,
     insar_export_runconfig,
     insar_get_job,
     insar_get_job_status,
     insar_run_workflow,
 )
+from insar_agent.core.jobs import Job
 from insar_agent.core.project import Project
 
 
@@ -265,3 +268,127 @@ class TestGetJobStatusLiveness:
 
         mock_kill.assert_not_called()
         assert result["status"] == "done"
+
+
+class TestWorkflowJobArtifactFinalization:
+    def test_isce2_stack_zero_exit_without_success_marker_is_failed(self, tmp_path):
+        jobs_dir = tmp_path / "jobs"
+        log_path = tmp_path / "stack.log"
+        exit_code_path = tmp_path / "stack.exitcode"
+        log_path.write_text("[insar-agent] Step: run_files/run_01_unpack_topo_reference\nRunning: topo\n", encoding="utf-8")
+        exit_code_path.write_text("0", encoding="utf-8")
+        job = Job(
+            project_id="p1",
+            engine="isce2",
+            workflow="stack",
+            status="running",
+            log_path=str(log_path),
+            exit_code_path=str(exit_code_path),
+        )
+
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+
+        saved = Job.load(job.job_id, jobs_dir)
+        assert saved.status == "failed"
+        assert saved.exit_code == 1
+
+    def test_isce2_stack_success_marker_allows_zero_exit(self, tmp_path):
+        jobs_dir = tmp_path / "jobs"
+        log_path = tmp_path / "stack.log"
+        exit_code_path = tmp_path / "stack.exitcode"
+        log_path.write_text("[insar-agent] All stack steps completed.\n", encoding="utf-8")
+        exit_code_path.write_text("0", encoding="utf-8")
+        job = Job(
+            project_id="p1",
+            engine="isce2",
+            workflow="stack",
+            status="running",
+            log_path=str(log_path),
+            exit_code_path=str(exit_code_path),
+        )
+
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+
+        saved = Job.load(job.job_id, jobs_dir)
+        assert saved.status == "done"
+        assert saved.exit_code == 0
+
+    def test_innocent_killed_word_is_not_failure(self):
+        log_tail = "[insar-agent] Step: run_01_unpack_topo_reference\ntasks killed: 0\n[insar-agent] All stack steps completed.\n"
+
+        assert _workflow_log_has_failure(log_tail) is False
+
+    def test_killed_substring_inside_path_is_not_failure(self):
+        log_tail = "Opening /data/notkilled/SLC/safe.zip\nWorkflow finished successfully\n"
+
+        assert _workflow_log_has_failure(log_tail) is False
+
+    def test_capitalized_killed_path_component_is_not_failure(self):
+        log_tail = "Opening /data/Killed/SLC/safe.zip\nWorkflow finished successfully\n"
+
+        assert _workflow_log_has_failure(log_tail) is False
+
+    def test_english_killed_log_marks_workflow_failed(self):
+        log_tail = "bash: line 12: 3202071 Killed  python stackSentinel.py\n"
+
+        assert _workflow_log_has_failure(log_tail) is True
+
+    def test_chinese_killed_log_marks_workflow_failed(self, tmp_path):
+        jobs_dir = tmp_path / "jobs"
+        log_path = tmp_path / "stack.log"
+        log_path.write_text("/tmp/script: 第 31 行： 3202071 已杀死 bash -c 'run_01'\n", encoding="utf-8")
+        job = Job(
+            project_id="p1",
+            engine="isce2",
+            workflow="stack",
+            status="running",
+            log_path=str(log_path),
+        )
+
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+
+        saved = Job.load(job.job_id, jobs_dir)
+        assert saved.status == "failed"
+        assert saved.exit_code == 1
+
+    def test_isce2_stack_innocent_killed_word_does_not_override_success_marker(self, tmp_path):
+        jobs_dir = tmp_path / "jobs"
+        log_path = tmp_path / "stack.log"
+        exit_code_path = tmp_path / "stack.exitcode"
+        log_path.write_text("tasks killed: 0\n[insar-agent] All stack steps completed.\n", encoding="utf-8")
+        exit_code_path.write_text("0", encoding="utf-8")
+        job = Job(
+            project_id="p1",
+            engine="isce2",
+            workflow="stack",
+            status="running",
+            log_path=str(log_path),
+            exit_code_path=str(exit_code_path),
+        )
+
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+
+        saved = Job.load(job.job_id, jobs_dir)
+        assert saved.status == "done"
+        assert saved.exit_code == 0
+
+    def test_isce2_stack_real_killed_with_success_marker_is_failed(self, tmp_path):
+        jobs_dir = tmp_path / "jobs"
+        log_path = tmp_path / "stack.log"
+        exit_code_path = tmp_path / "stack.exitcode"
+        log_path.write_text("bash: line 12: 3202071 Killed  python stackSentinel.py\n[insar-agent] All stack steps completed.\n", encoding="utf-8")
+        exit_code_path.write_text("0", encoding="utf-8")
+        job = Job(
+            project_id="p1",
+            engine="isce2",
+            workflow="stack",
+            status="running",
+            log_path=str(log_path),
+            exit_code_path=str(exit_code_path),
+        )
+
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+
+        saved = Job.load(job.job_id, jobs_dir)
+        assert saved.status == "failed"
+        assert saved.exit_code == 1

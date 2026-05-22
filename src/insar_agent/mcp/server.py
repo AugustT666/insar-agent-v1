@@ -14,6 +14,7 @@ import uuid
 import zipfile
 from datetime import datetime, UTC
 from pathlib import Path
+from typing import TypeGuard
 
 import yaml
 from mcp.server.fastmcp import FastMCP
@@ -535,17 +536,21 @@ def _prepare_handoff(
     }
 
 
+WORKFLOW_LOG_TAIL_LINES = 80
+
 WORKFLOW_LOG_FAILURE_PATTERNS = (
     re.compile(r"^\s*(?:\w+error|error):\s*(?!0\b)", re.IGNORECASE),
     re.compile(r"^\s*traceback\b", re.IGNORECASE),
     re.compile(r"^\s*exception:\s*", re.IGNORECASE),
     re.compile(r"^\s*critical:\s*", re.IGNORECASE),
+    re.compile(r"\d+\s+Killed\s"),
 )
 
 WORKFLOW_LOG_FAILURE_SUBSTRINGS = (
     "environmentlocationnotfound",
     "not a conda environment",
     "condaerror",
+    "已杀死",
 )
 
 WORKFLOW_LOG_SUCCESS_MARKERS = (
@@ -572,14 +577,16 @@ def _workflow_log_has_success(log_tail: str) -> bool:
 
 def _finalize_job_status_from_artifacts(job: Job, jobs_dir: Path) -> None:
     """Update a finished workflow job using persisted exit code or log markers."""
+    log_tail = _read_log_tail(job.log_path, n=WORKFLOW_LOG_TAIL_LINES)
+    failed = _workflow_log_has_failure(log_tail)
+    succeeded = _workflow_log_has_success(log_tail)
     exit_code = _read_exit_code(job.exit_code_path)
-    if exit_code is not None:
+    requires_success_marker = job.engine == "isce2" and job.workflow == "stack"
+
+    if exit_code is not None and not failed and (not requires_success_marker or succeeded):
         job.status = "done" if exit_code == 0 else "failed"
         job.exit_code = exit_code
     else:
-        log_tail = _read_log_tail(job.log_path)
-        failed = _workflow_log_has_failure(log_tail)
-        succeeded = _workflow_log_has_success(log_tail)
         job.status = "done" if succeeded and not failed else "failed"
         job.exit_code = 0 if succeeded and not failed else 1
     job.finished_at = _utc_now()
@@ -1441,6 +1448,104 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
 
 # ── Group 3: Execution (M2) ────────────────────────────────────────────────────
 
+def _read_dem_bbox(dem_file: str) -> list[float]:
+    try:
+        proc = subprocess.run(
+            ["gdalinfo", "-json", dem_file],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        info = json.loads(proc.stdout)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as exc:
+        raise ValueError(f"Cannot read DEM bounds with gdalinfo for {dem_file!r}: {exc}") from exc
+
+    corner_coordinates = info.get("cornerCoordinates") or {}
+    xs: list[float] = []
+    ys: list[float] = []
+    try:
+        for key in ("upperLeft", "lowerLeft", "upperRight", "lowerRight"):
+            corner = corner_coordinates.get(key)
+            if not isinstance(corner, list | tuple) or len(corner) < 2:
+                continue
+            xs.append(float(corner[0]))
+            ys.append(float(corner[1]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Cannot parse DEM bounds from gdalinfo for {dem_file!r}: {exc}") from exc
+    if not xs or not ys:
+        raise ValueError(f"Cannot read DEM bounds from gdalinfo for {dem_file!r}.")
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def _is_bbox(value: object) -> TypeGuard[list[float] | tuple[float, float, float, float]]:
+    return (
+        isinstance(value, list | tuple)
+        and len(value) == 4
+        and all(isinstance(item, int | float) for item in value)
+    )
+
+
+def _bbox_intersects(a: list[float], b: list[float] | tuple[float, float, float, float]) -> bool:
+    return a[0] <= b[2] and a[2] >= b[0] and a[1] <= b[3] and a[3] >= b[1]
+
+
+def _sentinel_scene_paths_for_isce2(params: dict, workflow: str) -> list[Path]:
+    if workflow == "tops":
+        return [Path(str(params[key])) for key in ("reference_safe", "secondary_safe") if params.get(key)]
+    if workflow == "stack" and params.get("slc_dir"):
+        slc_dir = Path(str(params["slc_dir"]))
+        safe_dirs = [path for path in slc_dir.glob("*.SAFE") if path.is_dir()]
+        zip_files = [path for path in slc_dir.glob("*.zip") if path.is_file()]
+        zip_files.extend(path for path in slc_dir.glob("*.ZIP") if path.is_file())
+        return sorted(safe_dirs + zip_files)
+    return []
+
+
+def _validate_isce2_dem_scene_overlap(params: dict, workflow: str) -> list[str]:
+    dem_file = params.get("dem_file")
+    if not dem_file:
+        return []
+
+    scene_paths = _sentinel_scene_paths_for_isce2(params, workflow)
+    if not scene_paths:
+        return []
+
+    try:
+        dem_bbox = _read_dem_bbox(str(dem_file))
+    except ValueError as exc:
+        return [str(exc)]
+
+    errors: list[str] = []
+    scene_read_errors: list[str] = []
+    valid_scene_count = 0
+    for scene_path in scene_paths:
+        try:
+            scene_id, metadata = _read_safe_metadata(scene_path)
+        except (FileNotFoundError, ValueError, zipfile.BadZipFile) as exc:
+            scene_read_errors.append(f"{scene_path}: {exc}")
+            continue
+        scene_bbox = metadata.get("bbox")
+        if not _is_bbox(scene_bbox):
+            scene_read_errors.append(f"{scene_path}: missing or invalid bbox")
+            continue
+        valid_scene_count += 1
+        if not _bbox_intersects(dem_bbox, scene_bbox):
+            errors.append(
+                "DEM does not overlap Sentinel-1 scene coverage: "
+                f"dem_file={dem_file!r}, dem_bbox={dem_bbox}, "
+                f"scene={scene_id!r}, scene_bbox={scene_bbox}. "
+                "Use a DEM covering the Sentinel-1 AOI before running ISCE2."
+            )
+            break
+    if valid_scene_count == 0 and scene_read_errors:
+        errors.append(
+            "Cannot verify DEM coverage because Sentinel-1 scene bounds could not be read: "
+            + "; ".join(scene_read_errors[:3])
+        )
+    return errors
+
+
 def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
     """Launch an ISCE2 workflow (topsApp.py or stackSentinel.py)."""
     params = project.runconfig
@@ -1464,6 +1569,14 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
                 "poll": f"insar_get_job(job_id='{existing_job.job_id}', project_id='{project.project_id}')",
                 "message": "Existing workflow job found for this project; not launching a duplicate process.",
             }
+
+    errors = _validate_isce2_dem_scene_overlap(params, project.workflow)
+    if errors:
+        return {
+            "error": "params_invalid",
+            "message": "ISCE2 project parameters have validation errors — fix them before running.",
+            "errors": errors,
+        }
 
     configs_dir = project.configs_dir()
     configs_dir.mkdir(parents=True, exist_ok=True)
@@ -1977,22 +2090,7 @@ def insar_get_job(
     except FileNotFoundError:
         return _job_error(job_id)
 
-    # PID-based liveness check
-    if job.status == "running" and job.pid is not None:
-        alive = True
-        try:
-            os.kill(job.pid, 0)
-            state_line = next(
-                (ln for ln in Path(f"/proc/{job.pid}/status").read_text().splitlines()
-                 if ln.startswith("State:")),
-                "",
-            )
-            if "Z" in state_line:
-                alive = False
-        except (ProcessLookupError, FileNotFoundError):
-            alive = False
-        if not alive:
-            _finalize_job_status_from_artifacts(job, project.jobs_dir())
+    job = _refresh_workflow_job_status(job, project.jobs_dir())
 
     result = {
         "job_id": job.job_id,
@@ -2026,23 +2124,7 @@ def insar_get_job_status(job_id: str, project_id: str) -> dict:
     except FileNotFoundError:
         return _job_error(job_id)
 
-    # PID-based liveness check: update status if process has exited
-    if job.status == "running" and job.pid is not None:
-        alive = True
-        try:
-            os.kill(job.pid, 0)
-            # os.kill(pid, 0) succeeds for zombie processes too — check /proc
-            state_line = next(
-                (ln for ln in Path(f"/proc/{job.pid}/status").read_text().splitlines()
-                 if ln.startswith("State:")),
-                "",
-            )
-            if "Z" in state_line:
-                alive = False
-        except (ProcessLookupError, FileNotFoundError):
-            alive = False
-        if not alive:
-            _finalize_job_status_from_artifacts(job, project.jobs_dir())
+    job = _refresh_workflow_job_status(job, project.jobs_dir())
 
     return {
         "job_id": job.job_id,
@@ -2770,7 +2852,7 @@ def insar_run_mintpy_isce2(
 
     Uses prep_isce.py plus smallbaselineApp.py against a completed ISCE2 stack
     directory containing merged/interferograms, merged/geom_reference,
-    merged/baselines, and reference/IW*.xml.
+    topsStack baseline text files or baseline rasters, and reference/IW*.xml.
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
@@ -3051,6 +3133,51 @@ except Exception as _e:
     }
 
 
+def _find_isce2_gdal2isce_xml() -> Path | None:
+    return next(
+        (
+            path
+            for path in (Path.home() / "miniconda3" / "envs" / "isce2" / "lib").glob(
+                "python*/site-packages/isce/applications/gdal2isce_xml.py"
+            )
+        ),
+        None,
+    )
+
+
+def _ensure_isce2_dem_xml(dem_path: Path, log_path: Path) -> str | None:
+    xml_path = dem_path.with_name(dem_path.name + ".xml")
+    if xml_path.exists():
+        return str(xml_path)
+
+    script = _find_isce2_gdal2isce_xml()
+    if script is None:
+        _append_log(log_path, "ISCE2 gdal2isce_xml.py not found; DEM XML sidecar was not generated.")
+        return None
+
+    command = [
+        "conda",
+        "run",
+        "-n",
+        "isce2",
+        "python",
+        str(script),
+        "-i",
+        str(dem_path),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120, env=_conda_safe_env())
+    if result.stdout.strip():
+        _append_log(log_path, result.stdout.strip())
+    if result.stderr.strip():
+        _append_log(log_path, result.stderr.strip())
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip() or "ISCE2 DEM XML generation failed"
+        raise RuntimeError(message)
+    if not xml_path.exists():
+        raise RuntimeError(f"ISCE2 DEM XML generation did not create {xml_path}")
+    return str(xml_path)
+
+
 @mcp.tool()
 def insar_download_dem(
     output_path: str,
@@ -3238,6 +3365,13 @@ def insar_download_dem(
     result["log"] = messages
     for line in messages:
         _append_log(log_path, line)
+    try:
+        isce_xml_path = _ensure_isce2_dem_xml(Path(str(result["output_path"])), log_path)
+    except RuntimeError as exc:
+        _append_log(log_path, str(exc))
+        return {"error": "download_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+    if isce_xml_path is not None:
+        result["isce_xml_path"] = isce_xml_path
     result["log_path"] = str(log_path)
     result["params_path"] = str(params_path)
     return result

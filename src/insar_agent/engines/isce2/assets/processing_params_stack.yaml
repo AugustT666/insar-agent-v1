@@ -151,7 +151,9 @@ parameters:
     risk_level: low
     valid_range: [1, 1024]
     description: >
-      Worker process count passed via --num_proc.
+      Worker process count passed via --num_proc. This is an execution resource
+      parameter: increasing it can reduce runtime on multi-core hosts but raises
+      memory and I/O pressure.
 
   - key: use_gpu
     label: Use GPU acceleration

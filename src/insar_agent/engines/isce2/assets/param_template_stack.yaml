@@ -12,6 +12,7 @@ workflow_defaults:
   coregistration: NESD
   range_looks: 9
   azimuth_looks: 3
+  do_unwrap: true
   unwrap_method: snaphu
   num_proc: 1
   use_gpu: false

@@ -30,6 +30,20 @@ def _make_stack_root(root: Path) -> Path:
     return root
 
 
+def _make_stack_root_with_text_baselines(root: Path) -> Path:
+    (root / "reference").mkdir(parents=True, exist_ok=True)
+    (root / "reference" / "IW2.xml").write_text("<xml />", encoding="utf-8")
+    (root / "merged" / "interferograms" / "20260105_20260117").mkdir(parents=True, exist_ok=True)
+    (root / "merged" / "geom_reference").mkdir(parents=True, exist_ok=True)
+    baseline = root / "baselines" / "20260105_20260117" / "20260105_20260117.txt"
+    baseline.parent.mkdir(parents=True, exist_ok=True)
+    baseline.write_text(
+        "swath: IW1\nBperp (average): 10.0\nBpar (average): 0.0\n",
+        encoding="utf-8",
+    )
+    return root
+
+
 def _write_isce_image_xml(path: Path, width: int, length: int) -> None:
     xml = f"""<imageFile>
     <property name=\"width\"><value>{width}</value></property>
@@ -61,6 +75,13 @@ class TestRunMintpyISCE2Stack:
         assert (out / "20260105_20260129" / "20260105_20260129.txt").exists()
         txt = (out / "20260105_20260117" / "20260105_20260117.txt").read_text(encoding="utf-8")
         assert "Bperp (average): 10.0" in txt
+
+    def test_export_mintpy_tops_baselines_accepts_topsstack_text_baselines(self, tmp_path: Path) -> None:
+        stack = _make_stack_root_with_text_baselines(tmp_path / "stack")
+
+        out = export_mintpy_tops_baselines(stack)
+
+        assert out == stack / "baselines"
 
     def test_missing_stack_dir_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
@@ -106,6 +127,28 @@ class TestRunMintpyISCE2Stack:
         assert "merged/baselines_txt" in template
         assert "mintpy.troposphericDelay.method = no" in template
         assert "mintpy.topographicResidual = no" in template
+
+    def test_launch_accepts_topsstack_text_baselines(self, tmp_path: Path) -> None:
+        stack = _make_stack_root_with_text_baselines(tmp_path / "stack")
+        fake_script = tmp_path / "run_mintpy_isce2_stack.sh"
+        fake_script.write_text("#!/bin/bash\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 4242
+
+        with patch("insar_agent.engines.isce2.mintpy._SCRIPT", fake_script), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = run_mintpy_isce2_stack(
+                mintpy_work_dir=str(tmp_path / "mintpy"),
+                stack_work_dir=str(stack),
+                conda_env="isce2",
+            )
+
+        job_file = tmp_path / "mintpy" / ".jobs" / f"{result['job_id']}.json"
+        data = json.loads(job_file.read_text())
+        template = Path(data["mintpy_config"]).read_text(encoding="utf-8")
+        assert f"mintpy.load.baselineDir = {(stack / 'baselines').as_posix()}" in template
+        command = mock_popen.call_args.args[0]
+        assert command[-1] == str(stack / "baselines")
 
     def test_launch_does_not_set_removed_bridge_env_overrides(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")

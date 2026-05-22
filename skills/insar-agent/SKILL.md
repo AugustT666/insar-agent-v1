@@ -33,23 +33,23 @@ use `insar_*` MCP tools for execution.
 
 ## Session Bootstrap
 
-Before routing into an execution workflow, collect the cross-cutting session
-facts once:
+Before routing into an execution workflow, collect only the cross-cutting session
+facts that are missing for the requested workflow:
 
 1. Read the MCP resource `insar://workflow-guide` to load hard workflow
    constraints.
-2. Ask which conda environment to use for ISCE3 execution (`isce3`, `isce3gpu`,
-   or a project-specific name).
-3. Confirm whether the selected ISCE3 environment can run
-   `nisar.workflows.insar`.
-4. Ask which conda environment to use for MintPy. Keep this separate from the
-   ISCE3 environment because MintPy 1.6.x requires `numpy<2` while ISCE3 often
-   installs NumPy 2.x.
-5. Ask whether the user has an approved base runconfig template path for this
-   session.
+2. For ISCE3 execution, use the environment specified by the task/user; if none
+   is specified, ask which ISCE3 environment to use (`isce3`, `isce3gpu`, or a
+   project-specific name).
+3. For MintPy, use workflow-specific defaults when available. In particular,
+   ISCE2/topsStack MintPy defaults to `isce2` unless the task/user overrides it;
+   ISCE3 MintPy should use a dedicated MintPy environment with `numpy<2`.
+4. Ask whether the user has an approved base runconfig template path only for
+   workflows that need one and do not already have a default.
 
-Defer items 2-5 when the user only wants documentation, architecture review, or
-workflow consultation. Collect them before any real data-processing workflow.
+Defer these questions when the user only wants documentation, architecture review,
+or workflow consultation. Do not force environment prompts that the selected
+workflow skill can resolve through a valid default.
 
 ## Workflow Routing
 
@@ -121,35 +121,3 @@ must not be bypassed by client-side instructions.
 - Do not invent workflow parameters when source material is incomplete.
 - Do not directly generate parameter recommendations when the
   `param-advisor` skill/subagent flow applies.
-
-
----
-
-## 任务小结（Task Debrief — 强制执行）
-
-任务最后一步，无论成功或失败，必须输出以下结构化小结，不得跳过。
-
-```
-【任务小结】
-实验 ID / run_id：<task_id 或 N/A>_<run_id 或 N/A>
-
-工作流合规性
-  Skill 流程：<完全遵循 | 部分偏离 | 严重偏离>
-  MCP 工具：<全程使用 mcp__insar-agent__* 接口 | 部分绕过 | 未使用>
-
-偏离记录（如无填"无"）
-  1. <偏离点：说明发生了什么，与 skill 规定步骤的差异>
-
-根因分类（有偏离时勾选，可多选）
-  □ Skill 指引不完备（步骤缺失 / 说明不清 / 边界条件未覆盖）
-  □ MCP 工具问题（参数不直观 / 返回值格式异常 / 工具功能缺失）
-  □ 环境 / 数据问题（conda env / 文件路径 / 权限 — 非插件问题）
-  □ 其他：___
-
-开发 agent 介入建议
-  需要介入：<是 | 否>
-  建议：<具体改进点，说明异常在哪、应如何修复 | "无">
-
-最终结果：<成功 | 失败>
-摘要：<一句话：处理了什么数据，产生了什么产品>
-```

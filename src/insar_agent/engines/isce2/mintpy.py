@@ -32,8 +32,19 @@ def _read_isce_image_shape(xml_path: Path) -> tuple[int, int]:
     return int(width_match.group(1)), int(length_match.group(1))
 
 
+def _tops_text_baseline_dir(stack_dir: Path) -> Path | None:
+    baseline_dir = stack_dir / "baselines"
+    if any(path.is_file() and path.stat().st_size > 0 for path in baseline_dir.glob("*/*.txt")):
+        return baseline_dir
+    return None
+
+
 def export_mintpy_tops_baselines(stack_work_dir: str | Path) -> Path:
     stack_dir = Path(stack_work_dir)
+    text_baseline_dir = _tops_text_baseline_dir(stack_dir)
+    if text_baseline_dir is not None:
+        return text_baseline_dir
+
     baseline_root = stack_dir / "merged" / "baselines"
     output_root = stack_dir / "merged" / "baselines_txt"
     output_root.mkdir(parents=True, exist_ok=True)
@@ -49,7 +60,10 @@ def export_mintpy_tops_baselines(stack_work_dir: str | Path) -> Path:
         means[date_dir.name] = float(arr.mean())
 
     if not means:
-        raise FileNotFoundError(f"No baseline rasters found under {baseline_root}")
+        raise FileNotFoundError(
+            f"No topsStack baseline text files or baseline rasters found under "
+            f"{stack_dir / 'baselines'} or {baseline_root}"
+        )
 
     reference_date = min(means, key=lambda k: abs(means[k]))
     for date, value in means.items():
@@ -66,8 +80,8 @@ def export_mintpy_tops_baselines(stack_work_dir: str | Path) -> Path:
     return output_root
 
 
-def _default_template_text(stack_work_dir: Path) -> str:
-    baseline_dir = export_mintpy_tops_baselines(stack_work_dir)
+def _default_template_text(stack_work_dir: Path, baseline_dir: Path | None = None) -> str:
+    baseline_dir = baseline_dir or export_mintpy_tops_baselines(stack_work_dir)
     return "\n".join(
         [
             "mintpy.load.processor = isce",
@@ -92,9 +106,9 @@ def _default_template_text(stack_work_dir: Path) -> str:
     ) + "\n"
 
 
-def _write_default_template(mintpy_work_dir: Path, stack_work_dir: Path) -> Path:
+def _write_default_template(mintpy_work_dir: Path, stack_work_dir: Path, baseline_dir: Path | None = None) -> Path:
     template_path = mintpy_work_dir / "isce2_stack.txt"
-    template_path.write_text(_default_template_text(stack_work_dir), encoding="utf-8")
+    template_path.write_text(_default_template_text(stack_work_dir, baseline_dir), encoding="utf-8")
     return template_path
 
 
@@ -117,8 +131,7 @@ def run_mintpy_isce2_stack(
         raise FileNotFoundError(str(stack_dir / "merged" / "interferograms"))
     if not (stack_dir / "merged" / "geom_reference").exists():
         raise FileNotFoundError(str(stack_dir / "merged" / "geom_reference"))
-    if not (stack_dir / "merged" / "baselines").exists():
-        raise FileNotFoundError(str(stack_dir / "merged" / "baselines"))
+    baseline_dir = export_mintpy_tops_baselines(stack_dir)
 
     work_dir.mkdir(parents=True, exist_ok=True)
     jobs_dir = work_dir / ".jobs"
@@ -126,7 +139,7 @@ def run_mintpy_isce2_stack(
     logs_dir = resolve_plugin_logs_dir(work_dir, fallback_root=work_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    config_path = Path(mintpy_config) if mintpy_config else _write_default_template(work_dir, stack_dir)
+    config_path = Path(mintpy_config) if mintpy_config else _write_default_template(work_dir, stack_dir, baseline_dir)
     if not config_path.exists():
         raise FileNotFoundError(str(config_path))
 
@@ -143,6 +156,7 @@ def run_mintpy_isce2_stack(
         str(work_dir),
         str(stack_dir),
         str(config_path),
+        str(baseline_dir),
     ]
 
     env = os.environ.copy()
@@ -163,6 +177,7 @@ def run_mintpy_isce2_stack(
         "finished_at": None,
         "command": command,
         "stack_work_dir": str(stack_dir),
+        "baseline_dir": str(baseline_dir),
         "mintpy_config": str(config_path),
     }
     (jobs_dir / f"{job_id}.json").write_text(json.dumps(job_data, indent=2))

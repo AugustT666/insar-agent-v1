@@ -5,6 +5,7 @@ from pathlib import Path
 from insar_agent.engines.isce2.runner import build_topsapp_xml
 from insar_agent.engines.isce2.runner import build_workflow_command
 from insar_agent.engines.isce2.runner import materialize_dem_for_tops
+from insar_agent.engines.isce2.stack import build_stack_command
 
 
 def test_build_topsapp_xml_omits_invalid_burst_overlap_property() -> None:
@@ -131,3 +132,27 @@ def test_build_workflow_command_tops_skips_esd_steps_when_disabled() -> None:
     assert "cp -f PICKLE/overlapifg PICKLE/rangecoreg" in inner
     assert 'python "$ISCE_HOME/applications/topsApp.py" /tmp/topsApp.xml --steps --start=fineoffsets' in inner
     assert "--dostep esd" not in inner
+
+
+def test_build_stack_command_exports_concrete_isce2_paths(tmp_path: Path) -> None:
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        {
+            "slc_dir": str(slc_dir),
+            "orbit_dir": "/tmp/orbits",
+            "dem_file": "/tmp/dem.tif",
+            "swaths": [1, 2],
+        },
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+    )
+    inner = command[-1]
+
+    assert 'ISCE_PREFIX="${CONDA_PREFIX:-$(python -c \'import sys; print(sys.prefix)\')}"' in inner
+    assert 'export ISCE_STACK="${ISCE_STACK:-$ISCE_PREFIX/share/isce2}"' in inner
+    assert 'site-packages/isce/applications' in inner
+    assert 'ISCE applications directory not found' in inner
+    assert 'export ISCE_HOME="$(dirname "$ISCE_APPLICATIONS")"' in inner
+    assert 'export PATH="$ISCE_STACK/topsStack:$ISCE_APPLICATIONS:$PATH"' in inner
+    assert 'python "$ISCE_STACK/topsStack/stackSentinel.py"' in inner

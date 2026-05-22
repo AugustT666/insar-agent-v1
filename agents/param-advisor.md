@@ -94,6 +94,7 @@ The calling skill should send only a compressed package with:
 - user goal summary
 - runconfig summary
 - evidence profile
+- runtime/hardware summary when available, including logical CPU count, memory, current `num_proc`, and a conservative parallelism upper bound
 - missing information
 - whitelist-controlled parameter registry summary
 
@@ -113,6 +114,7 @@ If the task is a time-series / Path B scenario, also include:
 - Sentinel metadata summary from `insar_describe_s1` (relative_orbit, pass_direction, polarization, bbox, scene count)
 - workflow indicator: `tops` or `stack`
 - workflow-specific template summary
+- runtime resource summary for stack/tops execution; evaluate `num_proc` as an execution-resource parameter distinct from science parameters
 
 ## Required Output
 
@@ -156,6 +158,7 @@ Each entry in `changes[]` must include:
 - `sensor_revisit_cycle`
 - `sensor_resolution_or_pixel_spacing`
 - `sensor_wavelength_or_band`
+- `runtime_resource_assessment` when runtime evidence is provided, especially whether changing `num_proc` is recommended
 - `context_confidence`
 - `sources`
 

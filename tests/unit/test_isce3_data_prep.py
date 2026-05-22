@@ -211,6 +211,7 @@ class TestInsarDownloadDemTool:
                 "insar_agent.mcp.server.download_dem",
                 return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
             ) as mock_download,
+            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
         ):
             result = insar_download_dem(
                 output_path=str(tmp_path / "dem.tif"),
@@ -221,10 +222,13 @@ class TestInsarDownloadDemTool:
         assert mock_download.call_args.kwargs["bbox"] == (40.5, 13.4, 40.8, 13.7)
 
     def test_passes_proxy_to_dem_engine(self, tmp_path: Path):
-        with patch(
-            "insar_agent.mcp.server.download_dem",
-            return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
-        ) as mock_download:
+        with (
+            patch(
+                "insar_agent.mcp.server.download_dem",
+                return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
+            ) as mock_download,
+            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+        ):
             result = insar_download_dem(
                 output_path=str(tmp_path / "dem.tif"),
                 bbox=[40.5, 13.4, 40.8, 13.7],
@@ -233,6 +237,36 @@ class TestInsarDownloadDemTool:
 
         assert "error" not in result
         assert mock_download.call_args.kwargs["proxy"] == "http://temporary-proxy:7890"
+
+    def test_generates_isce2_xml_sidecar_for_general_dem(self, tmp_path: Path):
+        output_path = tmp_path / "dem.tif"
+        script_path = tmp_path / "gdal2isce_xml.py"
+        script_path.write_text("", encoding="utf-8")
+
+        def fake_download_dem(**kwargs):
+            output_path.write_bytes(b"dem")
+            return {"output_path": str(output_path), "source": "srtm_c", "bbox": [12.4, 39.6, 14.6, 42.4]}
+
+        def fake_run(command, capture_output=True, text=True, timeout=120, env=None):
+            assert command[-2:] == ["-i", str(output_path)]
+            (tmp_path / "dem.tif.xml").write_text("<image />", encoding="utf-8")
+
+            class Result:
+                returncode = 0
+                stdout = "created xml"
+                stderr = ""
+
+            return Result()
+
+        with (
+            patch("insar_agent.mcp.server.download_dem", side_effect=fake_download_dem),
+            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=script_path),
+            patch("insar_agent.mcp.server.subprocess.run", side_effect=fake_run),
+        ):
+            result = insar_download_dem(output_path=str(output_path), bbox=[12.5, 39.7, 14.5, 42.3])
+
+        assert "error" not in result
+        assert result["isce_xml_path"] == str(tmp_path / "dem.tif.xml")
 
 
 class TestDownloadRslcProxyBehavior:
@@ -389,3 +423,69 @@ class TestDownloadDemProxyBehavior:
         }
         assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
         assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
+
+    def test_falls_back_to_cgiar_srtm_when_copernicus_warp_fails(self, tmp_path: Path):
+        from insar_agent.engines.isce3 import dem as dem_mod
+
+        sources_seen: list[list[str]] = []
+
+        class _DummyDataset:
+            pass
+
+        def fake_warp(output_path, sources, options=None):
+            sources_seen.append(list(sources))
+            if len(sources_seen) == 1:
+                raise RuntimeError("HTTP 404")
+            Path(output_path).write_bytes(b"dem")
+            return _DummyDataset()
+
+        with (
+            patch("osgeo.gdal.UseExceptions", return_value=None),
+            patch("osgeo.gdal.Warp", side_effect=fake_warp),
+            patch("osgeo.gdal.WarpOptions", side_effect=lambda **kwargs: kwargs),
+        ):
+            result = dem_mod.download_dem(
+                output_path=str(tmp_path / "sentinel_dem.tif"),
+                bbox=(12.483830, 39.698643, 14.549834, 42.304691),
+                margin_deg=0.05,
+            )
+
+        assert result["source"] == "srtm_c"
+        assert sources_seen[0][0].startswith("/vsicurl/https://copernicus-dem-30m")
+        assert sources_seen[1] == [
+            "/vsizip//vsicurl/https://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_5x5/TIFF/srtm_39_04.zip/srtm_39_04.tif",
+            "/vsizip//vsicurl/https://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_5x5/TIFF/srtm_39_05.zip/srtm_39_05.tif",
+        ]
+        assert result["tile_urls"] == [
+            "https://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_5x5/TIFF/srtm_39_04.zip",
+            "https://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_5x5/TIFF/srtm_39_05.zip",
+        ]
+
+    def test_supports_explicit_cgiar_srtm_source(self, tmp_path: Path):
+        from insar_agent.engines.isce3 import dem as dem_mod
+
+        sources_seen: list[list[str]] = []
+
+        class _DummyDataset:
+            pass
+
+        def fake_warp(output_path, sources, options=None):
+            sources_seen.append(list(sources))
+            Path(output_path).write_bytes(b"dem")
+            return _DummyDataset()
+
+        with (
+            patch("osgeo.gdal.UseExceptions", return_value=None),
+            patch("osgeo.gdal.Warp", side_effect=fake_warp),
+            patch("osgeo.gdal.WarpOptions", side_effect=lambda **kwargs: kwargs),
+        ):
+            result = dem_mod.download_dem(
+                output_path=str(tmp_path / "sentinel_dem.tif"),
+                bbox=(12.483830, 39.698643, 14.549834, 42.304691),
+                source="srtm_c",
+                margin_deg=0.05,
+            )
+
+        assert result["source"] == "srtm_c"
+        assert len(sources_seen) == 1
+        assert all("srtm.csi.cgiar.org" in source for source in sources_seen[0])

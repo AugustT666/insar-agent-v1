@@ -110,6 +110,46 @@ def test_build_evidence_profile_for_stack_samples_scenes(tmp_path):
     assert profile["template_summary"]["name"] == "sentinel-isce2-stack"
 
 
+def test_build_evidence_profile_includes_runtime_resource_guidance(monkeypatch):
+    import insar_agent.engines.isce2.param_advisor as param_advisor
+
+    monkeypatch.setattr(
+        param_advisor,
+        "_detect_runtime_resources",
+        lambda: {"logical_cpu_count": 16, "memory_gb": 64.0},
+    )
+
+    profile = build_evidence_profile(
+        {"num_proc": 1},
+        workflow="stack",
+    )
+
+    assert profile["runtime"]["logical_cpu_count"] == {"value": 16, "source": "host_observed", "inferred_from": []}
+    assert profile["runtime"]["memory_gb"] == {"value": 64.0, "source": "host_observed", "inferred_from": []}
+    assert profile["runtime"]["current_num_proc"] == {"value": 1, "source": "runconfig", "inferred_from": []}
+    assert profile["runtime"]["suggested_num_proc_upper_bound"]["value"] == 8
+    assert "num_proc" in profile["runtime"]["parallelism_guidance"]["value"]
+
+
+def test_build_evidence_profile_handles_undetectable_memory(monkeypatch):
+    import insar_agent.engines.isce2.param_advisor as param_advisor
+
+    monkeypatch.setattr(
+        param_advisor,
+        "_detect_runtime_resources",
+        lambda: {"logical_cpu_count": 4, "memory_gb": None},
+    )
+
+    profile = build_evidence_profile({}, workflow="stack")
+
+    assert profile["runtime"]["memory_gb"] == {"value": None, "source": "missing", "inferred_from": []}
+    assert profile["runtime"]["current_num_proc"] == {"value": None, "source": "missing", "inferred_from": []}
+    assert profile["runtime"]["suggested_num_proc_upper_bound"]["value"] == 2
+    assert "RAM was not detectable" in profile["runtime"]["parallelism_guidance"]["value"]
+    assert "memory_gb" in profile["missing_information"]
+    assert "current_num_proc" in profile["missing_information"]
+
+
 def test_build_default_param_package_contains_registry_and_rules():
     package = build_default_param_package("tops")
     assert package["workflow"] == "tops"

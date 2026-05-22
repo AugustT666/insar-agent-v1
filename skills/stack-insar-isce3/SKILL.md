@@ -31,7 +31,7 @@ Each option generates shell scripts that can be launched manually or through `in
 
 - `data_dir`: directory containing multiple NISAR RSLC `.h5` files
 - `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, uses the built-in default `insar` template.
-- `isce3_conda_env`: conda env that contains ISCE3. Call `insar_check_env` first; use `isce3` if available, otherwise `isce3gpu`. Do NOT attempt to run batch with `isce3` if `insar_check_env` shows it is missing — use the available fallback directly.
+- `isce3_conda_env`: conda env that contains ISCE3. Use the task/user specified value when provided; if missing or unclear, inspect environment availability and choose an available ISCE3-compatible env before launch.
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
@@ -184,35 +184,3 @@ Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_
 
 - `references/network-modes.md` — network strategy options and parameters
 - `references/baseline-viz.md` — baseline network visualization after Option B
-
-
----
-
-## 任务小结（Task Debrief — 强制执行）
-
-任务最后一步，无论成功或失败，必须输出以下结构化小结，不得跳过。
-
-```
-【任务小结】
-实验 ID / run_id：<task_id 或 N/A>_<run_id 或 N/A>
-
-工作流合规性
-  Skill 流程：<完全遵循 | 部分偏离 | 严重偏离>
-  MCP 工具：<全程使用 mcp__insar-agent__* 接口 | 部分绕过 | 未使用>
-
-偏离记录（如无填"无"）
-  1. <偏离点：说明发生了什么，与 skill 规定步骤的差异>
-
-根因分类（有偏离时勾选，可多选）
-  □ Skill 指引不完备（步骤缺失 / 说明不清 / 边界条件未覆盖）
-  □ MCP 工具问题（参数不直观 / 返回值格式异常 / 工具功能缺失）
-  □ 环境 / 数据问题（conda env / 文件路径 / 权限 — 非插件问题）
-  □ 其他：___
-
-开发 agent 介入建议
-  需要介入：<是 | 否>
-  建议：<具体改进点，说明异常在哪、应如何修复 | "无">
-
-最终结果：<成功 | 失败>
-摘要：<一句话：处理了什么数据，产生了什么产品>
-```

@@ -94,13 +94,15 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         args += ["-useGPU"]
 
     args_str = " ".join(args)
-    # Clean prior ISCE2 outputs so stackSentinel.py can always run fresh.
-    # PATH is extended so SentinelWrapper.py and other topsStack scripts are found.
     inner_cmd = (
         'set -e && '
         f'mkdir -p {shlex.quote(aux_dir)} && '
+        "ISCE_PREFIX=\"${CONDA_PREFIX:-$(python -c 'import sys; print(sys.prefix)')}\" && "
+        'export ISCE_STACK="${ISCE_STACK:-$ISCE_PREFIX/share/isce2}" && '
+        "export ISCE_APPLICATIONS=\"$(python -c 'import pathlib, sys; matches=sorted(pathlib.Path(sys.prefix, \"lib\").glob(\"python*/site-packages/isce/applications\")); print(matches[0]) if matches else sys.exit(\"ISCE applications directory not found\")')\" && "
+        'export ISCE_HOME="$(dirname "$ISCE_APPLICATIONS")" && '
         'export PYTHONPATH="$ISCE_STACK" && '
-        'export PATH="$ISCE_STACK/topsStack:$ISCE_STACK/applications:$PATH" && '
+        'export PATH="$ISCE_STACK/topsStack:$ISCE_APPLICATIONS:$PATH" && '
         f'cd {shlex.quote(work_dir)} && '
         'rm -rf run_files configs SAFE_files.txt reference geom_reference '
         'secondary secondary_* merged misreg baselines baselines_txt DEM_files && '

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import os
 from pathlib import Path
 
 import yaml
@@ -65,6 +66,58 @@ def _sample_stack_summaries(slc_dir: str | None, limit: int = 3) -> list[dict]:
     return summaries
 
 
+def _detect_runtime_resources() -> dict:
+    cpu_count = os.cpu_count() or 1
+    memory_gb: float | None = None
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+        if page_size > 0 and page_count > 0:
+            memory_gb = round(page_size * page_count / 1024**3, 1)
+    except (AttributeError, OSError, ValueError):
+        pass
+    return {"logical_cpu_count": cpu_count, "memory_gb": memory_gb}
+
+
+def _suggest_num_proc_upper_bound(resources: dict) -> int:
+    cpu_count = int(resources.get("logical_cpu_count") or 1)
+    memory_gb = resources.get("memory_gb")
+    cpu_bound = max(1, cpu_count // 2)
+    if memory_gb is None:
+        return min(4, cpu_bound)
+    if memory_gb >= 64:
+        return min(8, cpu_bound)
+    if memory_gb >= 32:
+        return min(4, cpu_bound)
+    if memory_gb >= 16:
+        return min(2, cpu_bound)
+    return 1
+
+
+def _runtime_profile(params: dict) -> dict:
+    resources = _detect_runtime_resources()
+    suggested = _suggest_num_proc_upper_bound(resources)
+    memory_value = resources.get("memory_gb")
+    cpu_value = resources.get("logical_cpu_count")
+    if memory_value is None:
+        guidance = (
+            f"Consider num_proc up to {suggested} for ISCE2 stack execution based on "
+            f"{cpu_value} logical CPUs; RAM was not detectable"
+        )
+    else:
+        guidance = (
+            f"Consider num_proc up to {suggested} for ISCE2 stack execution based on "
+            f"{cpu_value} logical CPUs and {memory_value} GiB RAM"
+        )
+    return {
+        "logical_cpu_count": _field(resources.get("logical_cpu_count"), "host_observed"),
+        "memory_gb": _field(memory_value, "host_observed" if memory_value is not None else "missing"),
+        "current_num_proc": _field(params.get("num_proc"), "runconfig" if params.get("num_proc") is not None else "missing"),
+        "suggested_num_proc_upper_bound": _field(suggested, "host_inferred", ["logical_cpu_count", "memory_gb"]),
+        "parallelism_guidance": _field(guidance, "host_inferred", ["logical_cpu_count", "memory_gb", "current_num_proc"]),
+    }
+
+
 def build_evidence_profile(
     params: dict,
     workflow: str,
@@ -86,6 +139,7 @@ def build_evidence_profile(
             "sources": template.get("sources", []),
         },
         "current_config": {item["key"]: deepcopy(params.get(item["key"])) for item in registry},
+        "runtime": _runtime_profile(params),
         "missing_information": [],
     }
 
@@ -120,7 +174,7 @@ def build_evidence_profile(
     }
 
     missing: list[str] = []
-    for section in ("data", "task"):
+    for section in ("data", "task", "runtime"):
         for key, item in profile[section].items():
             if isinstance(item, dict) and item.get("source") == "missing":
                 missing.append(key)

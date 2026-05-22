@@ -33,13 +33,7 @@ version: 0.1.0
 
 ## Prerequisites
 
-Before starting, verify the ISCE2 environment is available:
-
-```
-insar_check_env()
-```
-
-Confirm `envs.isce2.status == "ok"`. If missing, invoke the `env-setup` skill first.
+Use the task/user specified ISCE2 environment, or default to `isce2` if none is specified. If environment status is missing, unclear, or a tool reports an environment-related error, use `insar_check_env()` or invoke `env-setup` before retrying.
 
 ---
 
@@ -345,36 +339,4 @@ tail -f /path/to/workspace_root/.insar_logs/isce2_*.log
 To search for error patterns:
 ```bash
 grep -i "error\|failed\|exception" /path/to/workspace_root/.insar_logs/*.log
-```
-
-
----
-
-## 任务小结（Task Debrief — 强制执行）
-
-任务最后一步，无论成功或失败，必须输出以下结构化小结，不得跳过。
-
-```
-【任务小结】
-实验 ID / run_id：<task_id 或 N/A>_<run_id 或 N/A>
-
-工作流合规性
-  Skill 流程：<完全遵循 | 部分偏离 | 严重偏离>
-  MCP 工具：<全程使用 mcp__insar-agent__* 接口 | 部分绕过 | 未使用>
-
-偏离记录（如无填"无"）
-  1. <偏离点：说明发生了什么，与 skill 规定步骤的差异>
-
-根因分类（有偏离时勾选，可多选）
-  □ Skill 指引不完备（步骤缺失 / 说明不清 / 边界条件未覆盖）
-  □ MCP 工具问题（参数不直观 / 返回值格式异常 / 工具功能缺失）
-  □ 环境 / 数据问题（conda env / 文件路径 / 权限 — 非插件问题）
-  □ 其他：___
-
-开发 agent 介入建议
-  需要介入：<是 | 否>
-  建议：<具体改进点，说明异常在哪、应如何修复 | "无">
-
-最终结果：<成功 | 失败>
-摘要：<一句话：处理了什么数据，产生了什么产品>
 ```

@@ -7,6 +7,7 @@ SMALLBASELINE_BIN="${SMALLBASELINE_BIN:-smallbaselineApp.py}"
 WORK_DIR="${1:?mintpy work dir required}"
 STACK_DIR="${2:?stack work dir required}"
 CUSTOM_CFG="${3:?mintpy config required}"
+BASELINE_DIR="${4:?baseline dir required}"
 
 export MPLCONFIGDIR="${MPLCONFIGDIR:-$WORK_DIR/.mplconfig}"
 mkdir -p "$MPLCONFIGDIR" "$WORK_DIR"
@@ -36,8 +37,8 @@ if [ ! -d "$STACK_DIR/merged/geom_reference" ]; then
   exit 1
 fi
 
-if [ ! -d "$STACK_DIR/merged/baselines" ]; then
-  echo "merged baseline directory not found: $STACK_DIR/merged/baselines" >&2
+if [ ! -d "$BASELINE_DIR" ]; then
+  echo "baseline directory not found: $BASELINE_DIR" >&2
   exit 1
 fi
 
@@ -59,7 +60,7 @@ echo "Preparing ISCE2 metadata for MintPy"
 prep_isce.py \
   -f "$STACK_DIR/merged/interferograms/*/filt_fine.unw" \
   -m "$META_FILE" \
-  -b "$STACK_DIR/merged/baselines" \
+  -b "$BASELINE_DIR" \
   -g "$STACK_DIR/merged/geom_reference" \
   --force
 

@@ -45,6 +45,10 @@ def test_isce2_skills_route_to_unified_param_advisor_skill():
     assert "sentinel-isce2-dinsar" in advisor_reference
     assert "sentinel-isce2-stack" in advisor_reference
     assert "num_connections" in advisor_reference
+    assert "num_proc" in advisor_skill
+    assert "runtime/hardware" in advisor_skill
+    assert "num_proc" in advisor_reference
+    assert "logical cpu" in advisor_reference.lower()
 
 
 def test_project_level_isce2_param_advisor_agent_exists_and_declares_contract():
@@ -60,6 +64,9 @@ def test_project_level_isce2_param_advisor_agent_exists_and_declares_contract():
     assert "advisory_only" in lowered
     assert "provenance" in lowered
     assert "references/param-advisor/param-advisor-isce2.md" in agent
+    assert "runtime" in lowered
+    assert "num_proc" in agent
+    assert "logical cpu" in lowered
 
 
 def test_isce2_workflow_skills_expose_execution_modes_and_conservative_param_reuse_text():

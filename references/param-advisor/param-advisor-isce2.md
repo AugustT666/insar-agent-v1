@@ -57,7 +57,9 @@ Default template summary:
 - `filter_strength = 0.5`
 - `range_looks = 9`
 - `azimuth_looks = 3`
+- `do_unwrap = true`
 - `unwrap_method = snaphu`
+- `num_proc = 1`
 
 Use this template when the user wants repeated-scene interferogram generation for time-series analysis.
 
@@ -66,7 +68,9 @@ Heuristics:
 - Prefer coherence/stability over aggressive detail because one template propagates across many pairs.
 - Reduce `num_connections` when the user prioritizes speed or when sample scene count is small.
 - Switch `coregistration` to `geometry` only when overlap/NESD behavior is unreliable or the user explicitly prioritizes speed.
-- Keep `unwrap_method = snaphu` unless the user explicitly wants a faster, less robust path.
+- Keep `do_unwrap = true` and `unwrap_method = snaphu` for production stack products unless the user explicitly asks for a faster validation-only path without unwrapped outputs.
+- Treat `num_proc` as an execution-resource parameter, not a science parameter. Use the runtime/hardware evidence profile to compare current `num_proc` with logical CPU count and memory.
+- For ISCE2 stack runs, recommend raising `num_proc` above 1 when logical CPU count and memory support it, but keep the recommendation conservative because topo/ESD stages can increase RAM and I/O pressure. Prefer the profile's `suggested_num_proc_upper_bound` over hand-picked values.
 
 ## Default vs Change Guidance
 

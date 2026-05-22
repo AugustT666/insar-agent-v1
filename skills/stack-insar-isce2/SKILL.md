@@ -20,7 +20,7 @@ version: 0.1.0
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Precise orbit directory — if missing, can be downloaded via `data-prep`
 - Workspace / output directory (absolute path)
-- Conda environment name — use `insar_check_env` only; do not run shell commands to inspect conda
+- ISCE2 conda environment override, only if the task/user does not want the default `isce2` environment for Sentinel-1 ISCE2 stack processing.
 
 ## Execution modes
 
@@ -31,15 +31,16 @@ version: 0.1.0
 - **auto**: At Step 5.5, automatically enter param-advisor (engine=isce2) without asking.
   Skip only if the user has explicitly said to use default parameters.
 
-
 ## Prerequisites
 
-```
-insar_check_env()
-```
+Before launching processing, confirm these inputs are available:
 
-Confirm `envs.isce2.status == "ok"`.
-If missing, invoke the `env-setup` skill first.
+- grouped SAFE directory
+- DEM file
+- orbit directory or permission to download orbits through `data-prep`
+- ISCE2 conda environment, defaulting to `isce2` unless overridden by the task/user
+
+If any prerequisite is missing, ask the user or invoke the appropriate preparation skill before creating the project.
 
 ---
 
@@ -59,7 +60,7 @@ Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_
 
 ### Step 2 — Inspect a representative scene
 
-First discover available scenes using the MCP tool (do NOT use glob/read directly on the SAFE directory):
+First discover available scenes using the MCP tool:
 
 ```python
 insar_discover(slc_dir="/mnt/.../safe/s1a_asc_rel014/")
@@ -82,6 +83,7 @@ Only ask the user for replacements if they explicitly want to override them.
 The user still needs to provide:
 
 - `workspace_root`
+- `conda_env` (defaults to `isce2` for ISCE2 stack processing)
 
 ---
 
@@ -93,8 +95,8 @@ insar_create_project(
     workflow="stack",
     workspace_root=<workspace_root>,
     name="s1-stack-<region>",
-    conda_env="isce2",
-    task_id=<task_id>        # short identifier, e.g. "E4" — drives outputs/<task_id>/<run_id>/stack
+    conda_env=<task/user specified ISCE2 env or "isce2">,
+    task_id=<task_id>        # short identifier, drives outputs/<task_id>/<run_id>/stack
 )
 ```
 
@@ -120,13 +122,13 @@ Key optional parameters:
 | Key | Default | Notes |
 |-----|---------|-------|
 | `bbox` | None | Crop to AOI: `[S, N, W, E]` |
-| `swaths` | `[1,2,3]` | Process subset for speed |
+| `swaths` | `[1,2,3]` | Process the user-selected Sentinel-1 swaths |
 | `num_connections` | 3 | Interferogram connections per scene |
-| `coregistration` | `"NESD"` | ESD-based; use `"geometry"` if ESD fails |
+| `coregistration` | `"NESD"` | ESD-based; use `"geometry"` if the user chooses geometry-only coregistration |
 | `range_looks` / `azimuth_looks` | 9 / 3 | Multilook factors (~90 m pixel) |
 | `filter_strength` | 0.5 | Goldstein filter strength |
 | `unwrap_method` | `"snaphu"` | Unwrapping algorithm |
-| `do_unwrap` | `true` | Set false to skip unwrapping for fast test runs |
+| `do_unwrap` | `true` | Set false only when the user explicitly wants to skip unwrapping |
 
 ---
 
@@ -144,6 +146,7 @@ The advisor flow should build a compressed evidence profile from:
 
 - `insar_get_runconfig(format='yaml')`
 - `insar_describe_s1(...)` on 1–3 representative scenes from `slc_dir`
+- runtime/hardware evidence included by the ISCE2 param-advisor profile, especially current `num_proc`, logical CPUs, memory, and conservative parallelism guidance
 
 The skill then delegates recommendation generation to:
 
@@ -163,7 +166,7 @@ This calls `stackSentinel.py` which:
 1. Reads the SAFE inputs from the selected grouped directory
 2. Downloads orbit files if needed
 3. Sets work_dir to `<workspace>/outputs/<task_id>/<run_id>/stack` (run-root layout)
-4. Executes stack processing inside that work_dir
+4. Executes stack processing inside that work_dir, including generated `run_files`
 
 Returns `job_id`, `log_path`, `pid`, and `run_root`.
 
@@ -175,7 +178,7 @@ For multi-hour stack jobs, rely on the background job returned by `insar_run_wor
 - the exact `insar_get_job` polling call
 
 Monitor only with `insar_get_job(job_id=job_id, project_id=project_id)`.
-Do not execute generated run scripts manually; the MCP tool owns stack execution.
+Do not execute generated run scripts manually; the MCP workflow owns stack execution.
 
 > Runtime: several hours to days depending on scene count and AOI size.
 
@@ -208,7 +211,6 @@ MintPy reads the ISCE2 stack outputs and performs:
 - Tropospheric / DEM error correction (optional)
 
 For advanced tuning of MintPy parameters, the user can edit the MintPy config file directly.
-
 
 ---
 
@@ -255,38 +257,6 @@ Key MintPy outputs:
 - Orbit files (POEORB) must be pre-downloaded or accessible online.
   ISCE2 can auto-download them if `fetchOrbit.py` can reach ESA servers.
 - `slc_dir` must contain only the S1 ZIPs/SAFEs for this stack (no mixed orbits).
-- Sentinel MintPy runs in the `isce2` conda env after MintPy is installed there.
 - Do not mix ascending and descending pass scenes in the same stack.
-- Processing must run inside `conda run -n isce2` (handled automatically by the tool).
-
-
----
-
-## 任务小结（Task Debrief — 强制执行）
-
-任务最后一步，无论成功或失败，必须输出以下结构化小结，不得跳过。
-
-```
-【任务小结】
-实验 ID / run_id：<task_id 或 N/A>_<run_id 或 N/A>
-
-工作流合规性
-  Skill 流程：<完全遵循 | 部分偏离 | 严重偏离>
-  MCP 工具：<全程使用 mcp__insar-agent__* 接口 | 部分绕过 | 未使用>
-
-偏离记录（如无填"无"）
-  1. <偏离点：说明发生了什么，与 skill 规定步骤的差异>
-
-根因分类（有偏离时勾选，可多选）
-  □ Skill 指引不完备（步骤缺失 / 说明不清 / 边界条件未覆盖）
-  □ MCP 工具问题（参数不直观 / 返回值格式异常 / 工具功能缺失）
-  □ 环境 / 数据问题（conda env / 文件路径 / 权限 — 非插件问题）
-  □ 其他：___
-
-开发 agent 介入建议
-  需要介入：<是 | 否>
-  建议：<具体改进点，说明异常在哪、应如何修复 | "无">
-
-最终结果：<成功 | 失败>
-摘要：<一句话：处理了什么数据，产生了什么产品>
-```
+- Processing must use the conda environment configured on the project and is launched by the MCP workflow tool.
+- Do not manually execute generated `run_files`, skip generated workflow steps, or copy/patch stack outputs.
