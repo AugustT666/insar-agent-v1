@@ -110,10 +110,7 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         'echo "[insar-agent] stackSentinel.py done; executing run_files..." && '
         'for f in $(ls -v run_files/run_* 2>/dev/null); do '
         '  echo "[insar-agent] Step: $f"; '
-        '  while IFS= read -r line; do '
-        '    [ -z "$line" ] && continue; '
-        '    bash -c "$line" || exit 1; '
-        '  done < "$f"; '
+        '  . "$f" || exit 1; '
         'done && '
         'echo "[insar-agent] All stack steps completed."'
     )

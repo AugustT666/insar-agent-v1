@@ -156,3 +156,22 @@ def test_build_stack_command_exports_concrete_isce2_paths(tmp_path: Path) -> Non
     assert 'export ISCE_HOME="$(dirname "$ISCE_APPLICATIONS")"' in inner
     assert 'export PATH="$ISCE_STACK/topsStack:$ISCE_APPLICATIONS:$PATH"' in inner
     assert 'python "$ISCE_STACK/topsStack/stackSentinel.py"' in inner
+
+
+def test_build_stack_command_sources_run_files_to_preserve_wait_barriers(tmp_path: Path) -> None:
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        {
+            "slc_dir": str(slc_dir),
+            "orbit_dir": "/tmp/orbits",
+            "dem_file": "/tmp/dem.tif",
+        },
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+    )
+    inner = command[-1]
+
+    assert '. "$f" || exit 1' in inner
+    assert 'while IFS= read -r line' not in inner
+    assert 'bash -c "$line"' not in inner
