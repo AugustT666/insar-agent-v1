@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 import subprocess
 import zipfile
 
-from insar_agent.engines.isce2.sentinel_prep import SCENE_ID_RE, _build_combined_annotation
+import pytest
+
+from insar_agent.engines.isce2.sentinel_prep import (
+    SCENE_ID_RE,
+    _build_combined_annotation,
+    _collect_burst_source_files,
+    check_annotation_geolocation_grid,
+)
 from insar_agent.mcp.server import (
+    _validate_isce2_dem_scene_overlap,
+    _validate_isce2_safe_annotation_geolocation,
     build_server_description,
     insar_describe_s1,
     insar_download_dem,
@@ -147,7 +157,29 @@ def make_fake_burst_scene(root: Path, scene_id: str, *, pass_direction: str, rel
         stop_time="2026-01-05T03:08:41.000000",
         footprint="13.45,40.55 13.72,40.55 13.72,40.86 13.45,40.86",
     )
-    _write_text(scene_dir / "0.xml", manifest)
+    embedded_manifest = manifest.split("?>", 1)[1]
+    _write_text(
+        scene_dir / "0.xml",
+        f"""
+        <root>
+          <metadata>
+            <product source_filename="s1a-iw2-slc-vv-test.xml">
+              <swath>IW2</swath>
+              <polarisation>VV</polarisation>
+              <content>
+                <imageAnnotation><imageInformation><numberOfLines>2</numberOfLines></imageInformation></imageAnnotation>
+                <swathTiming><burstList count="1"><burst><firstValidSample>1 2</firstValidSample></burst></burstList></swathTiming>
+                <geolocationGrid><geolocationGridPointList count="2">
+                  <geolocationGridPoint><latitude>40.60</latitude><longitude>13.50</longitude></geolocationGridPoint>
+                  <geolocationGridPoint><latitude>40.80</latitude><longitude>13.70</longitude></geolocationGridPoint>
+                </geolocationGridPointList></geolocationGrid>
+              </content>
+            </product>
+          </metadata>
+          {embedded_manifest}
+        </root>
+        """,
+    )
     (scene_dir / "0.tiff").write_bytes(b"fake-tiff")
     return root / scene_id
 
@@ -155,6 +187,94 @@ def make_fake_burst_scene(root: Path, scene_id: str, *, pass_direction: str, rel
 def test_server_description_mentions_prepare_sentinel_data():
     description = build_server_description()
     assert "insar_prepare_sentinel_data" in description["tools"]
+
+
+def test_annotation_geolocation_grid_valid_coords_pass():
+    manifest_bbox = [12.0, 39.0, 14.0, 42.0]
+    annotation_xml = """<product>
+      <geolocationGrid><geolocationGridPointList>
+        <geolocationGridPoint><latitude>40.5</latitude><longitude>13.2</longitude></geolocationGridPoint>
+        <geolocationGridPoint><latitude>41.0</latitude><longitude>13.8</longitude></geolocationGridPoint>
+      </geolocationGridPointList></geolocationGrid>
+    </product>"""
+
+    result = check_annotation_geolocation_grid(annotation_xml, manifest_bbox)
+
+    assert result["status"] == "ok"
+
+
+def test_annotation_geolocation_grid_ignores_non_grid_lat_lon_tags():
+    manifest_bbox = [12.0, 39.0, 14.0, 42.0]
+    annotation_xml = """<product>
+      <generalAnnotation><latitude>0.0</latitude><longitude>0.0</longitude></generalAnnotation>
+      <geolocationGrid><geolocationGridPointList>
+        <geolocationGridPoint><latitude>40.0</latitude><longitude>13.0</longitude></geolocationGridPoint>
+      </geolocationGridPointList></geolocationGrid>
+    </product>"""
+
+    result = check_annotation_geolocation_grid(annotation_xml, manifest_bbox)
+
+    assert result["status"] == "ok"
+
+
+def test_annotation_geolocation_grid_swapped_lat_lon_is_invalid():
+    manifest_bbox = [12.0, 39.0, 14.0, 42.0]
+    annotation_xml = """<product>
+      <geolocationGrid><geolocationGridPointList>
+        <geolocationGridPoint><latitude>12.5</latitude><longitude>40.3</longitude></geolocationGridPoint>
+        <geolocationGridPoint><latitude>12.8</latitude><longitude>40.9</longitude></geolocationGridPoint>
+      </geolocationGridPointList></geolocationGrid>
+    </product>"""
+
+    result = check_annotation_geolocation_grid(annotation_xml, manifest_bbox)
+
+    assert result["status"] == "invalid"
+    assert "swapped" in result["reason"]
+
+
+def test_annotation_geolocation_grid_outside_manifest_is_invalid():
+    manifest_bbox = [12.0, 39.0, 14.0, 42.0]
+    annotation_xml = """<product>
+      <geolocationGrid><geolocationGridPointList>
+        <geolocationGridPoint><latitude>50.0</latitude><longitude>10.0</longitude></geolocationGridPoint>
+      </geolocationGridPointList></geolocationGrid>
+    </product>"""
+
+    result = check_annotation_geolocation_grid(annotation_xml, manifest_bbox)
+
+    assert result["status"] == "invalid"
+
+
+def test_annotation_geolocation_grid_malformed_xml_is_invalid():
+    result = check_annotation_geolocation_grid("<product>", [12.0, 39.0, 14.0, 42.0])
+
+    assert result["status"] == "invalid"
+    assert "could not be parsed" in result["reason"]
+
+
+def test_annotation_geolocation_grid_invalid_bbox_length_is_invalid():
+    annotation_xml = """<product>
+      <geolocationGrid><geolocationGridPointList>
+        <geolocationGridPoint><latitude>40.0</latitude><longitude>13.0</longitude></geolocationGridPoint>
+      </geolocationGridPointList></geolocationGrid>
+    </product>"""
+
+    result = check_annotation_geolocation_grid(annotation_xml, [12.0, 39.0, 14.0])
+
+    assert result["status"] == "invalid"
+    assert "must have 4 elements" in result["reason"]
+
+
+def test_annotation_geolocation_grid_antimeridian_bbox_allows_valid_lon():
+    annotation_xml = """<product>
+      <geolocationGrid><geolocationGridPointList>
+        <geolocationGridPoint><latitude>52.0</latitude><longitude>178.0</longitude></geolocationGridPoint>
+      </geolocationGridPointList></geolocationGrid>
+    </product>"""
+
+    result = check_annotation_geolocation_grid(annotation_xml, [175.0, 50.0, -175.0, 55.0])
+
+    assert result["status"] == "ok"
 
 
 def test_prepare_sentinel_data_organizes_safe_inputs(tmp_path):
@@ -190,6 +310,20 @@ def test_prepare_sentinel_data_organizes_safe_inputs(tmp_path):
     assert not (project_root / "raw").exists()
     assert not (project_root / "work").exists()
     assert not (project_root / "catalog").exists()
+
+
+def test_prepare_sentinel_data_rejects_empty_burst_source_directory(tmp_path):
+    project_root = tmp_path / "project"
+    empty_burst_dir = tmp_path / "bursts" / "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA"
+    empty_burst_dir.mkdir(parents=True)
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(empty_burst_dir)],
+    )
+
+    assert result["error"] == "invalid_input"
+    assert "contains no XML/TIFF burst files" in result["message"]
 
 
 def test_prepare_sentinel_data_synthesizes_burst_scene(tmp_path):
@@ -238,6 +372,247 @@ def test_prepare_sentinel_data_synthesizes_burst_scene(tmp_path):
     assert described["relative_orbit"] == 79
     assert described["pass_direction"] == "DESCENDING"
     assert result["grouped_safe_paths"] == {"s1a_desc_rel079": [str(synthesized)]}
+
+
+def test_prepare_sentinel_data_accepts_burst_directory_source_path(tmp_path):
+    project_root = tmp_path / "project"
+    burst_root = tmp_path / "bursts"
+    scene_dir = make_fake_burst_scene(
+        burst_root,
+        "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA",
+        pass_direction="DESCENDING",
+        relative_orbit=79,
+    )
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(scene_dir)],
+    )
+
+    assert "error" not in result
+    assert result["scene_count"] == 1
+    assert result["grouped_safe_paths"] == {
+        "s1a_desc_rel079": [
+            str(project_root / "safe" / "s1a_desc_rel079" / "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA.SAFE")
+        ]
+    }
+
+
+def test_prepare_sentinel_data_accepts_symlinked_burst_subdirectories(tmp_path):
+    project_root = tmp_path / "project"
+    burst_root = tmp_path / "bursts"
+    scene_id = "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA"
+    real_scene_dir = make_fake_burst_scene(
+        burst_root,
+        scene_id,
+        pass_direction="DESCENDING",
+        relative_orbit=79,
+    )
+    staged_scene_dir = tmp_path / "staged" / scene_id
+    staged_scene_dir.mkdir(parents=True)
+    (staged_scene_dir / "IW2").symlink_to(real_scene_dir / "IW2", target_is_directory=True)
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(staged_scene_dir)],
+    )
+
+    assert "error" not in result
+    assert result["scene_count"] == 1
+
+
+def test_collect_burst_source_files_deduplicates_symlink_cycles(tmp_path):
+    burst_root = tmp_path / "bursts"
+    scene_id = "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA"
+    real_scene_dir = make_fake_burst_scene(
+        burst_root,
+        scene_id,
+        pass_direction="DESCENDING",
+        relative_orbit=79,
+    )
+    staged_scene_dir = tmp_path / "staged" / scene_id
+    staged_scene_dir.mkdir(parents=True)
+    (staged_scene_dir / "IW2").symlink_to(real_scene_dir / "IW2", target_is_directory=True)
+    (real_scene_dir / "IW2" / "cycle").symlink_to(staged_scene_dir, target_is_directory=True)
+
+    files = _collect_burst_source_files(staged_scene_dir)
+    resolved_files = [path.resolve() for path in files]
+
+    assert len(resolved_files) == len(set(resolved_files))
+
+
+def test_prepare_sentinel_data_tries_all_burst_xmls_for_manifest(tmp_path):
+    project_root = tmp_path / "project"
+    burst_root = tmp_path / "bursts"
+    scene_dir = make_fake_burst_scene(
+        burst_root,
+        "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA",
+        pass_direction="DESCENDING",
+        relative_orbit=79,
+    )
+    burst_dir = scene_dir / "IW2" / "VV"
+    (burst_dir / "0.xml").rename(burst_dir / "1.xml")
+    _write_text(
+        burst_dir / "0.xml",
+        """<root>
+          <metadata><product source_filename="s1a-iw2-slc-vv-test.xml">
+            <swath>IW2</swath><polarisation>VV</polarisation>
+            <content>
+              <imageAnnotation><imageInformation><numberOfLines>2</numberOfLines></imageInformation></imageAnnotation>
+              <swathTiming><burstList count="1"><burst><firstValidSample>1 2</firstValidSample></burst></burstList></swathTiming>
+              <geolocationGrid><geolocationGridPointList count="1">
+                <geolocationGridPoint><latitude>40.60</latitude><longitude>13.50</longitude></geolocationGridPoint>
+              </geolocationGridPointList></geolocationGrid>
+            </content>
+          </product></metadata>
+        </root>""",
+    )
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        source_paths=[str(scene_dir)],
+    )
+
+    assert "error" not in result
+    assert result["scene_count"] == 1
+
+
+def test_isce2_workflow_preflight_rejects_swapped_safe_annotation(tmp_path):
+    safe_root = tmp_path / "source"
+    safe_dir = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    annotation = safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml"
+    annotation.parent.mkdir(parents=True)
+    annotation.write_text(
+        """<product>
+          <geolocationGrid><geolocationGridPointList count="1">
+            <geolocationGridPoint><latitude>13.50</latitude><longitude>40.60</longitude></geolocationGridPoint>
+          </geolocationGridPointList></geolocationGrid>
+        </product>""",
+        encoding="utf-8",
+    )
+
+    errors = _validate_isce2_safe_annotation_geolocation(
+        {"reference_safe": str(safe_dir)},
+        "tops",
+    )
+
+    assert len(errors) == 1
+    assert "Sentinel-1 SAFE annotation geolocation is inconsistent" in errors[0]
+    assert "swapped latitude/longitude" in errors[0]
+
+
+def test_isce2_workflow_preflight_reports_all_swapped_safe_annotations(tmp_path):
+    safe_root = tmp_path / "source"
+    reference_safe = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    secondary_safe = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260124T152727_20260124T152754_062911_07E444_7128",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    for safe_dir in (reference_safe, secondary_safe):
+        annotation = safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml"
+        annotation.parent.mkdir(parents=True)
+        annotation.write_text(
+            """<product>
+              <geolocationGrid><geolocationGridPointList count="1">
+                <geolocationGridPoint><latitude>13.50</latitude><longitude>40.60</longitude></geolocationGridPoint>
+              </geolocationGridPointList></geolocationGrid>
+            </product>""",
+            encoding="utf-8",
+        )
+
+    errors = _validate_isce2_safe_annotation_geolocation(
+        {"reference_safe": str(reference_safe), "secondary_safe": str(secondary_safe)},
+        "tops",
+    )
+
+    assert len(errors) == 2
+    assert any(str(reference_safe) in error for error in errors)
+    assert any(str(secondary_safe) in error for error in errors)
+
+
+def test_isce2_dem_overlap_preflight_reports_all_nonoverlapping_scenes(tmp_path):
+    safe_root = tmp_path / "source"
+    reference_safe = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    secondary_safe = make_fake_safe_dir(
+        safe_root,
+        "S1A_IW_SLC__1SDV_20260124T152727_20260124T152754_062911_07E444_7128",
+        pass_direction="ASCENDING",
+        relative_orbit=14,
+    )
+    dem_path = tmp_path / "dem.tif"
+    dem_path.write_text("fake-dem", encoding="utf-8")
+
+    with patch("insar_agent.mcp.server._read_dem_bbox", return_value=[0.0, 0.0, 1.0, 1.0]):
+        errors = _validate_isce2_dem_scene_overlap(
+            {
+                "reference_safe": str(reference_safe),
+                "secondary_safe": str(secondary_safe),
+                "dem_file": str(dem_path),
+            },
+            "tops",
+        )
+
+    assert len(errors) == 2
+    assert any(str(reference_safe.name).removesuffix(".SAFE") in error for error in errors)
+    assert any(str(secondary_safe.name).removesuffix(".SAFE") in error for error in errors)
+
+
+def test_prepare_sentinel_data_normalizes_swapped_burst_geolocation(tmp_path):
+    project_root = tmp_path / "project"
+    burst_root = tmp_path / "bursts"
+    scene_id = "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA"
+    scene_dir = make_fake_burst_scene(
+        burst_root,
+        scene_id,
+        pass_direction="DESCENDING",
+        relative_orbit=79,
+    )
+    xml_path = scene_dir / "IW2" / "VV" / "0.xml"
+    xml_path.write_text(
+        xml_path.read_text(encoding="utf-8")
+        .replace("<latitude>40.60</latitude><longitude>13.50</longitude>", "<latitude>13.50</latitude><longitude>40.60</longitude>")
+        .replace("<latitude>40.80</latitude><longitude>13.70</longitude>", "<latitude>13.70</latitude><longitude>40.80</longitude>"),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "burst_manifest.txt"
+    manifest_path.write_text(
+        f"{xml_path}\n{scene_dir / 'IW2' / 'VV' / '0.tiff'}\n",
+        encoding="utf-8",
+    )
+
+    result = insar_prepare_sentinel_data(
+        project_root=str(project_root),
+        burst_manifest=str(manifest_path),
+    )
+
+    assert "error" not in result
+    annotation_path = (
+        project_root
+        / "safe"
+        / "s1a_desc_rel079"
+        / f"{scene_id}.SAFE"
+        / "annotation"
+        / "s1a-iw2-slc-vv-test.xml"
+    )
+    normalized = check_annotation_geolocation_grid(annotation_path.read_text(encoding="utf-8"), [13.45, 40.55, 13.72, 40.86])
+    assert normalized["status"] == "ok"
 
 
 def test_prepare_sentinel_data_validates_isce2_import_for_synthesized_bursts(tmp_path, monkeypatch):
@@ -675,7 +1050,6 @@ def test_prepare_sentinel_data_skill_routing_text():
     router_skill = (repo / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
     pair_skill = (repo / "skills" / "d-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
     stack_skill = (repo / "skills" / "stack-insar-isce2" / "SKILL.md").read_text(encoding="utf-8")
-
     assert "Capability Matrix" in unified_prep_skill
     assert "data-prep-sentinel" in unified_prep_skill
     assert "data-prep-nisar" in unified_prep_skill
@@ -747,12 +1121,9 @@ def test_retry_with_backoff_exhausts_retries_and_raises(tmp_path, monkeypatch):
     
     monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.time.sleep", fake_sleep)
     
-    try:
+    with pytest.raises(ValueError, match="Persistent failure"):
         _retry_with_backoff(always_failing_func, max_retries=3, initial_delay=0.1)
-        assert False, "Expected ValueError to be raised"
-    except ValueError as e:
-        assert "Persistent failure" in str(e)
-        assert call_count["count"] == 3
+    assert call_count["count"] == 3
 
 
 def test_retry_with_backoff_calls_on_retry_callback(tmp_path, monkeypatch):

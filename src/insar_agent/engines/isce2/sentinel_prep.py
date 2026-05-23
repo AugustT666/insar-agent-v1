@@ -11,7 +11,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Iterable, TypeVar
+from typing import Callable, Iterable, Sequence, TypeVar
 from uuid import uuid4
 from xml.etree import ElementTree as ET
 
@@ -183,6 +183,116 @@ def _parse_coordinates(text: str | None) -> list[float] | None:
     return [min(lon_vals), min(lat_vals), max(lon_vals), max(lat_vals)]
 
 
+GEOLOCATION_OVERLAP_TOLERANCE_DEG = 0.1
+BURST_SOURCE_MAX_SCAN_DEPTH = 6
+BURST_SOURCE_MAX_FILES = 20_000
+
+
+def _ranges_overlap(
+    left: tuple[float, float],
+    right: tuple[float, float],
+    tolerance: float = GEOLOCATION_OVERLAP_TOLERANCE_DEG,
+) -> bool:
+    return left[0] <= right[1] + tolerance and right[0] <= left[1] + tolerance
+
+
+def _range_contains(
+    container: tuple[float, float],
+    value_range: tuple[float, float],
+    tolerance: float = GEOLOCATION_OVERLAP_TOLERANCE_DEG,
+) -> bool:
+    return container[0] - tolerance <= value_range[0] and value_range[1] <= container[1] + tolerance
+
+
+def _overlaps_manifest_longitudes(value_range: tuple[float, float], west: float, east: float) -> bool:
+    if west <= east:
+        return _ranges_overlap(value_range, (west, east))
+    return _ranges_overlap(value_range, (west, 180.0)) or _ranges_overlap(value_range, (-180.0, east))
+
+
+def _manifest_longitudes_contain(value_range: tuple[float, float], west: float, east: float) -> bool:
+    if west <= east:
+        return _range_contains((west, east), value_range)
+    return _range_contains((west, 180.0), value_range) or _range_contains((-180.0, east), value_range)
+
+
+def check_annotation_geolocation_grid(annotation_xml: str, manifest_bbox: Sequence[float]) -> dict[str, str]:
+    """Validate annotation geolocation coordinates against a west/south/east/north bbox."""
+    if len(manifest_bbox) != 4:
+        return {"status": "invalid", "reason": f"manifest_bbox must have 4 elements, got {len(manifest_bbox)}"}
+    try:
+        root = ET.fromstring(annotation_xml)
+    except ET.ParseError as exc:
+        return {"status": "invalid", "reason": f"annotation XML could not be parsed: {exc}"}
+    lat_vals: list[float] = []
+    lon_vals: list[float] = []
+    for point in root.iter():
+        if _local_tag(point) != "geolocationGridPoint":
+            continue
+        lat_el = _direct_child_by_local_tag(point, "latitude")
+        lon_el = _direct_child_by_local_tag(point, "longitude")
+        if lat_el is None or lon_el is None or lat_el.text is None or lon_el.text is None:
+            continue
+        try:
+            lat_vals.append(float(lat_el.text))
+            lon_vals.append(float(lon_el.text))
+        except ValueError:
+            continue
+
+    if not lat_vals or not lon_vals:
+        return {"status": "skipped", "reason": "no geolocation grid coordinates found"}
+
+    west, south, east, north = manifest_bbox
+    lat_range = (min(lat_vals), max(lat_vals))
+    lon_range = (min(lon_vals), max(lon_vals))
+    manifest_lat_range = (south, north)
+
+    lat_ok = _ranges_overlap(lat_range, manifest_lat_range)
+    lon_ok = _overlaps_manifest_longitudes(lon_range, west, east)
+    if lat_ok and lon_ok:
+        return {"status": "ok", "reason": "annotation geolocation overlaps manifest footprint"}
+
+    swapped = _manifest_longitudes_contain(lat_range, west, east) and _range_contains(
+        manifest_lat_range, lon_range
+    )
+    if swapped:
+        return {
+            "status": "invalid",
+            "reason": f"swapped latitude/longitude geolocation grid: lat={lat_range} lon={lon_range} bbox={manifest_bbox}",
+        }
+
+    return {
+        "status": "invalid",
+        "reason": f"annotation geolocation grid outside manifest footprint: lat={lat_range} lon={lon_range} bbox={manifest_bbox}",
+    }
+
+
+def _validate_safe_annotation_geolocation(
+    safe_dir: Path,
+    bbox: list[float] | None,
+    *,
+    require_annotations: bool = False,
+) -> None:
+    if bbox is None or not safe_dir.is_dir() or safe_dir.suffix.upper() != ".SAFE":
+        return
+    annotation_dir = safe_dir / "annotation"
+    if not annotation_dir.is_dir():
+        if require_annotations:
+            raise ValueError(f"No Sentinel annotation directory found in synthesized SAFE: {safe_dir}")
+        return
+
+    checked = 0
+    for annotation_path in annotation_dir.glob("*.xml"):
+        result = check_annotation_geolocation_grid(annotation_path.read_text(encoding="utf-8"), bbox)
+        if result["status"] == "invalid":
+            raise ValueError(f"Invalid Sentinel annotation geolocation in {annotation_path}: {result['reason']}")
+        if result["status"] == "ok":
+            checked += 1
+
+    if require_annotations and checked == 0:
+        raise ValueError(f"No Sentinel annotation geolocation grid could be validated in synthesized SAFE: {safe_dir}")
+
+
 def _ensure_preview_overlay(safe_dir: Path, bbox: list[float] | None) -> None:
     if bbox is None or not safe_dir.is_dir() or safe_dir.suffix.upper() != ".SAFE":
         return
@@ -211,6 +321,42 @@ def _ensure_preview_overlay(safe_dir: Path, bbox: list[float] | None) -> None:
 
 def _clone_xml(element: ET.Element) -> ET.Element:
     return ET.fromstring(ET.tostring(element, encoding="utf-8"))
+
+
+def _local_tag(element: ET.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
+def _direct_child_by_local_tag(element: ET.Element, tag: str) -> ET.Element | None:
+    return next((child for child in element if _local_tag(child) == tag), None)
+
+
+def _swap_annotation_lat_lon_text(root: ET.Element) -> list[tuple[ET.Element, ET.Element]]:
+    swapped: list[tuple[ET.Element, ET.Element]] = []
+    for point in root.iter():
+        if _local_tag(point) != "geolocationGridPoint":
+            continue
+        lat_el = _direct_child_by_local_tag(point, "latitude")
+        lon_el = _direct_child_by_local_tag(point, "longitude")
+        if lat_el is None or lon_el is None:
+            continue
+        lat_el.text, lon_el.text = lon_el.text, lat_el.text
+        swapped.append((lat_el, lon_el))
+    return swapped
+
+
+def _normalize_annotation_geolocation_grid(root: ET.Element, manifest_bbox: Sequence[float] | None) -> None:
+    if manifest_bbox is None:
+        return
+    result = check_annotation_geolocation_grid(ET.tostring(root, encoding="unicode"), manifest_bbox)
+    if result["status"] != "invalid" or "swapped latitude/longitude" not in result["reason"]:
+        return
+    swapped = _swap_annotation_lat_lon_text(root)
+    normalized = check_annotation_geolocation_grid(ET.tostring(root, encoding="unicode"), manifest_bbox)
+    if normalized["status"] == "ok":
+        return
+    for lat_el, lon_el in swapped:
+        lat_el.text, lon_el.text = lon_el.text, lat_el.text
 
 
 def _trim_annotation_to_single_burst(content: ET.Element) -> ET.Element:
@@ -343,7 +489,13 @@ def _update_annotation_time_bounds(merged: ET.Element, burst_elements: list[ET.E
     )
 
 
-def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, scene_id: str) -> tuple[str, str]:
+def _build_combined_annotation(
+    sorted_xmls: list[Path],
+    swath: str,
+    pol: str,
+    scene_id: str,
+    manifest_bbox: Sequence[float] | None = None,
+) -> tuple[str, str]:
     """Build a single multi-burst annotation XML from per-burst XMLs."""
     burst_elements: list[ET.Element] = []
     base_annotation: ET.Element | None = None
@@ -375,7 +527,7 @@ def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, sc
 
     if base_annotation is None or not burst_elements:
         fallback_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}-synthetic.xml"
-        return fallback_name, f"<product/>"
+        return fallback_name, "<product/>"
 
     merged = _clone_xml(base_annotation)
     burst_list = merged.find("swathTiming/burstList")
@@ -407,6 +559,7 @@ def _build_combined_annotation(sorted_xmls: list[Path], swath: str, pol: str, sc
             node.set("count", str(len(list(node))))
 
     merged.tag = "product"
+    _normalize_annotation_geolocation_grid(merged, manifest_bbox)
     annotation_name = re.sub(r"-\d{3}(\.xml)$", r"\1", base_source_filename or "")
     if not annotation_name.endswith(".xml"):
         annotation_name = f"{scene_id.lower()}-{swath.lower()}-slc-{pol.lower()}.xml"
@@ -451,7 +604,12 @@ def _concatenate_burst_tiffs(sorted_tiffs: list[Path], output: Path) -> None:
     out_ds = None
 
 
-def _synthesize_annotation_and_measurement(scene_id: str, scene_paths: list[Path], safe_dir: Path) -> None:
+def _synthesize_annotation_and_measurement(
+    scene_id: str,
+    scene_paths: list[Path],
+    safe_dir: Path,
+    manifest_bbox: Sequence[float] | None = None,
+) -> None:
     annotation_dir = _ensure_dir(safe_dir / "annotation")
     measurement_dir = _ensure_dir(safe_dir / "measurement")
 
@@ -476,7 +634,7 @@ def _synthesize_annotation_and_measurement(scene_id: str, scene_paths: list[Path
         sorted_tiffs = sorted(bucket["tiff"], key=_burst_sort_key)
 
         annotation_name, annotation_text = _build_combined_annotation(
-            sorted_xmls, swath, pol, scene_id
+            sorted_xmls, swath, pol, scene_id, manifest_bbox
         )
         annotation_path = annotation_dir / annotation_name
         annotation_path.write_text(annotation_text, encoding="utf-8")
@@ -791,6 +949,51 @@ def _link_burst_sources(paths: Iterable[Path], target_root: Path, scene_id: str)
         _safe_link(src, target_root / relative)
 
 
+def _collect_burst_source_files(path: Path) -> list[Path]:
+    if not path.is_dir() or path.suffix.upper() == ".SAFE":
+        return []
+
+    files: list[Path] = []
+    seen_dirs = {path.resolve()}
+    seen_files: set[Path] = set()
+    pending: list[tuple[Path, int]] = [(path, 0)]
+    while pending:
+        current, depth = pending.pop()
+        for child in sorted(current.iterdir()):
+            if child.is_file() and child.suffix.lower() in {".xml", ".tif", ".tiff"}:
+                resolved_file = child.resolve()
+                if resolved_file in seen_files:
+                    continue
+                seen_files.add(resolved_file)
+                files.append(child)
+                if len(files) > BURST_SOURCE_MAX_FILES:
+                    raise ValueError(f"Burst source directory contains too many XML/TIFF files: {path}")
+                continue
+            if depth < BURST_SOURCE_MAX_SCAN_DEPTH and child.is_dir():
+                resolved_dir = child.resolve()
+                if resolved_dir in seen_dirs:
+                    continue
+                seen_dirs.add(resolved_dir)
+                pending.append((child, depth + 1))
+    return sorted(files)
+
+
+def _extract_manifest_from_burst_sources(scene_id: str, paths: Sequence[Path]) -> tuple[Path, bytes]:
+    errors: list[str] = []
+    xml_paths = sorted((path for path in paths if path.suffix.lower() == ".xml"), key=lambda path: (len(path.parts), str(path)))
+    for xml_path in xml_paths:
+        try:
+            return xml_path, _extract_manifest_for_burst(xml_path)
+        except ValueError as exc:
+            errors.append(f"{xml_path}: {exc}")
+    if not xml_paths:
+        raise ValueError(f"No XML burst metadata found for scene: {scene_id}")
+    raise ValueError(
+        f"No manifest-bearing XML burst metadata found for scene {scene_id}: "
+        + "; ".join(errors[:3])
+    )
+
+
 def _fetch_orbit_script_path() -> Path:
     script = Path.home() / "miniconda3" / "envs" / "isce2" / "share" / "isce2" / "topsStack" / "fetchOrbit.py"
     if not script.exists():
@@ -997,11 +1200,18 @@ def prepare_sentinel_data(
     safe_root = _ensure_dir(root / "safe")
 
     scenes: list[SceneRecord] = []
+    burst_source_paths: list[Path] = []
 
     for raw in source_paths or []:
         src = Path(raw).expanduser().resolve()
         if not src.exists():
             raise FileNotFoundError(f"Sentinel source does not exist: {raw}")
+        burst_files = _collect_burst_source_files(src)
+        if burst_files:
+            burst_source_paths.extend(burst_files)
+            continue
+        if src.is_dir() and src.suffix.upper() != ".SAFE":
+            raise ValueError(f"Burst source directory contains no XML/TIFF burst files: {src}")
 
         scene_id, metadata = _read_safe_metadata(src)
         satellite = metadata["satellite"] or scene_id[:3]
@@ -1014,6 +1224,7 @@ def prepare_sentinel_data(
             raise FileExistsError(f"Target already exists and resume=False: {target}")
         _safe_link(src, target)
         _ensure_preview_overlay(target, metadata["bbox"])
+        _validate_safe_annotation_geolocation(target, metadata["bbox"])
         _append_log(prep_log_path, f"LINK {src} -> {target}")
 
         match = SCENE_ID_RE.match(scene_id)
@@ -1041,8 +1252,6 @@ def prepare_sentinel_data(
         manifest_path = Path(burst_manifest).expanduser().resolve()
         if not manifest_path.exists():
             raise FileNotFoundError(f"Burst manifest does not exist: {burst_manifest}")
-        groups: dict[str, list[Path]] = {}
-        xml_by_scene: dict[str, Path] = {}
         for line in manifest_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
@@ -1052,29 +1261,31 @@ def prepare_sentinel_data(
             src = Path(line).expanduser().resolve()
             if not src.exists():
                 raise FileNotFoundError(f"Burst source does not exist: {line}")
-            scene_id = _find_scene_id_from_path(src)
-            if not scene_id:
-                raise ValueError(f"Could not determine Sentinel scene id from path: {line}")
-            groups.setdefault(scene_id, []).append(src)
-            if src.suffix.lower() == ".xml" and scene_id not in xml_by_scene:
-                xml_by_scene[scene_id] = src
-        _append_log(prep_log_path, f"burst_manifest={manifest_path} scenes={len(groups)}")
+            burst_source_paths.append(src)
+        _append_log(prep_log_path, f"burst_manifest={manifest_path}")
+
+    if burst_source_paths:
+        groups: dict[str, list[Path]] = {}
+        for src in burst_source_paths:
+            source_scene_id = _find_scene_id_from_path(src)
+            if not source_scene_id:
+                raise ValueError(f"Could not determine Sentinel scene id from path: {src}")
+            groups.setdefault(source_scene_id, []).append(src)
+        _append_log(prep_log_path, f"burst_sources scenes={len(groups)} files={len(burst_source_paths)}")
 
         for scene_id, scene_paths in groups.items():
-            xml_path = xml_by_scene.get(scene_id)
-            if xml_path is None:
-                raise ValueError(f"No XML burst metadata found for scene: {scene_id}")
-            metadata = _parse_manifest_bytes(_extract_manifest_for_burst(xml_path))
+            xml_path, manifest_bytes = _extract_manifest_from_burst_sources(scene_id, scene_paths)
+            metadata = _parse_manifest_bytes(manifest_bytes)
             satellite = metadata["satellite"] or scene_id[:3]
             pass_direction = metadata["pass_direction"] or "UNKNOWN"
             relative_orbit = int(metadata["relative_orbit"] or 0)
             track_dir = _track_dir(satellite, pass_direction, relative_orbit)
             safe_dir = safe_root / track_dir / f"{scene_id}.SAFE"
             _ensure_dir(safe_dir)
-            manifest_bytes = _extract_manifest_for_burst(xml_path)
             (safe_dir / "manifest.safe").write_bytes(manifest_bytes)
             _ensure_preview_overlay(safe_dir, metadata["bbox"])
-            _synthesize_annotation_and_measurement(scene_id, scene_paths, safe_dir)
+            _synthesize_annotation_and_measurement(scene_id, scene_paths, safe_dir, metadata["bbox"])
+            _validate_safe_annotation_geolocation(safe_dir, metadata["bbox"], require_annotations=True)
             _link_burst_sources(scene_paths, safe_dir / "bursts", scene_id)
             _append_log(prep_log_path, f"SYNTHESIZE {scene_id} -> {safe_dir}")
 

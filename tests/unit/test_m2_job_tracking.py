@@ -159,8 +159,14 @@ class TestGetJobStatusLiveness:
         assert result["exit_code"] == 0
         assert result["finished_at"] is not None
 
-    def test_dead_pid_incomplete_log_without_exit_code_returns_failed(self, ready_project, tmp_path):
-        """Process exited without exit code or success marker → status becomes 'failed'."""
+    def test_dead_pid_no_exitcode_no_failure_stays_running(self, ready_project, tmp_path):
+        """Process just exited, exitcode not yet flushed, no failure marker → stays running.
+
+        This covers the race window where the shell wrapper (printf '%s' > exitcode; exit)
+        exits before insar_get_job polls. Re-polling after the file appears will finalize
+        correctly. This prevents the false-positive 'failed' that occurred in E2 when
+        topsApp exit_code=0 but the exitcode file wasn't readable at poll time.
+        """
         job_id = self._launch_job(ready_project, pid=77778)
 
         project = Project.load(ready_project)
@@ -169,13 +175,14 @@ class TestGetJobStatusLiveness:
         log_path = Path(data["log_path"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text("Running topo...\nAPI open (WR): geom_reference/IW2/shadowMask_01.rdr\n")
+        # exitcode file intentionally absent to simulate race window
 
         with patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
             result = insar_get_job_status(job_id, ready_project)
 
-        assert result["status"] == "failed"
-        assert result["exit_code"] == 1
-        assert result["finished_at"] is not None
+        assert result["status"] == "running", (
+            "Job must stay running when process is dead but exitcode file not yet written"
+        )
 
     def test_dead_pid_error_in_log_returns_failed(self, ready_project, tmp_path):
         """Process exited, log shows error: → status becomes 'failed'."""
@@ -302,6 +309,45 @@ class TestWorkflowJobArtifactFinalization:
             project_id="p1",
             engine="isce2",
             workflow="stack",
+            status="running",
+            log_path=str(log_path),
+            exit_code_path=str(exit_code_path),
+        )
+
+        _finalize_job_status_from_artifacts(job, jobs_dir)
+
+        saved = Job.load(job.job_id, jobs_dir)
+        assert saved.status == "done"
+        assert saved.exit_code == 0
+
+    def test_geocode_zero_valid_pixels_is_not_a_failure_pattern(self):
+        # "Number of pixels with valid data: 0" appears in normal topsApp runs
+        # when dense offsets are skipped — it is NOT a reliable failure signal.
+        # The pattern was removed from WORKFLOW_LOG_FAILURE_PATTERNS (Lesson 16).
+        log_tail = (
+            "Number of pixels with outside DEM: 2395439\n"
+            "Number of pixels with valid data: 0\n"
+            "Workflow finished successfully\n"
+        )
+
+        assert _workflow_log_has_failure(log_tail) is False
+
+    def test_geocode_zero_valid_pixels_does_not_override_zero_exit(self, tmp_path):
+        # Pattern removed: exit_code=0 + no failure markers → "done".
+        jobs_dir = tmp_path / "jobs"
+        log_path = tmp_path / "tops.log"
+        exit_code_path = tmp_path / "tops.exitcode"
+        log_path.write_text(
+            "Number of pixels with outside DEM: 2395439\n"
+            "Number of pixels with valid data: 0\n"
+            "Workflow finished successfully\n",
+            encoding="utf-8",
+        )
+        exit_code_path.write_text("0", encoding="utf-8")
+        job = Job(
+            project_id="p1",
+            engine="isce2",
+            workflow="tops",
             status="running",
             log_path=str(log_path),
             exit_code_path=str(exit_code_path),

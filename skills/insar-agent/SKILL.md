@@ -25,8 +25,7 @@ use `insar_*` MCP tools for execution.
 - Set path-type runconfig fields through `insar_set_runconfig_value`. Set core
   processing parameters through the `param-advisor` flow and
   `insar_set_processing_param`.
-- For long-running jobs, prefer background execution with an explicit log path
-  and status-polling plan. Show the log path before or immediately after launch.
+- For long-running jobs, prefer one-shot self-paced background monitoring: choose the wait interval from current workflow evidence, call Bash with `run_in_background=true`, and on wake use `insar_get_job` plus the explicit log path to report progress without blocking the session.
 - Do not invent workflow parameters when reference material is incomplete. Ask
   the user or collect metadata through `insar_describe_rslc` /
   `insar_describe_s1`.

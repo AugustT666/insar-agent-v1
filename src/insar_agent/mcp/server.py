@@ -68,7 +68,11 @@ from insar_agent.engines.isce2.runner import (
     materialize_dem_for_tops,
 )
 from insar_agent.engines.isce2.mintpy import run_mintpy_isce2_stack
-from insar_agent.engines.isce2.sentinel_prep import _read_safe_metadata, prepare_sentinel_data
+from insar_agent.engines.isce2.sentinel_prep import (
+    _read_safe_metadata,
+    check_annotation_geolocation_grid,
+    prepare_sentinel_data,
+)
 from insar_agent.engines.isce2.stack import build_stack_command as isce2_build_stack_command
 from insar_agent.engines.isce2.validator import validate_params as isce2_validate_params
 
@@ -644,7 +648,15 @@ def _refresh_workflow_job_status(job: Job, jobs_dir: Path) -> Job:
         alive = False
 
     if not alive:
-        _finalize_job_status_from_artifacts(job, jobs_dir)
+        log_tail = _read_log_tail(job.log_path, n=WORKFLOW_LOG_TAIL_LINES)
+        if (
+            _read_exit_code(job.exit_code_path) is not None
+            or _workflow_log_has_failure(log_tail)
+            or _workflow_log_has_success(log_tail)
+        ):
+            _finalize_job_status_from_artifacts(job, jobs_dir)
+        # else: exitcode file not yet flushed, no clear outcome in log;
+        # keep status as running so the next poll can read the exitcode file
     return job
 
 
@@ -1502,6 +1514,33 @@ def _sentinel_scene_paths_for_isce2(params: dict, workflow: str) -> list[Path]:
     return []
 
 
+def _validate_isce2_safe_annotation_geolocation(params: dict, workflow: str) -> list[str]:
+    errors: list[str] = []
+    for scene_path in _sentinel_scene_paths_for_isce2(params, workflow):
+        if not scene_path.is_dir() or scene_path.suffix.upper() != ".SAFE":
+            continue
+        try:
+            scene_id, metadata = _read_safe_metadata(scene_path)
+        except (FileNotFoundError, ValueError, zipfile.BadZipFile):
+            continue
+        scene_bbox = metadata.get("bbox")
+        if not _is_bbox(scene_bbox):
+            continue
+        annotation_dir = scene_path / "annotation"
+        if not annotation_dir.is_dir():
+            continue
+        for annotation_path in annotation_dir.glob("*.xml"):
+            result = check_annotation_geolocation_grid(annotation_path.read_text(encoding="utf-8"), scene_bbox)
+            if result["status"] != "invalid":
+                continue
+            errors.append(
+                "Sentinel-1 SAFE annotation geolocation is inconsistent with manifest footprint: "
+                f"scene={scene_id!r}, annotation={str(annotation_path)!r}, reason={result['reason']}. "
+                "Regenerate or replace the SAFE before running ISCE2."
+            )
+    return errors
+
+
 def _validate_isce2_dem_scene_overlap(params: dict, workflow: str) -> list[str]:
     dem_file = params.get("dem_file")
     if not dem_file:
@@ -1537,7 +1576,6 @@ def _validate_isce2_dem_scene_overlap(params: dict, workflow: str) -> list[str]:
                 f"scene={scene_id!r}, scene_bbox={scene_bbox}. "
                 "Use a DEM covering the Sentinel-1 AOI before running ISCE2."
             )
-            break
     if valid_scene_count == 0 and scene_read_errors:
         errors.append(
             "Cannot verify DEM coverage because Sentinel-1 scene bounds could not be read: "
@@ -1570,7 +1608,8 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
                 "message": "Existing workflow job found for this project; not launching a duplicate process.",
             }
 
-    errors = _validate_isce2_dem_scene_overlap(params, project.workflow)
+    errors = _validate_isce2_safe_annotation_geolocation(params, project.workflow)
+    errors.extend(_validate_isce2_dem_scene_overlap(params, project.workflow))
     if errors:
         return {
             "error": "params_invalid",
