@@ -3,7 +3,7 @@ Run layout helper: normalises task/run identifiers and resolves
 structured sub-directories under a single run root.
 
 Layout:
-    <workspace_root>/outputs/<task_id>/<run_id>/
+    <workspace_root>/<task_id>/outputs/<run_id>/
         products/   scratch/    configs/    logs/
         param_advisor/   metrics/   browse/   stack/   mintpy/
 """
@@ -39,16 +39,19 @@ def validate_workspace_root(workspace_root: str | Path) -> Path:
     """Raise ValueError if workspace_root looks like a run-root or products dir.
 
     Prevents the common mistake of passing
-    ``<workspace>/outputs/<task_id>/<run_id>`` as the workspace root.
+    ``<workspace>/<task_id>/outputs/<run_id>`` as the workspace root.
+    The workspace root itself must not contain a ``/<task_id>/outputs/`` sub-path.
     """
     ws = Path(workspace_root).resolve()
     parts = ws.parts
-    # Reject if any interior segment is "outputs" (indicates nesting)
-    if "outputs" in parts[1:]:
-        raise ValueError(
-            f"workspace_root appears to point inside an outputs directory: {ws!r}. "
-            "workspace_root must be the integration workspace root, not a run root."
-        )
+    # Reject if the path contains an "outputs" segment preceded by a task-id segment
+    # (indicates the caller passed a run-root or sub-directory of one).
+    for i, part in enumerate(parts[2:], start=2):
+        if part == "outputs":
+            raise ValueError(
+                f"workspace_root appears to point inside a run outputs directory: {ws!r}. "
+                "workspace_root must be the top-level workspace, not a task or run subdirectory."
+            )
     return ws
 
 
@@ -64,9 +67,9 @@ class RunLayout:
     workspace_root:
         Absolute path to the integration workspace root.
     task_id:
-        Stable task identifier, e.g. ``"E1"``.
+        Workflow-derived task identifier, e.g. ``"d-insar-isce2"``.
     run_id:
-        Unique run identifier, e.g. ``"E1_20260511T013000Z"``.
+        Unique run identifier, e.g. ``"d-insar-isce2_20260511T013000Z"``.
         If omitted a timestamped id is generated.
     """
 
@@ -79,7 +82,7 @@ class RunLayout:
         self.workspace_root = validate_workspace_root(workspace_root)
         self.task_id = sanitize_identifier(task_id)
         self.run_id = sanitize_identifier(run_id) if run_id else make_run_id(self.task_id)
-        self.run_root = self.workspace_root / "outputs" / self.task_id / self.run_id
+        self.run_root = self.workspace_root / self.task_id / "outputs" / self.run_id
 
     # Structured subdirectories
     @property

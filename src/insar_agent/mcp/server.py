@@ -81,6 +81,17 @@ ENGINE_ALLOWED_FIELDS: dict[str, dict[str, list[str]]] = {
     "isce2": ISCE2_ALLOWED_SET_FIELDS,
 }
 
+# Canonical task_id derived from engine+workflow.  Maps directly to the
+# top-level workspace directory for that workflow type.
+_WORKFLOW_TO_TASK_ID: dict[tuple[str, str], str] = {
+    ("isce2", "tops"):  "d-insar-isce2",
+    ("isce3", "insar"): "d-insar-isce3",
+    ("isce2", "stack"): "stack-insar-isce2",
+    # ("isce3", "stack") is intentionally absent: ISCE3 stack-insar-isce3 uses
+    # insar_prepare_stack/network (Path B) which works directly on the filesystem
+    # without a project registry entry.
+}
+
 _ADAPTER = ISCE3Adapter()
 _ISCE2_ADAPTER = ISCE2Adapter()
 _ENGINES = {_ADAPTER.name: _ADAPTER, _ISCE2_ADAPTER.name: _ISCE2_ADAPTER}
@@ -196,7 +207,7 @@ def _normalize_isce3_output_paths(project: Project) -> None:
             scratch_dir.mkdir(parents=True, exist_ok=True)
 
 
-_SENSITIVE_PARAM_KEYS = {"orbit_password", "password", "token", "access_token", "refresh_token"}
+_SENSITIVE_PARAM_KEYS = {"orbit_password", "password", "token", "access_token", "refresh_token", "proxy"}
 
 
 def _redact_sensitive_params(value: object) -> object:
@@ -314,9 +325,8 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
    corrections, or provides study-area characteristics, enter the param-advisor
    skill here with engine=isce3 (after paths are set, before validation). That skill
    starts by calling insar_describe_rslc(...) to build a metadata-first evidence
-   profile, then delegates recommendation generation to the project-level subagent
-   defined in agents/param-advisor.md. The subagent may consult the
-   engine-specific reference asset at references/param-advisor/param-advisor-isce{{engine}}.md
+   profile, then delegates recommendation generation to the param-advisor subagent `insar-agent-plugin:param-advisor`. The subagent may consult the engine-specific
+   reference asset at references/param-advisor/param-advisor-isce{{engine}}.md
    and may use automatic external search only when local evidence is insufficient.
    The main agent may only apply whitelist-controlled parameters via
    insar_set_processing_param after the subagent returns and the user confirms the plan.
@@ -382,8 +392,7 @@ to interaction_mode="auto" for minimal interruptions.
 
 If the user wants to tune multilook, filtering, unwrapping, or geocode output spacing,
 enter param-advisor first using a temporary insar project and engine=isce3. That skill
-must delegate recommendation generation to the project-level subagent defined in
-agents/param-advisor.md after calling insar_describe_rslc(...) to build a
+must delegate recommendation generation to the param-advisor subagent `insar-agent-plugin:param-advisor` after calling insar_describe_rslc(...) to build a
 local metadata summary. The subagent may consult the engine-specific reference asset at
 references/param-advisor/param-advisor-isce{{engine}}.md and may use automatic external
 search only when that evidence is insufficient, and the final recommendation must show
@@ -899,14 +908,13 @@ def insar_create_project(
 
     Args:
         engine: Engine name, e.g. 'isce3'
-        workflow: Workflow name, e.g. 'insar' or 'gslc'
+        workflow: Workflow name, e.g. 'insar' or 'stack'
         workspace_root: Absolute path where project files will be written
         name: Human-readable project name (auto-generated if omitted)
         conda_env: Conda environment name for workflow execution (e.g. 'isce3')
-        task_id: Short identifier used as the top-level directory under
-            outputs/ (e.g. 'E1'). Drives the run-root layout
-            outputs/<task_id>/<run_id>/. Falls back to a sanitized name if
-            omitted. Always pass the task_id from the task description.
+        task_id: Overrides the auto-derived task_id.  Normally omitted:
+            task_id is derived from engine+workflow and determines the
+            top-level workspace directory (<workspace_root>/<task_id>/outputs/).
     """
     if engine not in _ENGINES:
         return _engine_error(engine)
@@ -924,6 +932,9 @@ def insar_create_project(
     elif not ws.is_dir():
         return {"error": "workspace_not_writable", "message": f"{workspace_root!r} exists but is not a directory"}
 
+    # Auto-derive task_id from engine+workflow unless the caller overrides it.
+    resolved_task_id = task_id.strip() or _WORKFLOW_TO_TASK_ID.get((engine, workflow), "")
+
     # ISCE2 uses a flat param dict instead of a nested YAML runconfig
     if engine == "isce2":
         try:
@@ -938,7 +949,7 @@ def insar_create_project(
             workflow=workflow,
             workspace_root=str(ws.resolve()),
             conda_env=conda_env.strip() or None,
-            task_id=task_id.strip() or None,
+            task_id=resolved_task_id or None,
         )
         project.runconfig = default_params
         project.runconfig_template = default_params
@@ -963,8 +974,7 @@ def insar_create_project(
                 "Use insar_describe_s1 to inspect scene metadata (orbit, polarization, coverage). "
                 "If you need to tune looks, filtering, ESD/coregistration, unwrapping, or stack connections, "
                 "enter the param-advisor skill with engine=isce2 before validate/run. That skill must call "
-                "insar_describe_s1, then delegate recommendation generation to the project-level subagent "
-                "defined in agents/param-advisor.md before applying changes via "
+                "insar_describe_s1, then delegate recommendation generation to the param-advisor subagent insar-agent-plugin:param-advisor before applying changes via "
                 "insar_set_processing_param. "
                 "For S1 time-series (workflow='stack'), set slc_dir to the directory containing "
                 "all S1 SAFE/ZIP files, then call insar_run_workflow to run stackSentinel.py."
@@ -983,7 +993,7 @@ def insar_create_project(
         workflow=workflow,
         workspace_root=str(ws.resolve()),
         conda_env=conda_env.strip() or None,
-        task_id=task_id.strip() or None,
+        task_id=resolved_task_id or None,
     )
     project.runconfig = default_runconfig
     project.runconfig_template = default_runconfig
@@ -1010,7 +1020,7 @@ def insar_create_project(
             "If you need to tune multilook, filtering, unwrapping, or atmospheric corrections, "
             "enter the param-advisor skill with engine=isce3 before validate/export/run. That skill must "
             "call insar_describe_rslc, then delegate recommendation generation to the "
-            "project-level subagent defined in agents/param-advisor.md before "
+            "param-advisor subagent insar-agent-plugin:param-advisor before "
             "applying changes via insar_set_processing_param. The subagent may consult the "
             "engine-specific reference asset at references/param-advisor/param-advisor-isce{engine}.md and may use automatic "
             "external search only when local evidence is insufficient, and the user remains "
@@ -1419,13 +1429,13 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
     Render the current runconfig as a YAML file on disk.
 
     The exported file can be used directly with ISCE3 or reviewed by the user.
-    To save a param-tuned snapshot, pass output_dir="<workspace_root>/param_tuned".
+    To save a param-tuned snapshot, pass output_dir="<workspace_root>/<task_id>/param_tuned".
     The resulting file (<output_dir>/runconfig.yaml) will be detected automatically
     by insar_run_workflow as a previously-tuned config.
 
     Args:
         project_id: Project UUID
-        output_dir: Directory to write YAML into (default: workspace_root/configs/)
+        output_dir: Directory to write YAML into (default: <workspace_root>/<task_id>/configs/)
     """
     try:
         project = Project.load(project_id)
@@ -1629,6 +1639,8 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         if _isce2_layout:
             _isce2_layout.run_root.mkdir(parents=True, exist_ok=True)
             _isce2_layout.logs_dir.mkdir(parents=True, exist_ok=True)
+            configs_dir = _isce2_layout.configs_dir
+            configs_dir.mkdir(parents=True, exist_ok=True)
         isce2_work_dir = str(_isce2_layout.run_root) if _isce2_layout else project.workspace_root
 
         try:
@@ -1785,7 +1797,8 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         _ensure_project_logging(project)
         _normalize_isce3_output_paths(project)
 
-    _param_tuned_path = Path(project.workspace_root) / "param_tuned" / "runconfig.yaml"
+    _task_dir = (Path(project.workspace_root) / project.task_id) if project.task_id else Path(project.workspace_root)
+    _param_tuned_path = _task_dir / "param_tuned" / "runconfig.yaml"
     _param_tuned_found = _param_tuned_path.exists()
     # Step 1: validate
     errors = validate_runconfig(project.runconfig, project.workflow)
@@ -1796,7 +1809,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             "errors": errors,
         }
 
-    # Step 2: export YAML — authoritative copy in run_root/configs/, legacy copy in workspace/configs/
+    # Step 2: export YAML into run_root/configs/ (run-specific) or task-level configs/
     if run_layout is not None:
         auth_configs_dir = run_layout.configs_dir
     else:
@@ -1807,11 +1820,6 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         yaml_path = auth_configs_dir / "runconfig.yaml"
         yaml_content = yaml.dump(project.runconfig, default_flow_style=False, allow_unicode=True)
         yaml_path.write_text(yaml_content)
-        # Legacy workspace-level copy
-        if run_layout is not None:
-            legacy_configs_dir = project.configs_dir()
-            legacy_configs_dir.mkdir(parents=True, exist_ok=True)
-            (legacy_configs_dir / "runconfig.yaml").write_text(yaml_content)
     except Exception as exc:
         return {"error": "export_failed", "message": str(exc)}
 
@@ -2067,11 +2075,23 @@ def insar_get_job(
                 batch_job.exit_code = 1 if failed else 0
                 batch_job.save()
 
+        # Count completed GUNW products as the authoritative pair progress indicator.
+        # More reliable than grep-counting log lines: SNAPHU runs 3× per pair when
+        # ionosphere correction is enabled (main + two sub-bands), so raw log counts
+        # exceed num_pairs and confuse progress estimation.
+        _runs_dir = Path(batch_job.batch_dir) / "runs"
+        _pairs_complete = (
+            sum(1 for _ in _runs_dir.glob("*/products/*.h5"))
+            if _runs_dir.exists()
+            else 0
+        )
+
         result: dict = {
             "job_id": batch_job.job_id,
             "batch_dir": batch_job.batch_dir,
             "batch_type": batch_job.batch_type,
             "num_pairs": batch_job.num_pairs,
+            "pairs_complete": _pairs_complete,
             "status": batch_job.status,
             "pid": batch_job.pid,
             "exit_code": batch_job.exit_code,
@@ -2080,6 +2100,8 @@ def insar_get_job(
             "finished_at": batch_job.finished_at,
             "log_path": batch_job.log_path,
         }
+        if batch_job.num_pairs and _pairs_complete is not None:
+            result["progress_pct"] = round(100 * _pairs_complete / batch_job.num_pairs)
         if include_logs:
             if batch_job.log_path and Path(batch_job.log_path).exists():
                 result["log_content"] = Path(batch_job.log_path).read_text(errors="replace")
@@ -2405,7 +2427,7 @@ def insar_prepare_stack(
         _depth_warn = _check_output_dir_depth(output_dir, _workspace_guess, "stack")
         if _depth_warn:
             result["layout_warning"] = (
-                _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/stack"
+                _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/stack"
             )
         result.update(
             _prepare_handoff(
@@ -2489,7 +2511,7 @@ def insar_prepare_network(
         _depth_warn = _check_output_dir_depth(output_dir, _workspace_guess, "network")
         if _depth_warn:
             result["layout_warning"] = (
-                _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/network"
+                _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/network"
             )
         result.update(
             _prepare_handoff(
@@ -2872,7 +2894,7 @@ def insar_run_mintpy(
     _depth_warn = _check_output_dir_depth(mintpy_work_dir, _workspace_guess.parent, "mintpy")
     if _depth_warn:
         response["layout_warning"] = (
-            _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/mintpy"
+            _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/mintpy"
         )
     return response
 
@@ -2942,7 +2964,7 @@ def insar_run_mintpy_isce2(
     _depth_warn = _check_output_dir_depth(mintpy_work_dir, Path(mintpy_work_dir).parent.parent, "mintpy")
     if _depth_warn:
         isce2_mintpy_response["layout_warning"] = (
-            _depth_warn + " Recommended: <workspace>/outputs/<task_id>/<run_id>/mintpy"
+            _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/mintpy"
         )
     return isce2_mintpy_response
 
@@ -3219,7 +3241,7 @@ def _ensure_isce2_dem_xml(dem_path: Path, log_path: Path) -> str | None:
 
 @mcp.tool()
 def insar_download_dem(
-    output_path: str,
+    output_path: str = "",
     bbox: list[float] | None = None,
     aoi_path: str = "",
     source: str = "copernicus_30",
@@ -3227,8 +3249,29 @@ def insar_download_dem(
     proxy: str | None = None,
     backend: str = "general",
     dem_type: str | None = None,
+    workspace_root: str = "",
+    task_id: str = "",
 ) -> dict:
-    """Download a DEM covering the given bbox or AOI file."""
+    """Download a DEM covering the given bbox or AOI file.
+
+    Args:
+        output_path: Destination path for the downloaded DEM.  When omitted,
+            defaults to ``<workspace_root>/<task_id>/dem/<source>_dem.tif``
+            if workspace_root and task_id are provided.
+        workspace_root: Top-level workspace root.  Used only to derive the
+            default output_path when output_path is omitted.
+        task_id: Workflow task_id (e.g. ``"d-insar-isce3"``).  Used only to
+            derive the default output_path when output_path is omitted.
+    """
+    if not output_path.strip():
+        if workspace_root.strip() and task_id.strip():
+            output_path = str(Path(workspace_root) / task_id / "dem" / f"{source}_dem.tif")
+        else:
+            return {
+                "error": "missing_input",
+                "message": "Either output_path or both workspace_root and task_id must be provided.",
+            }
+
     try:
         resolved_bbox = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
     except FileNotFoundError as exc:
@@ -3438,11 +3481,14 @@ def insar_download_scene(
         n_workers:  Number of parallel download threads (default 4).
         proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
                     If omitted, inherits current system proxy settings.
+                    Use "direct" or "none" to bypass environment proxies.
 
     Returns:
         {ok: [{url, path, size_mb}], failed: [{url, error}], output_dir}
     """
     import concurrent.futures
+    import http.cookiejar
+    import netrc
     import urllib.request
 
     out_dir = Path(output_dir)
@@ -3451,10 +3497,41 @@ def insar_download_scene(
     except Exception as exc:
         return {"error": "output_dir_not_writable", "message": str(exc)}
 
-    proxy_env: dict[str, str] = {}
-    if proxy:
-        proxy_env["http_proxy"] = proxy
-        proxy_env["https_proxy"] = proxy
+    direct_proxy_values = {"direct", "none", "off", "false", "no_proxy", "no-proxy"}
+    proxy_mode = proxy.strip().lower() if proxy else None
+    try:
+        netrc_credentials = netrc.netrc()
+    except (FileNotFoundError, netrc.NetrcParseError):
+        netrc_credentials = None
+
+    def _netrc_credentials(host: str | None) -> tuple[str, str] | None:
+        if netrc_credentials is None:
+            return None
+        normalized_host = host.lower() if host else None
+        authenticators = None
+        if normalized_host:
+            authenticators = netrc_credentials.authenticators(normalized_host)
+        if not authenticators and normalized_host and normalized_host.endswith(".asf.alaska.edu"):
+            authenticators = netrc_credentials.authenticators("urs.earthdata.nasa.gov")
+        if not authenticators:
+            return None
+        login, account, password = authenticators
+        username = login or account
+        if not username or not password:
+            return None
+        return username, password
+
+    def _downloaded_file_error(path: Path) -> str | None:
+        data = path.read_bytes()[:512]
+        stripped = data.lstrip().lower()
+        if stripped.startswith(b"<html") or b"asf-urs" in stripped:
+            return "download returned an HTML login page instead of data"
+        suffix = path.suffix.lower()
+        if suffix in {".tif", ".tiff"} and not (data.startswith(b"II*\x00") or data.startswith(b"MM\x00*")):
+            return "downloaded TIFF does not have a TIFF header"
+        if suffix == ".xml" and not (stripped.startswith(b"<burst") or stripped.startswith(b"<?xml")):
+            return "downloaded XML does not have an XML/burst header"
+        return None
 
     def _download_one(url: str) -> dict:
         from urllib.parse import urlparse
@@ -3463,17 +3540,36 @@ def insar_download_scene(
         dest = out_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
-            size_mb = round(dest.stat().st_size / 1024 / 1024, 2)
-            return {"url": url, "path": str(dest), "size_mb": size_mb, "skipped": True}
+            existing_error = _downloaded_file_error(dest)
+            if existing_error is None:
+                size_mb = round(dest.stat().st_size / 1024 / 1024, 2)
+                return {"url": url, "path": str(dest), "size_mb": size_mb, "skipped": True}
+            dest.unlink()
         try:
-            opener = urllib.request.build_opener()
-            if proxy:
-                opener = urllib.request.build_opener(
-                    urllib.request.ProxyHandler({"http": proxy, "https": proxy})
-                )
-            with opener.open(url) as response, dest.open("wb") as fh:
+            handlers = []
+            if proxy_mode in direct_proxy_values:
+                handlers.append(urllib.request.ProxyHandler({}))
+            elif proxy:
+                handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+            auth = _netrc_credentials(parsed.hostname)
+            if auth:
+                username, password = auth
+                cookie_jar = http.cookiejar.CookieJar()
+                handlers.append(urllib.request.HTTPCookieProcessor(cookie_jar))
+                password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+                auth_uris = ["https://urs.earthdata.nasa.gov/", "urs.earthdata.nasa.gov"]
+                if parsed.hostname:
+                    auth_uris.extend([f"{parsed.scheme}://{parsed.hostname}/", parsed.hostname])
+                password_mgr.add_password(None, auth_uris, username, password)
+                handlers.append(urllib.request.HTTPBasicAuthHandler(password_mgr))
+            opener = urllib.request.build_opener(*handlers)
+            with opener.open(url, timeout=120) as response, dest.open("wb") as fh:
                 shutil.copyfileobj(response, fh)
             if dest.exists():
+                file_error = _downloaded_file_error(dest)
+                if file_error:
+                    dest.unlink(missing_ok=True)
+                    return {"url": url, "error": file_error}
                 return {"url": url, "path": str(dest),
                         "size_mb": round(dest.stat().st_size / 1024 / 1024, 2)}
             return {"url": url, "error": "file not created after download"}
@@ -3621,7 +3717,9 @@ except Exception as _exc:
 
 @mcp.tool()
 def insar_prepare_sentinel_data(
-    project_root: str,
+    project_root: str = "",
+    workspace_root: str = "",
+    task_id: str = "",
     mode: str = "auto",
     aoi_path: str | None = None,
     bbox: list[float] | None = None,
@@ -3651,7 +3749,24 @@ def insar_prepare_sentinel_data(
     files. It can also optionally prepare DEM and Sentinel-1 orbit files for
     downstream ISCE2 workflows. Set validate_isce2_import=True to run an
     import-only Sentinel1_TOPS validation for each prepared SAFE.
+
+    Args:
+        project_root: Output directory for prepared SAFE data.  When omitted,
+            defaults to ``<workspace_root>/<task_id>/prep`` if workspace_root
+            and task_id are provided.
+        workspace_root: Top-level workspace root.  Used only to derive the
+            default project_root when project_root is omitted.
+        task_id: Workflow task_id (e.g. ``"d-insar-isce2"``).  Used only to
+            derive the default project_root when project_root is omitted.
     """
+    if not project_root.strip():
+        if workspace_root.strip() and task_id.strip():
+            project_root = str(Path(workspace_root) / task_id / "prep")
+        else:
+            return {
+                "error": "missing_input",
+                "message": "Either project_root or both workspace_root and task_id must be provided.",
+            }
     params = {
         "project_root": project_root,
         "mode": mode,
@@ -3803,6 +3918,20 @@ def insar_check_env() -> dict:
         )
         if result.returncode == 0 and "insar-mcp-server" in result.stdout:
             mcp_status["registered"] = True
+            # Extract actual connected server name(s).
+            # Each line format: "<server-name>: <command> - ✓ Connected"
+            # Server names may contain colons (e.g. plugin:foo:bar), so split on ": " not ":"
+            connected_insar: list[str] = []
+            for line in result.stdout.splitlines():
+                if "insar" in line.lower() and "✓" in line:
+                    parts = line.split(": ", 1)
+                    if parts:
+                        connected_insar.append(parts[0].strip())
+            if connected_insar:
+                # Prefer the plugin-namespaced form so agents use the correct name
+                # in readMcpResource / listMcpResources calls.
+                plugin_form = [s for s in connected_insar if s.startswith("plugin:")]
+                mcp_status["server_name"] = plugin_form[0] if plugin_form else connected_insar[0]
         mcp_status["raw_output"] = result.stdout.strip()[:500]
     except (FileNotFoundError, subprocess.TimeoutExpired):
         mcp_status["error"] = "claude CLI not found or timed out"
@@ -3822,7 +3951,13 @@ def insar_check_env() -> dict:
             timeout=10,
         )
         raw = result.stdout
-        claude_installed_skills = [s for s in expected_skills if s in raw]
+        # When the insar-agent plugin is installed, all sub-skills are accessible
+        # via the Skill tool even though they don't appear individually in plugin list.
+        # Check for the plugin entry ("insar-agent-plugin") rather than each sub-skill name.
+        if "insar-agent-plugin" in raw:
+            claude_installed_skills = list(expected_skills)
+        else:
+            claude_installed_skills = [s for s in expected_skills if s in raw]
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 

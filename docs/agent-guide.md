@@ -3,6 +3,8 @@
 For step-by-step workflow guidance, invoke the appropriate skill:
 `insar-agent` → `d-insar-isce3` / `stack-insar-isce3` / `d-insar-isce2` / `stack-insar-isce2` / `data-prep` / `env-setup`
 
+MCP server name (use colons, not underscores): `plugin:insar-agent-plugin:insar-mcp-server`
+
 ---
 
 ## Hard constraints (NEVER violate)
@@ -16,8 +18,8 @@ For step-by-step workflow guidance, invoke the appropriate skill:
 3. For skill-aware clients, parameter advice is a plugin contract: the main agent
    must route into the unified advisor skill and that skill must
    delegate advice generation to its project-level subagent.
-   - NISAR / ISCE3: `skills/param-advisor/SKILL.md` + `engine=isce3` → `agents/param-advisor.md` → `insar_describe_rslc`
-   - Sentinel / ISCE2: `skills/param-advisor/SKILL.md` + `engine=isce2` → `agents/param-advisor.md` → `insar_describe_s1`
+   - NISAR / ISCE3: `skills/param-advisor/SKILL.md` + `engine=isce3` → `insar-agent-plugin:param-advisor` subagent → `insar_describe_rslc`
+   - Sentinel / ISCE2: `skills/param-advisor/SKILL.md` + `engine=isce2` → `insar-agent-plugin:param-advisor` subagent → `insar_describe_s1`
    MCP cannot verify this at protocol level; it only enforces the MCP contract (allowlists + validation).
    Every parameter advisory call should perform web search.
    External search results are advisory only, cannot replace local observational facts,

@@ -87,7 +87,7 @@ insar_create_project(
     workspace_root=<workspace_root>,
     name="s1-dinsar-<region>-<date>",
     conda_env="isce2",
-    task_id=<task_id>        # short identifier, e.g. "E2" — drives outputs/<task_id>/<run_id>/
+    task_id=<task_id>        # workflow task_id, auto-derived from engine+workflow; drives <task_id>/outputs/<run_id>/
 )
 ```
 
@@ -145,7 +145,7 @@ The advisor flow must build a metadata-first evidence profile using:
 
 The skill then delegates recommendation generation to:
 
-- `agents/param-advisor.md`
+- `insar-agent-plugin:param-advisor` subagent
 
 and applies accepted changes via `insar_set_processing_param` only.
 
@@ -159,7 +159,7 @@ insar_run_workflow(project_id=project_id)
 
 ISCE2 will:
 1. Generate `configs/topsApp.xml` from project parameters
-2. Set work_dir to `<workspace>/outputs/<task_id>/<run_id>/` (run-root layout)
+2. Set work_dir to `<workspace>/<task_id>/outputs/<run_id>/` (run-root layout)
 3. Launch `topsApp.py` in the `isce2` conda env with work_dir as the working directory
 4. Return `job_id`, `log_path`, `pid`, and `run_root`
 

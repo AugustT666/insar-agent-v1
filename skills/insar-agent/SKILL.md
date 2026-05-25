@@ -36,7 +36,11 @@ Before routing into an execution workflow, collect only the cross-cutting sessio
 facts that are missing for the requested workflow:
 
 1. Read the MCP resource `insar://workflow-guide` to load hard workflow
-   constraints.
+   constraints. Call `insar_check_env` first to get the correct `mcp.server_name`,
+   then pass it to `readMcpResource`. Both `uri` and `server` are required:
+   `readMcpResource(uri="insar://workflow-guide", server=<mcp.server_name>)`.
+   If `insar_check_env` is unavailable, use `plugin:insar-agent-plugin:insar-mcp-server`
+   (colons, not underscores) as the fallback server name.
 2. For ISCE3 execution, use the environment specified by the task/user; if none
    is specified, ask which ISCE3 environment to use (`isce3`, `isce3gpu`, or a
    project-specific name).
@@ -120,3 +124,5 @@ must not be bypassed by client-side instructions.
 - Do not invent workflow parameters when source material is incomplete.
 - Do not directly generate parameter recommendations when the
   `param-advisor` skill/subagent flow applies.
+- Do not use the Read tool to read skill files directly. Always invoke skills
+  through the Skill tool (`Skill(insar-agent-plugin:<skill-name>)`).

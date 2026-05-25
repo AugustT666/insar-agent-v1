@@ -98,12 +98,16 @@ class Project:
         return Path(self.workspace_root) / ".insar_agent"
 
     def configs_dir(self) -> Path:
+        if self.task_id:
+            return Path(self.workspace_root) / self.task_id / "configs"
         return Path(self.workspace_root) / "configs"
 
     def logs_dir(self) -> Path:
         return plugin_logs_dir(self.workspace_root)
 
     def outputs_dir(self) -> Path:
+        if self.task_id:
+            return Path(self.workspace_root) / self.task_id / "outputs"
         return Path(self.workspace_root) / "outputs"
 
     def jobs_dir(self) -> Path:

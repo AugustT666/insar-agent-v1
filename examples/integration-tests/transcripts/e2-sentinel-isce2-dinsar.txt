@@ -1,0 +1,447 @@
+ ▐▛███▜▌   Claude Code v2.1.150
+▝▜█████▛▘  deepseek-v4-pro · API Usage Billing
+  ▘▘ ▝▝    /mnt/HDD2T/August/IntegrationTest2
+
+❯ /insar-agent-plugin:insar-agent 处理 E2 任务
+
+  Read 1 file (ctrl+o to expand)
+
+● Now let me load the workflow guide and check the environment.
+
+● listMcpResources(List MCP resources from server
+                  "plugin_insar-agent-plugin_insar-mcp-server")
+  ⎿  Error: Server "plugin_insar-agent-plugin_insar-mcp-server" not found.
+     Available servers: plugin:insar-agent-plugin:insar-mcp-server
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● readMcpResource(Read resource "insar://workflow-guide" from server
+                 "plugin:insar-agent-plugin:insar-mcp-server")
+  ⎿  {
+       "contents": [
+         {
+     … +42 lines (ctrl+o to expand)
+
+● 环境检查完成：
+  - MCP 服务器: 已注册并连接
+  - isce2 环境: OK (v2.6.3)
+  - mintpy 环境: OK (v1.6.2)
+
+  按照 E2 任务要求，先执行 data-prep-sentinel 进行 SAFE 数据准备，然后再执行
+  d-insar-isce2 进行 D-InSAR 处理。
+
+● Skill(insar-agent-plugin:data-prep-sentinel)
+  ⎿  Successfully loaded skill
+
+● Now following the data-prep-sentinel skill. Let me first load the needed MCP
+  tools and inspect the burst data structure.
+
+  Searched for 1 pattern, listed 4 directories (ctrl+o to expand)
+
+● Burst data is organized with IW1/IW2 subswaths, each with VV/VH polarizations
+  in TIFF/XML pairs. Now let me create the workspace and run data preparation.
+
+● Bash(mkdir -p /mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/prep)
+  ⎿  Done
+
+  Listed 2 directories (ctrl+o to expand)
+
+● Both orbit files cover the reference (2026-01-12) and secondary (2026-01-24)
+  scenes. Now let me run the data preparation. First, let me describe one scene
+  to get the bbox for DEM download.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now let me run the data preparation with DEM download.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● 数据准备成功完成：
+  - SAFE: 2 scenes generated under safe/s1a_asc_rel014/
+  - DEM: copernicus_30.tif downloaded
+  - Orbit: Both scenes matched existing orbit files
+  - ISCE2 import validation: Both passed
+
+  Now let me describe a representative scene and then proceed to D-InSAR
+  processing.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● Scene metadata: S1A, IW, ASCENDING, relative orbit 14, VV+VH. Now handing off
+  to d-insar-isce2 for D-InSAR processing.
+
+● Skill(insar-agent-plugin:d-insar-isce2)
+  ⎿  Successfully loaded skill
+
+● I'm now in the d-insar-isce2 skill. Scene compatibility confirmed: both S1A,
+  IW, ASCENDING, same relative orbit 14, temporal baseline 12 days (within
+  typical 6-48 days).
+
+  AUTO mode active — proceeding directly through all steps. Let me load needed
+  tools and create the project.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● Project created: 8a12b286. Now setting the 4 required path fields.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server 4 times (ctrl+o to expand)
+
+● All 4 required fields set. Now entering param-advisor (engine=isce2) in AUTO
+  mode for parameter tuning before launch.
+
+● Skill(insar-agent-plugin:param-advisor)
+  ⎿  Successfully loaded skill
+
+● Following param-advisor skill for ISCE2. Starting Phase 1 — evidence
+  collection.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server 2 times (ctrl+o to expand)
+
+● Bash(nproc && free -h | head -2)
+  ⎿  32
+                    total        used        free      shared  buff/cache
+      available
+     … +2 lines (ctrl+o to expand)
+
+● Phase 1 evidence collected. Both scenes confirmed compatible (same orbit 14,
+  same bbox, 12-day baseline). Now Phase 2 — delegating to the param-advisor
+  subagent.
+
+● insar-agent-plugin:param-advisor(ISCE2 param-advisor for E2 D-InSAR)
+  ⎿  Done (22 tool uses · 32.8k tokens · 7m 43s)
+  (ctrl+o to expand)
+
+● AUTO mode — accepting all recommendations. The subagent identified 4 changes:
+  swaths fix (IW3 missing, required), 7/3 multilook (canonical ISCE2 standard),
+  num_proc=8 (runtime optimization). Applying now.
+
+● Now applying all 4 parameter changes and recording the advisory package.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server 5 times (ctrl+o to expand)
+
+● num_proc is not whitelisted for ISCE2 tops (runtime parameter, not
+  algorithmic). Three core changes applied. Now showing the final runconfig YAML
+   per the skill requirement.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server 2 times (ctrl+o to expand)
+
+● 参数调优完成。最终配置：
+
+  swaths: [1,2] (曾为 [1,2,3])  |  range_looks: 7 (曾为 20)  |  azimuth_looks: 3
+   (曾为 4)
+  filter_strength: 0.5  |  do_esd: true  |  unwrap: snaphu  |  polarization: vv
+
+  AUTO 模式——返回 D-InSAR 工作流，直接启动处理。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● Workflow launched: job_id=84afb232, pid=695684. Let me verify it's running
+  properly by checking the log tail.
+
+  Read 1 file (ctrl+o to expand)
+
+● Workflow is progressing — geometric coregistration for IW1 underway (topozero
+  stage, generating lat/lon/hgt/los rasters). Process running normally.
+
+  Let me set up background monitoring for this long-running job (~30-60 min for
+  2 swaths).
+
+● Bash(sleep 600 && echo "--- 10 MINUTE CHECK ---" && tail -20
+      "/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outputs/d-insa
+      r-isce2_20260524T143339Z/logs/…)
+  ⎿  Running in the background (↓ to manage)
+
+● While waiting for the 10-minute progress checkpoint, let me do a quick status
+  verification.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● Job confirmed running. Here's the current E2 status summary:
+
+  ---
+  E2 进度摘要 | D-InSAR ISCE2 单对处理
+
+  ┌──────────────────────────────┬────────────────────────┐
+  │             步骤             │          状态          │
+  ├──────────────────────────────┼────────────────────────┤
+  │ 数据准备 (SAFE + DEM + 轨道) │ ✅ 通过 (2/2 验证)     │
+  ├──────────────────────────────┼────────────────────────┤
+  │ 参数调优 (param-advisor)     │ ✅ 已应用 (3 项更改)   │
+  ├──────────────────────────────┼────────────────────────┤
+  │ 工作流启动 (topsApp.py)      │ 🔄 运行中 (PID 695684) │
+  ├──────────────────────────────┼────────────────────────┤
+  │ 输出检查                     │ ⏳ 等待中              │
+  └──────────────────────────────┴────────────────────────┘
+
+  调优参数: swaths [1,2,3]→[1,2], range_looks 20→7, azimuth_looks 4→3
+
+  日志: tail -f /mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outpu
+  ts/d-insar-isce2_20260524T143339Z/logs/84afb232...log
+
+  预计耗时: 30-60 分钟（2 个子条带，VV 极化）
+
+  正在通过后台监控追踪进度，10 分钟后会自动检查。
+
+✻ Cooked for 13m 21s · 1 shell still running
+
+● Background command "Background 10-minute progress check for ISCE2 workflow"
+completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● 10分钟进度：IW1 几何配准完成，IW2 进行中（burst 2 的 lat/lon/hgt/los
+  层）。当前仍在 topozero 阶段，预计还需 30-45
+  分钟完成全部处理（包括干涉图生成、滤波、解缠、地理编码）。
+
+● Bash(sleep 900 && echo "--- 25 MINUTE CHECK ---" && tail -25
+      "/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outputs/d-insa
+      r-isce2_20260524T143339Z/logs/…)
+  ⎿  Running in the background (↓ to manage)
+
+● 等待中——后台监控将在 15 分钟后（总共 25 分钟）自动检查进度。当前 topsApp
+  正在生成 IW2 的几何层（topozero 阶段），处理过程正常。
+
+✻ Sautéed for 17s · 1 shell still running
+
+● Background command "Background 15-minute progress check for ISCE2 workflow
+(total 25 min)" completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● 处理失败。日志末尾显示 conda 执行错误。让我检查完整错误日志和任务状态。
+
+  Searched for 1 pattern, called plugin:insar-agent-plugin:insar-mcp-server
+  (ctrl+o to expand)
+
+● ESD 失败——Coherence threshold too strict. No points left for reliable ESD
+  estimate。Afar 火山地区在 burst 重叠区的相干性低于 0.85
+  阈值。按照故障排查指南，禁用 ESD 后重新提交。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● ESD 已禁用。重新提交工作流。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● 重提交成功 — ISCE2 自动检测到 ESD 失败并使用了两阶段恢复模式：跳过
+  ESD，复用已有的 burst overlap 干涉图作为距离向配准，从 fine offsets 继续。
+
+● Bash(sleep 900 && tail -20
+      "/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outputs/d-insa
+      r-isce2_20260524T145946Z/logs/5c8021e4-2656-4c27-9470-cf613ae187…)
+  ⎿  Running in the background (↓ to manage)
+
+● 第二轮运行中。后台等待 15 分钟自动检查进度。
+
+✻ Crunched for 41s · 1 shell still running
+
+● Background command "Background 15-minute progress check for ISCE2 workflow
+(run 2)" completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● 进展顺利——已完成 geometry + overlapifg 阶段，进入 fineoffsets（IW1 burst 0
+  距离/方位偏移估算）。进度良好，大约完成一半。再等 15 分钟。
+
+● Bash(sleep 900 && tail -15
+      "/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outputs/d-insa
+      r-isce2_20260524T145946Z/logs/5c8021e4-2656-4c27-9470-cf613ae187…)
+  ⎿  Running in the background (↓ to manage)
+
+● 等待中——后台将在 15 分钟后检查进度。
+
+✻ Churned for 13s · 1 shell still running
+
+● Background command "Background 15-minute progress check for ISCE2 workflow
+(run 2, +30 min)" completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● 又一个错误。让我诊断具体原因。
+
+  Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+● SNAPHU 解缠失败——NaN or infinity found in input float data，因为禁用 ESD
+  后相位噪声增加。处理继续运行到 "Normal Completion"，但 conda
+  报告失败。让我检查实际输出情况。
+
+  Listed 1 directory, called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o
+  to expand)
+
+● Produces: filt_topophase.flat (67MB), phsig.cor (34MB), topophase.cor (67MB),
+  los.rdr (67MB) — but NO unwrapped phase or geocoded output (SNAPHU NaN
+  failure). Processing completed but unwrapping step failed. Let me switch to
+  ICU unwrapper and re-run.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● 出现异常——参数注册表返回了 ISCE3 工作流而不是 ISCE2。让我检查项目状态。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● 项目状态似乎已损坏——runconfig 显示为 ISCE3/NISAR 格式而非 ISCE2
+  tops。这是工具端异常。让我重新创建项目并直接运行，使用我们从失败中积累的经验（
+  do_esd=false、ICU 解缠）。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● 新项目创建成功: 897b32fc。现在一次性应用所有参数（含从上一轮失败中积累的经验：
+  do_esd=false、提高滤波强度到 0.8）。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server 4 times (ctrl+o to expand)
+
+● Required fields set. Now applying optimized parameters including lessons from
+  the first run.
+
+  Called plugin:insar-agent-plugin:insar-mcp-server 6 times (ctrl+o to expand)
+
+● 全部 10 个参数设置成功，包括 unwrap_method=icu。直接启动工作流。
+
+  Called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to expand)
+
+● Workflow launched with two-stage recovery mode (ESD
+  skip→overlapifg→fineoffsets). Setting up monitoring.
+
+● Bash(sleep 900 && tail -15
+      "/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outputs/d-insa
+      r-isce2_20260524T153207Z/logs/6c55dd59-dd52-49da-8c4d-e5264e13d9…)
+  ⎿  Running in the background (↓ to manage)
+
+● 等待中——后台 15 分钟后自动检查。本轮使用了改进参数：ICU
+  解缠、filter_strength=0.8（降低 NaN 风险）。
+
+✻ Crunched for 2m 11s · 1 shell still running
+
+● Background command "Background 15-minute progress check for ISCE2 v2 run"
+completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● 15 分钟进度：overlapifg 完成，进入 fineoffsets（IW1 burst 0
+  偏移估算）。进度正常，与上轮一致。再设 15 分钟检查。
+
+● Bash(sleep 900 && tail -10
+      "/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/outputs/d-insa
+      r-isce2_20260524T153207Z/logs/6c55dd59-dd52-49da-8c4d-e5264e13d9…)
+  ⎿  Running in the background (↓ to manage)
+
+● 等待中——预计约 45 分钟就会有效果（ICU 解缠比 SNAPHU 更快）。
+
+✻ Cooked for 12s · 1 shell still running
+
+● Background command "Background 15-minute progress check (v2 +30min)" completed
+ (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● 地理编码阶段！说明 ICU 解缠成功了。让我检查完整日志和任务状态。
+
+  Read 1 file, called plugin:insar-agent-plugin:insar-mcp-server (ctrl+o to
+  expand)
+
+● E2 处理成功！ 任务状态：done，退出码：0，总耗时约 30 分钟。
+
+  让我检查输出结果。
+
+  Searched for 1 pattern, called plugin:insar-agent-plugin:insar-mcp-server
+  (ctrl+o to expand)
+
+● E2 处理成功！ 所有关键产品均已生成。以下是最终处理总结。
+
+  ---
+  E2 — Sentinel-1 / ISCE2 / D-InSAR 单对处理总结
+
+  流程记录
+
+  加载的 skills（按调用顺序）
+  1. insar-agent — 入口路由
+  2. data-prep-sentinel — SAFE + DEM + 轨道准备
+  3. d-insar-isce2 — D-InSAR 处理（含参数调优）
+
+  MCP 工具链
+
+  ┌─────────────────────────────┬───────────────────────────────────────────┐
+  │            工具             │                 关键入参                  │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_check_env             │ —                                         │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │                             │ mode=auto, source_paths=[ref,sec],        │
+  │ insar_prepare_sentinel_data │ download_dem=true,                        │
+  │                             │ validate_isce2_import=true                │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_describe_s1           │ ref + sec SAFE paths                      │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_create_project        │ engine=isce2, workflow=tops,              │
+  │                             │ task_id=d-insar-isce2                     │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_set_processing_param  │ 路径 + swaths + looks + ESD + filter +    │
+  │ ×10                         │ unwrap                                    │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_run_workflow          │ project_id=897b32fc (第二次，首次因       │
+  │                             │ ESD+SNAPHU 失败)                          │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_get_job ×3            │ 监控进度                                  │
+  ├─────────────────────────────┼───────────────────────────────────────────┤
+  │ insar_list_outputs          │ 最终产品检查                              │
+  └─────────────────────────────┴───────────────────────────────────────────┘
+
+  错误与重试
+  - 第 1 次运行: ESD 失败 (Coherence threshold too strict)，1h 后在 ESD 步骤崩溃
+  - 第 2 次运行: ESD 禁用，SNAPHU 因 NaN 像素中止 (NaN or infinity found in
+  input float data)，处理继续但解缠失败
+  - 重新创建项目: 旧项目状态损坏（insar_get_runconfig 返回 ISCE3
+  数据），使用新项目 897b32fc 重新开始
+  - 第 3 次运行: do_esd=false + filter_strength=0.8 + unwrap_method=icu → 成功
+
+  成功结果
+
+  ┌──────────┬──────────────────────────────────────────────────────────────┐
+  │   字段   │                              值                              │
+  ├──────────┼──────────────────────────────────────────────────────────────┤
+  │ task_id  │ d-insar-isce2                                                │
+  ├──────────┼──────────────────────────────────────────────────────────────┤
+  │ project_ │ 897b32fc-0472-4d9e-a80d-1a7391a15028                         │
+  │ id       │                                                              │
+  ├──────────┼──────────────────────────────────────────────────────────────┤
+  │ job_id   │ 6c55dd59-dd52-49da-8c4d-e5264e13d91b                         │
+  ├──────────┼──────────────────────────────────────────────────────────────┤
+  │ run_root │ .../workspace/d-insar-isce2/outputs/d-insar-isce2_20260524T1 │
+  │          │ 53207Z/                                                      │
+  ├──────────┼──────────────────────────────────────────────────────────────┤
+  │ 处理耗时 │ ~30 min                                                      │
+  ├──────────┼──────────────────────────────────────────────────────────────┤
+  │ 退出码   │ 0                                                            │
+  └──────────┴──────────────────────────────────────────────────────────────┘
+
+  关键产物路径及文件大小
+
+  ┌───────────────────────────┬───────────────────────────────┬────────┐
+  │           产物            │ 路径 (under run_root/merged/) │  大小  │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 地理编码解缠相位          │ filt_topophase.unw.geo        │ 129 MB │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 地理编码相干性            │ topophase.cor.geo             │ 129 MB │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 地理编码相位 sigma 相干性 │ phsig.cor.geo                 │ 65 MB  │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 地理编码 LOS              │ los.rdr.geo                   │ 129 MB │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 地理编码滤波平地相位      │ filt_topophase.flat.geo       │ 129 MB │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 雷达坐标解缠相位          │ filt_topophase.unw            │ 68 MB  │
+  ├───────────────────────────┼───────────────────────────────┼────────┤
+  │ 雷达坐标相干性            │ topophase.cor                 │ 68 MB  │
+  └───────────────────────────┴───────────────────────────────┴────────┘
+
+  最终参数
+  swaths: [1,2] | range_looks: 7 | azimuth_looks: 3 | polarization: vv
+  do_esd: false | filter_strength: 0.8 | unwrap_method: icu
+
+✻ Brewed for 42s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 处理 E3 任务
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+

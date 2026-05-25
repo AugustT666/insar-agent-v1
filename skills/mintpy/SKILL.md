@@ -32,7 +32,7 @@ These tools operate directly on completed filesystem-backed stack/network output
   `runs/*/products/*.h5`
 - `stack_work_dir` (ISCE2 only): completed ISCE2 topsStack directory with `merged/interferograms`, `merged/geom_reference`, and `merged/baselines`
 - `mintpy_work_dir`: output directory for MintPy results. Recommended run-root path:
-  `<workspace>/outputs/<task_id>/<run_id>/mintpy`. A depth check warns if the path is too
+  `<workspace>/<task_id>/outputs/<run_id>/mintpy`. A depth check warns if the path is too
   shallow (< 4 levels from workspace root); `insar_run_mintpy` adds `layout_warning` to the
   response if depth is insufficient.
 - `mintpy_config`: path to MintPy smallbaselineApp config file (`.cfg` or `.txt`). Optional for both engines; omit or pass `""` to let the MCP tool generate an engine-appropriate default when supported.

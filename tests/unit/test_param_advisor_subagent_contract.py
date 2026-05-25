@@ -24,7 +24,7 @@ def test_create_project_guidance_mentions_unified_subagent_requirement(tmp_path,
     assert "skill" in guidance
     assert "subagent" in guidance
     assert "param-advisor" in guidance
-    assert "agents/param-advisor.md" in result["guidance"]
+    assert "insar-agent-plugin:param-advisor" in result["guidance"]
     assert "engine=isce3" in guidance
     assert "insar_describe_rslc" in guidance
 
@@ -34,12 +34,12 @@ def test_process_prompts_require_unified_subagent_delegation():
     batch_prompt = process_insar_batch()
     assert "param-advisor" in pair_prompt
     assert "subagent" in pair_prompt.lower()
-    assert "agents/param-advisor.md" in pair_prompt
+    assert "insar-agent-plugin:param-advisor" in pair_prompt
     assert "engine=isce3" in pair_prompt.lower()
     assert "insar_describe_rslc" in pair_prompt
     assert "param-advisor" in batch_prompt
     assert "subagent" in batch_prompt.lower()
-    assert "agents/param-advisor.md" in batch_prompt
+    assert "insar-agent-plugin:param-advisor" in batch_prompt
     assert "engine=isce3" in batch_prompt.lower()
     assert "insar_describe_rslc" in batch_prompt
 
@@ -60,7 +60,7 @@ def test_upper_skills_route_to_unified_param_advisor_skill():
 
     advisor_lowered = advisor_skill.lower()
     assert "insar_describe_rslc" in advisor_skill
-    assert "agents/param-advisor.md" in advisor_skill
+    assert "insar-agent-plugin:param-advisor" in advisor_skill
     assert "insar_set_processing_param" in advisor_skill
     assert "insar_get_runconfig(format='yaml')" in advisor_skill
     assert "yaml_diff_preview" in advisor_lowered or "diff" in advisor_lowered
@@ -127,7 +127,7 @@ def test_core_docs_describe_skill_aware_subagent_boundary():
     assert "subagent" in claude.lower()
     assert "insar_describe_rslc" in guide
     assert "param-advisor" in guide
-    assert "agents/param-advisor.md" in guide
-    assert "agents/param-advisor.md" in architecture
+    assert "insar-agent-plugin:param-advisor" in guide
+    assert "insar-agent-plugin:param-advisor" in architecture
     assert "every parameter advisory call should perform web search" in guide.lower() or "每次参数建议都执行网络搜索" in guide
     assert "gpt-5.3-codex" in claude.lower() or "gpt codex5.3" in claude.lower()

@@ -21,7 +21,7 @@ def test_isce2_create_project_guidance_mentions_unified_param_advisor(tmp_path, 
     )
     guidance = result["guidance"].lower()
     assert "param-advisor" in guidance
-    assert "agents/param-advisor.md" in result["guidance"]
+    assert "insar-agent-plugin:param-advisor" in result["guidance"]
     assert "engine=isce2" in guidance
     assert "insar_describe_s1" in guidance
 
@@ -38,7 +38,7 @@ def test_isce2_skills_route_to_unified_param_advisor_skill():
         assert "engine=isce2" in text
 
     assert "insar_describe_s1" in advisor_skill
-    assert "agents/param-advisor.md" in advisor_skill
+    assert "insar-agent-plugin:param-advisor" in advisor_skill
     assert "insar_set_processing_param" in advisor_skill
     assert "yaml_diff_preview" in advisor_skill.lower() or "diff" in advisor_skill.lower()
     assert "param-advisor-isce2.md" not in advisor_skill

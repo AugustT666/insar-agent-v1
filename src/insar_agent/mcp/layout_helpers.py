@@ -29,8 +29,9 @@ def check_output_dir_depth(
     except ValueError:
         return f"output_dir {output_dir!r} is outside workspace_root {workspace_root!r}"
     parts = rel.parts
-    if parts and parts[0] == "outputs" and len(parts) < 3:
-        expected = f"<workspace>/outputs/<task_id>/<run_id>/{subdir_name or '<subdir>'}"
+    # New layout: <workspace>/<task_id>/outputs/<run_id>/...
+    if len(parts) >= 2 and parts[1] == "outputs" and len(parts) < 4:
+        expected = f"<workspace>/<task_id>/outputs/<run_id>/{subdir_name or '<subdir>'}"
         return (
             f"output_dir {output_dir!r} looks too shallow for run-root layout. "
             f"Expected structure: {expected}"
@@ -80,17 +81,20 @@ def param_advice_output_dir(project: Project, output_dir: str, task_id: str) -> 
             product_path = None
         if isinstance(product_path, str) and product_path:
             pp = Path(product_path)
+            # New layout: <workspace>/<task_id>/outputs/<run_id>/products
+            # Recover run_root by stripping the last segment (products)
             try:
-                rel = pp.relative_to(Path(project.workspace_root) / "outputs")
+                rel = pp.relative_to(Path(project.workspace_root))
                 parts = rel.parts
-                if len(parts) >= 2:
-                    return Path(project.workspace_root) / "outputs" / parts[0] / parts[1] / "param_advisor"
+                # Expect: <task_id>/outputs/<run_id>/[products]
+                if len(parts) >= 3 and parts[1] == "outputs":
+                    return Path(project.workspace_root) / parts[0] / "outputs" / parts[2] / "param_advisor"
             except ValueError:
                 pass
         return layout.param_advisor_dir
     except ValueError:
         fallback_task_id = requested_task_id or sanitize_identifier(project.project_id)
-        return Path(project.workspace_root) / "outputs" / fallback_task_id / "param_advisor"
+        return Path(project.workspace_root) / fallback_task_id / "outputs" / "param_advisor"
 
 
 def validate_param_advice_format_version(format_version: str) -> None:

@@ -367,7 +367,7 @@ def test_run_workflow_writes_plugin_log_under_dot_insar_logs(insar_project):
 
     assert "error" not in result
     log_parent = Path(result["log_path"]).parent
-    # New layout: log goes into <workspace>/outputs/<task_id>/<run_id>/logs/
+        # New layout: log goes into <workspace>/<task_id>/outputs/<run_id>/logs/
     # Legacy fallback: <workspace>/.insar_logs
     assert log_parent == workspace / ".insar_logs" or "logs" in log_parent.parts
 
@@ -503,8 +503,8 @@ class TestListOutputs:
             ("runconfig.groups.input_file_group.secondary_rslc_file", "/data/sec.h5"),
             ("runconfig.groups.dynamic_ancillary_file_group.dem_file", "/data/dem.tif"),
             # These will be overridden by the run-layout
-            ("runconfig.groups.product_path_group.product_path", str(workspace / "outputs" / "E1")),
-            ("runconfig.groups.product_path_group.scratch_path", str(workspace / "scratch" / "E1")),
+            ("runconfig.groups.product_path_group.product_path", str(workspace / "d-insar-isce3" / "outputs" / "placeholder")),
+            ("runconfig.groups.product_path_group.scratch_path", str(workspace / "d-insar-isce3" / "scratch")),
             ("runconfig.groups.product_path_group.sas_output_file", "GUNW.h5"),
         ]:
             insar_set_runconfig_value(pid, key, val)
@@ -518,8 +518,9 @@ class TestListOutputs:
         # New layout: run_root is returned in the result
         assert "run_root" in result
         run_root = Path(result["run_root"])
-        # run_root must be inside workspace/outputs/
-        assert run_root.is_relative_to(workspace / "outputs")
+        # New layout: run_root is workspace/<task_id>/outputs/<run_id>
+        assert run_root.is_relative_to(workspace)
+        assert "outputs" in run_root.parts
         # sas_output_file is now inside run_root/products/
         updated = Project.load(pid)
         sas = get_path(updated.runconfig, "runconfig.groups.product_path_group.sas_output_file")

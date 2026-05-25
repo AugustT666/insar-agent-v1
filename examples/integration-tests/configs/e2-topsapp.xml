@@ -1,0 +1,26 @@
+<?xml version="1.0" ?>
+<topsApp>
+  <component name="topsinsar">
+    <property name="Sensor name">SENTINEL1</property>
+    <component name="reference">
+      <property name="safe">[ '/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/prep/safe/s1a_asc_rel014/S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B.SAFE' ]</property>
+      <property name="output directory">reference</property>
+      <property name="orbit directory">/mnt/HDD2T/August/insar-agent-test-data/sentinel/orbits</property>
+    </component>
+    <component name="secondary">
+      <property name="safe">[ '/mnt/HDD2T/August/IntegrationTest2/workspace/d-insar-isce2/prep/safe/s1a_asc_rel014/S1A_IW_SLC__1SDV_20260124T152727_20260124T152754_062911_07E444_7128.SAFE' ]</property>
+      <property name="output directory">secondary</property>
+      <property name="orbit directory">/mnt/HDD2T/August/insar-agent-test-data/sentinel/orbits</property>
+    </component>
+    <property name="swaths">[1, 2]</property>
+    <property name="do ESD">False</property>
+    <property name="ESD coherence threshold">0.85</property>
+    <property name="range looks">7</property>
+    <property name="azimuth looks">3</property>
+    <property name="filter strength">0.8</property>
+    <property name="do unwrap">True</property>
+    <property name="do unwrap 2 stage">False</property>
+    <property name="unwrapper name">icu</property>
+    <property name="demfilename">/mnt/HDD2T/August/IntegrationTest2/workspace/isce2_dem/copernicus_30.tif</property>
+  </component>
+</topsApp>

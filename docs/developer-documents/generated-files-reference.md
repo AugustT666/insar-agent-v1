@@ -2,9 +2,11 @@
 
 本文档描述使用 insar-agent 进行数据处理时产生的所有文件，按层次和路径组织。
 
-涵盖两条处理路径：
-- **Path A**：D-InSAR 单对处理（`d-insar-isce3` 技能，`insar_create_project` + `insar_run_workflow`）
-- **Path B**：Stack-InSAR 批量处理（`stack-insar-isce3` 技能，`insar_prepare_stack` + `insar_prepare_network` + `insar_run_batch`）
+涵盖四条处理路径：
+- **Path A**：ISCE3 D-InSAR 单对（`d-insar-isce3`，`insar_create_project` + `insar_run_workflow`）
+- **Path B**：ISCE3 Stack-InSAR 批量（`stack-insar-isce3`，`insar_prepare_stack` + `insar_prepare_network` + `insar_run_batch`）
+- **Path C**：ISCE2 D-InSAR 单对（`d-insar-isce2`，`insar_prepare_sentinel_data` + `insar_create_project` + `insar_run_workflow`）
+- **Path D**：ISCE2 Stack-InSAR（`stack-insar-isce2`，`insar_prepare_sentinel_data` + `insar_create_project` + `insar_run_workflow`）
 
 ---
 
@@ -22,12 +24,78 @@
 │  项目注册表、project.json、job.json、             │
 │  runconfig.yaml、执行脚本、日志                   │
 └─────────────────────────────────────────────────┘
-         ↓ 启动 ISCE3 处理
+         ↓ 启动 ISCE3/ISCE2 处理
 ┌─────────────────────────────────────────────────┐
-│  ISCE3 层（ISCE3 引擎输出）                       │
-│  GUNW 产品（.h5）、中间过程文件（scratch/）        │
+│  ISCE3/ISCE2 层（引擎输出）                       │
+│  GUNW 产品（.h5）或 merged/（ISCE2），            │
+│  中间过程文件（scratch/ 或 IW*/ 子目录）          │
 └─────────────────────────────────────────────────┘
 ```
+
+---
+
+## 零、Workspace 顶层布局
+
+所有处理输出以工作流名称（`task_id`）作为第一层目录，不同工作流之间严格隔离。
+
+```
+<workspace_root>/
+  d-insar-isce3/
+    dem/                 ← ISCE3 DEM（insar_download_dem 输出）
+      copernicus_30_dem.tif / dem.tif（+ .vrt + .xml）
+    outputs/
+      <run_id>/          ← 每次运行独立隔离（格式：d-insar-isce3_<timestamp>）
+        products/
+        scratch/
+        configs/
+        logs/
+        param_advisor/
+    sessions/
+      <run_id>/session.json    ← transcript 会话记录（launch 脚本写入）
+    success/
+      <run_id>/          ← finalize 后从 outputs/ 移入
+        …产物…
+        transcript/
+          terminal.txt
+          finalize.json
+
+  d-insar-isce2/
+    prep/                ← Sentinel-1 SAFE + DEM + orbit（insar_prepare_sentinel_data 输出）
+      safe/s1a_asc_rel014/*.SAFE
+      dem/copernicus_30.tif（+ .vrt + .xml）
+      burst_manifest.txt
+    param_tuned/
+      runconfig.yaml     ← 参数调优快照
+    outputs/
+      <run_id>/          ← 格式：d-insar-isce2_<timestamp>
+    sessions/
+      <run_id>/session.json
+    success/
+      <run_id>/
+
+  stack-insar-isce3/
+    dem/                 ← ISCE3 DEM
+    outputs/
+      <run_id>/
+    sessions/
+      <run_id>/session.json
+    success/
+      <run_id>/
+
+  stack-insar-isce2/
+    prep/                ← Sentinel-1 SAFE + DEM
+      safe/<track>/
+      dem/
+    outputs/
+      <run_id>/
+    sessions/
+      <run_id>/session.json
+    success/
+      <run_id>/
+```
+
+`run_id` 格式为 `<task_id>_<timestamp>`，例如 `d-insar-isce3_20260524T152121Z`。
+失败 run 留在 `outputs/` 中（保留供调试）；仅 finalize 确认成功后才移入 `success/`。
 
 ---
 
@@ -69,9 +137,9 @@
 
 ## 二、MCP 层文件
 
-### 2.1 全局项目注册表（Path A 专有）
+### 2.1 全局项目注册表（Path A/C/D 专有）
 
-Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B 不使用注册表。
+Path A/C/D 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B 不使用注册表。
 
 | 文件 | 路径 | 写入时机 |
 |------|------|----------|
@@ -88,11 +156,11 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
 
 ---
 
-### 2.2 Path A 工作区文件结构（Run-root layout）
+### 2.2 Path A 工作区文件结构（ISCE3 D-InSAR Run-root layout）
 
 `insar_create_project(workspace_root=<path>)` 后：
 
-- `workspace_root` 必须是集成 workspace 根目录，不可以是 `outputs/…` 下的子目录
+- `workspace_root` 必须是集成 workspace 根目录，不可以是 `<task_id>/outputs/…` 下的子目录
 - `insar_run_workflow` 为每次运行自动生成 `run_id`（格式 `<task_id>_<timestamp>`），输出隔离到 `run_root`
 
 ```
@@ -104,8 +172,9 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
   configs/
     runconfig.yaml          ← workspace 层兼容副本（latest，非正式审计记录）
   .insar_logs/              ← legacy 日志目录（fallback）
-  outputs/
-    <task_id>/
+  <task_id>/
+    dem/                    ← DEM 文件（insar_download_dem 输出）
+    outputs/
       <run_id>/             ← run_root（每次运行独立隔离）
         products/           ← GUNW .h5 科学产品
         scratch/            ← ISCE3 中间过程文件
@@ -122,6 +191,15 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
           product_metrics.json     ← 通用 GUNW 质量指标（可复用）
           experiment_metrics.json  ← 实验 harness 专用汇总
         browse/             ← GeoTIFF / PNG 导出（由 insar_export_geotiff 写入）
+    sessions/
+      <run_id>/
+        session.json        ← transcript 会话记录（launch 脚本写入）
+    success/
+      <run_id>/             ← finalize 后从 outputs/<run_id>/ 移入
+        …（产物布局同 outputs/<run_id>/）
+        transcript/
+          terminal.txt      ← tmux 终端输出全文
+          finalize.json     ← finalize 元数据
 ```
 
 **`project.json` 字段说明：**
@@ -152,9 +230,9 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
 | `exit_code` | 退出码（0=成功，非0=失败） |
 | `log_path` | 执行日志文件路径（workflow 进程日志） |
 | `command` | 实际执行的命令列表 |
-| `task_id` | 任务代号（如 `E1`），由 project.name 推导 |
-| `run_id` | 本次运行唯一 ID（如 `E1_20260511T013000Z`） |
-| `run_root` | 本次运行输出根目录（`<workspace>/outputs/<task_id>/<run_id>`） |
+| `task_id` | 工作流名称（如 `d-insar-isce3`），由 engine+workflow 自动推导 |
+| `run_id` | 本次运行唯一 ID（如 `d-insar-isce3_20260524T152121Z`） |
+| `run_root` | 本次运行输出根目录（`<workspace>/<task_id>/outputs/<run_id>`） |
 | `products_dir` | 科学产品目录（`<run_root>/products`） |
 | `scratch_dir` | 中间过程目录（`<run_root>/scratch`） |
 | `configs_dir` | 权威 runconfig 目录（`<run_root>/configs`） |
@@ -164,7 +242,107 @@ Path A 使用项目注册表将 `project_id` 映射到 `workspace_root`，Path B
 
 ---
 
-### 2.3 Path B 工作区文件结构
+### 2.3 Path C 工作区文件结构（ISCE2 D-InSAR Run-root layout）
+
+Path C 先调用 `insar_prepare_sentinel_data` 准备 SAFE + DEM，再调用 `insar_create_project` + `insar_run_workflow` 执行 TOPS D-InSAR。
+
+#### 准备阶段输出：`<workspace_root>/d-insar-isce2/prep/`
+
+```
+<workspace_root>/d-insar-isce2/
+  prep/
+    safe/
+      s1a_asc_rel014/       ← 按轨道/方向分组的 SAFE 目录
+        S1A_IW_SLC__1SDV_*.SAFE/  ← 每景一个完整 SAFE 目录
+    dem/
+      copernicus_30.tif     ← 覆盖场景范围的 DEM
+      copernicus_30.tif.vrt
+      copernicus_30.tif.xml
+    burst_manifest.txt      ← 准备的 burst 清单（路径 + 日期）
+    .insar_agent/
+      jobs/                 ← prep job 元数据
+    .insar_logs/
+      sentinel_prep_<hash>.log
+      sentinel_prep_<hash>_params.json
+    isce2_import_validation/
+      <hash>/               ← 每次 import 验证记录
+  param_tuned/
+    runconfig.yaml          ← 参数调优快照（若已执行 param-advisor）
+```
+
+#### 运行阶段输出：`<workspace_root>/d-insar-isce2/outputs/<run_id>/`
+
+ISCE2 topsApp 的 run_root 直接包含所有 ISCE2 目录，无 `products/` 子目录，最终产品在 `merged/`：
+
+```
+<run_id>/                          ← run_root
+  configs/
+    topsApp.xml                    ← 权威 ISCE2 配置（正式审计记录）
+  logs/
+    <uuid>.log                     ← MCP job 执行日志
+    <uuid>.exitcode
+  reference/
+    IW1/ IW2/ …                    ← 参考景各子带 SLC（ISCE2 内部格式）
+  secondary/
+    IW1/ IW2/ …                    ← 辅助景各子带 SLC
+  coarse_coreg/ coarse_offsets/    ← 粗配准中间文件
+  fine_coreg/
+    IW1/
+      burst_01.slc / .slc.vrt / .slc.xml   ← 精配准后各 burst SLC
+      burst_02.slc / .slc.vrt / .slc.xml
+      IW1.xml
+    IW2/ …
+  fine_interferogram/
+    IW1/
+      burst_01.3alks_7rlks.int     ← 多视后包裹干涉图（每 burst）
+      burst_01.cor                 ← 相干系数
+      burst_01.int                 ← 全分辨率干涉图
+      …（+ .vrt + .xml 副文件）
+    IW2/ …
+  fine_offsets/
+    IW1/ IW2/ …                    ← 精配准偏移量
+  geom_reference/
+    IW1/ IW2/ …                    ← 几何参考（inc, lat, lon, los, hgt）
+  ESD/                             ← ESD 校正（do_esd=False 时为空目录）
+  PICKLE/                          ← ISCE2 序列化处理状态
+  merged/                          ← 最终多子带合并产品（关键输出）
+    filt_topophase.flat            ← 过滤后包裹干涉图（雷达坐标）
+    filt_topophase.flat.geo        ← 过滤后包裹干涉图（地理坐标）★
+    filt_topophase.unw             ← 解缠相位（雷达坐标）
+    filt_topophase.unw.geo         ← 解缠相位（地理坐标）★ 主要科学产品
+    filt_topophase.conncomp        ← 连通分量标签
+    topophase.flat                 ← 未过滤包裹干涉图（雷达坐标）
+    topophase.flat.geo             ← 未过滤包裹干涉图（地理坐标）
+    topophase.cor                  ← 相干系数（雷达坐标）
+    topophase.cor.geo              ← 相干系数（地理坐标）★
+    phsig.cor                      ← 相位 sigma 相干（雷达坐标）
+    phsig.cor.geo                  ← 相位 sigma 相干（地理坐标）
+    los.rdr                        ← 视线向矢量（雷达坐标）
+    los.rdr.geo                    ← 视线向矢量（地理坐标）
+    dem.crop                       ← 裁剪后 DEM
+    reference.slc.full.vrt         ← 合并参考景 SLC（VRT）
+    secondary.slc.full.vrt         ← 合并辅助景 SLC（VRT）
+    lat.rdr.full.vrt / lon.rdr.full.vrt / z.rdr.full.vrt  ← 坐标网格 VRT
+    …（各文件均有 .vrt + .xml 副文件）
+  copernicus_30.tif.wgs84          ← 处理用 WGS84 DEM（+ .vrt + .xml）
+  topsProc.xml                     ← ISCE2 处理参数记录
+  insar.log / isce.log / topsinsar.log  ← ISCE2 引擎日志
+```
+
+**`jobs/<uuid>.json` 字段说明（Path C，与 Path A 字段相同，路径格式有别）：**
+
+| 字段 | 说明 |
+|------|------|
+| `task_id` | 工作流名称（`d-insar-isce2`），由 engine=isce2 + workflow=tops 自动推导 |
+| `run_id` | 本次运行唯一 ID（如 `d-insar-isce2_20260524T153207Z`） |
+| `run_root` | `<workspace>/d-insar-isce2/outputs/<run_id>` |
+| `configs_dir` | `<run_root>/configs`（含 `topsApp.xml`） |
+| `logs_dir` | `<run_root>/logs` |
+| `output_paths` | `[<run_root>/merged/filt_topophase.unw.geo]` |
+
+---
+
+### 2.4 Path B 工作区文件结构（ISCE3 Stack-InSAR）
 
 Path B 分两步，每步产生一个独立的输出目录，结构相似但内容不同。
 
@@ -263,13 +441,75 @@ Path B 分两步，每步产生一个独立的输出目录，结构相似但内�
 
 ---
 
-### 2.4 参数调优落盘文件
+### 2.5 Path D 工作区文件结构（ISCE2 Stack-InSAR）
+
+Path D 先调用 `insar_prepare_sentinel_data` 准备全部景的 SAFE + DEM（输出到 `stack-insar-isce2/prep/`），再调用 `insar_create_project` + `insar_run_workflow`（workflow=stacksentinel）执行批量处理。
+
+#### 准备阶段输出：`<workspace_root>/stack-insar-isce2/prep/`
+
+结构同 Path C 的 prep 阶段，但包含多景 SAFE：
+
+```
+<workspace_root>/stack-insar-isce2/
+  prep/
+    safe/
+      s1a_asc_rel014/
+        S1A_IW_SLC__1SDV_20260112*.SAFE/
+        S1A_IW_SLC__1SDV_20260124*.SAFE/
+        …（N 景）
+    dem/
+      copernicus_30.tif（+ .vrt + .xml）
+    burst_manifest.txt
+```
+
+#### 运行阶段输出：`<workspace_root>/stack-insar-isce2/outputs/<run_id>/`
+
+ISCE2 stackSentinel 使用 run_files 驱动，输出结构：
+
+```
+<run_id>/                         ← run_root
+  configs/
+    topsApp.xml                   ← 权威配置（正式审计记录）
+  logs/
+    <uuid>.log / <uuid>.exitcode
+  stack/                          ← stackSentinel 主输出
+    coreg_secondaries/            ← 配准后辅助景 SLC
+    interferograms/               ← 按对分目录的干涉图
+      20260112_20260124/
+        fine.int / fine.cor / filt.int / filt.unw / filt.unw.geo
+      …（N-1 对）
+    merged/                       ← 可选合并产品
+  geom_reference/                 ← 几何参考（lat, lon, los, hgt, inc）
+  run_files/
+    run_01_unpackSLC
+    run_02_average_baseline
+    run_03_extract_burst_overlaps
+    run_04_overlap_offsets
+    run_05_pairs_misreg
+    run_06_timeseries_misreg
+    run_07_fullBurst_geo2rdr
+    run_08_fullBurst_resample
+    run_09_extract_stack_valid_region
+    run_10_merge_reference_secondary_slc
+    run_11_generate_burst_igram
+    run_12_merge_burst_igram
+    run_13_filter_coherence
+    run_14_unwrap
+    run_15_geocode
+  topsStack.log                   ← stackSentinel 总日志
+  PICKLE/                         ← 序列化状态
+```
+
+---
+
+### 2.6 参数调优落盘文件
 
 参数调优（`param-advisor`）完成后会在特定路径写入快照文件，用于后续会话跳过重复调优。
 
 | 路径 | 适用路径 | 创建方式 | 作用 |
 |------|----------|----------|------|
 | `<workspace_root>/param_tuned/runconfig.yaml` | Path A | `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")` | 快照；`insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` |
+| `<task_dir>/param_tuned/runconfig.yaml` | Path C/D | 同上，存放在 `<workspace_root>/<task_id>/param_tuned/` | 快照；跳过重复调优 |
 | `<data_dir>/base_runconfig_param_tuned.yaml` | Path B | param-advisor subagent 将调优 YAML 直接写入此路径 | 快照；`insar_prepare_stack`/`insar_prepare_network` 返回 `param_tuned_found: true` |
 
 ---
@@ -370,25 +610,26 @@ scratch/
 
 ---
 
-## 四、数字汇总（以 7 景 NISAR RSLC 为例）
+## 四、数字汇总（以 7 景 NISAR RSLC 或 8 景 Sentinel-1 为例）
 
-| | Path A（单对） | Path B Step 1（固定参考 stack） | Path B Step 2（tbase≤36d network） |
-|---|---|---|---|
-| 注册表条目 | 1 | 0 | 0 |
-| project.json | 1 | 0 | 0 |
-| runconfig YAML（per pair） | 1 | 6 | 15 |
-| Job JSON | 1 | 1（batch） | 1（batch） |
-| GUNW .h5 产品 | 1 | 6 | 15 |
-| scratch 中间文件/对 | ~40 | ~40×6 | ~40×15 |
-| pair_lists 文件 | 0 | 0 | 4 |
-| stack_manifest.csv | 0 | 1 | 1 |
-| param_tuned YAML | 0 或 1 | 0 或 1 | 0 或 1 |
+| | Path A（ISCE3 单对） | Path B Step 1（固定参考 stack） | Path B Step 2（tbase≤36d network） | Path C（ISCE2 单对） |
+|---|---|---|---|---|
+| 注册表条目 | 1 | 0 | 0 | 1 |
+| project.json | 1 | 0 | 0 | 1 |
+| runconfig YAML（per pair） | 1 | 6 | 15 | 0（topsApp.xml） |
+| Job JSON | 1 | 1（batch） | 1（batch） | 1 |
+| GUNW .h5 产品 | 1 | 6 | 15 | 0 |
+| merged/ 产品（ISCE2） | 0 | 0 | 0 | 1 套 |
+| scratch/IW*/ 中间文件 | ~40 files | ~40×6 | ~40×15 | per IW |
+| pair_lists 文件 | 0 | 0 | 4 | 0 |
+| stack_manifest.csv | 0 | 1 | 1 | 0 |
+| param_tuned YAML | 0 或 1 | 0 或 1 | 0 或 1 | 0 或 1 |
 
 ---
 
 ## 五、处理流程与文件生成时序
 
-### Path A（D-InSAR）
+### Path A（ISCE3 D-InSAR）
 
 ```
 insar_create_project()
@@ -404,20 +645,47 @@ insar_set_runconfig_value() × 6
     → 调用 agents/param-advisor.md subagent
     → insar_set_processing_param() × N
       → 更新 .insar_agent/project.json
-    → insar_export_runconfig(output_dir="<workspace>/param_tuned")
-      → 写入 param_tuned/runconfig.yaml
+    → insar_export_runconfig(output_dir="<workspace>/<task_id>/param_tuned")
+      → 写入 <task_id>/param_tuned/runconfig.yaml
 
 insar_run_workflow()
-  → 写入 configs/runconfig.yaml（ISCE3 消费）
-  → 写入 logs/<uuid>.log（实时）
-  → 写入 logs/<uuid>.exitcode
+  → 写入 <task_id>/outputs/<run_id>/configs/runconfig.yaml
+  → 写入 <task_id>/outputs/<run_id>/logs/<uuid>.log（实时）
+  → 写入 <task_id>/outputs/<run_id>/logs/<uuid>.exitcode
   → 写入 .insar_agent/jobs/<uuid>.json
   → 启动 ISCE3 进程
-    → 写入 runs/<date1>_<date2>/products/GUNW_*.h5
-    → 写入 runs/<date1>_<date2>/scratch/（大量中间文件）
+    → 写入 <run_root>/products/<run_id>_GUNW.h5
+    → 写入 <run_root>/scratch/（大量中间文件）
 ```
 
-### Path B（Stack-InSAR）
+### Path C（ISCE2 D-InSAR）
+
+```
+insar_prepare_sentinel_data(burst_scenes=[…], project_root="<ws>/d-insar-isce2/prep")
+  → 写入 d-insar-isce2/prep/safe/<track>/*.SAFE/
+  → 写入 d-insar-isce2/prep/dem/copernicus_30.tif
+  → 写入 d-insar-isce2/prep/burst_manifest.txt
+
+insar_create_project(engine="isce2", workflow="tops")
+  → 自动推导 task_id = "d-insar-isce2"
+  → 写入 .insar_agent/project.json
+  → 写入 ~/.local/share/insar_agent/registry.json
+
+insar_set_processing_param() × N
+  → 更新 .insar_agent/project.json
+
+insar_run_workflow()
+  → 写入 d-insar-isce2/outputs/<run_id>/configs/topsApp.xml
+  → 写入 d-insar-isce2/outputs/<run_id>/logs/<uuid>.log
+  → 写入 .insar_agent/jobs/<uuid>.json
+  → 启动 ISCE2 topsApp 进程
+    → 写入 reference/ secondary/（per-subswath SLC）
+    → 写入 fine_coreg/ fine_interferogram/ fine_offsets/ geom_reference/
+    → 写入 merged/filt_topophase.unw.geo（主要科学产品）
+    → 写入 merged/*.geo（所有地理坐标产品）
+```
+
+### Path B（ISCE3 Stack-InSAR）
 
 ```
 [Step 0] [PreToolUse hook 触发] → PARAM_ADVISOR_PROMPT
@@ -464,12 +732,16 @@ insar_run_batch(batch_dir=<network_output_dir>)
 | 文件/目录 | 可删除时机 | 说明 |
 |-----------|-----------|------|
 | `scratch/` | 每对运行成功后 | 中间文件，GUNW 产品已含最终结果 |
+| `fine_coreg/` `fine_offsets/` `geom_reference/` | ISCE2 topsApp 完成后 | 中间文件，merged/ 已含最终产品 |
+| `PICKLE/` | 运行完成后 | ISCE2 序列化状态，无需保留 |
 | `logs/<uuid>.log` | 处理完成且不再调试时 | 可保留供排错参考 |
 | `mplconfig/` | 任意时刻 | matplotlib 临时配置，可自动重建 |
 | `RIFG.h5` / `RUNW.h5` | GUNW 产品已生成后 | 雷达坐标系中间产品 |
+| `copernicus_30.tif.wgs84` | ISCE2 运行完成后 | 运行时临时 DEM 投影副本 |
 
 **不应删除：**
-- `runconfigs/*.yaml`：用于复现和调试
+- `runconfigs/*.yaml` / `configs/topsApp.xml`：用于复现和调试
 - `stack_manifest.csv` / `pair_lists/`：MintPy 等后续工具需要读取
 - `.insar_agent/` 目录：MCP 状态依赖
 - `param_tuned/runconfig.yaml` / `base_runconfig_param_tuned.yaml`：避免重复调优
+- `merged/*.geo`：ISCE2 主要科学产品（等价于 ISCE3 的 GUNW.h5）

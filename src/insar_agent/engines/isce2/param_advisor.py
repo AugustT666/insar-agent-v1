@@ -86,10 +86,12 @@ def _suggest_num_proc_upper_bound(resources: dict) -> int:
     if memory_gb is None:
         return min(4, cpu_bound)
     if memory_gb >= 64:
-        return min(8, cpu_bound)
+        return cpu_bound          # memory is ample; cpu_bound (cores//2) is already conservative
     if memory_gb >= 32:
-        return min(4, cpu_bound)
+        return min(8, cpu_bound)
     if memory_gb >= 16:
+        return min(4, cpu_bound)
+    if memory_gb >= 8:
         return min(2, cpu_bound)
     return 1
 

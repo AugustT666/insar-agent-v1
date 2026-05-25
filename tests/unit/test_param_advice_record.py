@@ -21,7 +21,8 @@ def test_record_param_advice_writes_json_and_markdown_under_product_path(tmp_pat
     workspace = tmp_path / "workspace"
     result = insar_create_project(engine="isce3", workflow="insar", workspace_root=str(workspace))
     project_id = result["project_id"]
-    product_dir = workspace / "outputs" / "E1_20260511T001500"
+    # New layout: <workspace>/<task_id>/outputs/<run_id>/products
+    product_dir = workspace / "d-insar-isce3" / "outputs" / "d-insar-isce3_20260511T001500" / "products"
     insar_set_runconfig_value(
         project_id,
         "runconfig.groups.product_path_group.product_path",
@@ -75,13 +76,13 @@ def test_record_param_advice_writes_json_and_markdown_under_product_path(tmp_pat
     assert "error" not in record
     json_path = Path(record["recommendation_json"])
     markdown_path = Path(record["recommendation_markdown"])
-    # New layout: param_advisor goes to workspace/outputs/<task_id>/<run_id>/param_advisor/
+    # New layout: param_advisor goes to workspace/<task_id>/outputs/<run_id>/param_advisor/
     # (or inside the product_dir run-root if product_path already has run_id structure)
     assert json_path.name == "recommendation.json"
     assert markdown_path.name == "recommendation.md"
     assert "param_advisor" in json_path.parts
-    # Must be somewhere under workspace/outputs/
-    assert json_path.is_relative_to(workspace / "outputs")
+    # New layout: param_advisor is under workspace/<task_id>/outputs/<run_id>/param_advisor/
+    assert json_path.is_relative_to(workspace / "d-insar-isce3" / "outputs")
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["format_version"] == "param-advisor.v1"
     assert data["recommendation_package"]["external_context"]["study_area_name"] == "Afar Rift"

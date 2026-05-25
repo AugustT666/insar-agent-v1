@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
+import io
+import json
 import subprocess
 import zipfile
 
@@ -487,10 +489,14 @@ def test_isce2_workflow_preflight_rejects_swapped_safe_annotation(tmp_path):
     )
     annotation = safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml"
     annotation.parent.mkdir(parents=True)
+    # Manifest footprint "13.45,40.55..." is lat,lon → bbox covers Horn of Africa
+    # (west≈40.55, south≈13.45, east≈40.86, north≈13.72).
+    # A swapped annotation stores longitude (≈40.60) in the latitude field and
+    # latitude (≈13.50) in the longitude field.
     annotation.write_text(
         """<product>
           <geolocationGrid><geolocationGridPointList count="1">
-            <geolocationGridPoint><latitude>13.50</latitude><longitude>40.60</longitude></geolocationGridPoint>
+            <geolocationGridPoint><latitude>40.60</latitude><longitude>13.50</longitude></geolocationGridPoint>
           </geolocationGridPointList></geolocationGrid>
         </product>""",
         encoding="utf-8",
@@ -523,10 +529,11 @@ def test_isce2_workflow_preflight_reports_all_swapped_safe_annotations(tmp_path)
     for safe_dir in (reference_safe, secondary_safe):
         annotation = safe_dir / "annotation" / "s1a-iw1-slc-vv-test.xml"
         annotation.parent.mkdir(parents=True)
+        # Swapped: longitude value (≈40.60) placed in latitude field and vice versa.
         annotation.write_text(
             """<product>
               <geolocationGrid><geolocationGridPointList count="1">
-                <geolocationGridPoint><latitude>13.50</latitude><longitude>40.60</longitude></geolocationGridPoint>
+                <geolocationGridPoint><latitude>40.60</latitude><longitude>13.50</longitude></geolocationGridPoint>
               </geolocationGridPointList></geolocationGrid>
             </product>""",
             encoding="utf-8",
@@ -578,6 +585,11 @@ def test_prepare_sentinel_data_normalizes_swapped_burst_geolocation(tmp_path):
     project_root = tmp_path / "project"
     burst_root = tmp_path / "bursts"
     scene_id = "S1A_IW_SLC__1SDV_20260105T030814_20260105T030841_062626_07D9C4_C4FA"
+    # make_fake_burst_scene produces content with lat=40.60,lon=13.50 which are
+    # swapped (longitude value stored in the latitude field).  The manifest
+    # footprint "13.45,40.55 ..." is in lat,lon order → bbox covers Horn of
+    # Africa (west≈40.55, south≈13.45, east≈40.86, north≈13.72).
+    # prep should detect the swap and normalize to lat=13.50, lon=40.60.
     scene_dir = make_fake_burst_scene(
         burst_root,
         scene_id,
@@ -585,12 +597,6 @@ def test_prepare_sentinel_data_normalizes_swapped_burst_geolocation(tmp_path):
         relative_orbit=79,
     )
     xml_path = scene_dir / "IW2" / "VV" / "0.xml"
-    xml_path.write_text(
-        xml_path.read_text(encoding="utf-8")
-        .replace("<latitude>40.60</latitude><longitude>13.50</longitude>", "<latitude>13.50</latitude><longitude>40.60</longitude>")
-        .replace("<latitude>40.80</latitude><longitude>13.70</longitude>", "<latitude>13.70</latitude><longitude>40.80</longitude>"),
-        encoding="utf-8",
-    )
     manifest_path = tmp_path / "burst_manifest.txt"
     manifest_path.write_text(
         f"{xml_path}\n{scene_dir / 'IW2' / 'VV' / '0.tiff'}\n",
@@ -611,7 +617,9 @@ def test_prepare_sentinel_data_normalizes_swapped_burst_geolocation(tmp_path):
         / "annotation"
         / "s1a-iw2-slc-vv-test.xml"
     )
-    normalized = check_annotation_geolocation_grid(annotation_path.read_text(encoding="utf-8"), [13.45, 40.55, 13.72, 40.86])
+    # After normalization the annotation should report "ok" against the correct
+    # Horn of Africa bbox: west=40.55, south=13.45, east=40.86, north=13.72.
+    normalized = check_annotation_geolocation_grid(annotation_path.read_text(encoding="utf-8"), [40.55, 13.45, 40.86, 13.72])
     assert normalized["status"] == "ok"
 
 
@@ -911,6 +919,183 @@ def test_insar_download_scene_writes_plugin_log_to_workspace_root(tmp_path):
     assert Path(result["log_path"]).parent == tmp_path / ".insar_logs"
     assert Path(result["log_path"]).exists()
     assert Path(result["params_path"]).exists()
+
+
+def test_insar_download_scene_direct_proxy_disables_environment_proxies(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    captured_handlers = []
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+
+    class FakeOpener:
+        def open(self, url, timeout=None):
+            return FakeResponse(b"II*\x00fake")
+
+    def fake_build_opener(*handlers):
+        captured_handlers.append(handlers)
+        return FakeOpener()
+
+    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert "error" not in result
+    assert result["failed"] == []
+    assert captured_handlers
+    proxy_handler = next(handler for handler in captured_handlers[0] if getattr(handler, "proxies", None) == {})
+    assert proxy_handler.proxies == {}
+    assert Path(result["ok"][0]["path"]).relative_to(tmp_path / "downloads") == Path("scene/IW2/VV/0.tiff")
+
+
+def test_insar_download_scene_omitted_proxy_inherits_environment_proxies(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    captured_handlers = []
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+
+    class FakeOpener:
+        def open(self, url, timeout=None):
+            return FakeResponse(b"II*\x00fake")
+
+    def fake_build_opener(*handlers):
+        captured_handlers.append(handlers)
+        return FakeOpener()
+
+    monkeypatch.setattr("netrc.netrc", lambda: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+    )
+
+    assert "error" not in result
+    assert result["failed"] == []
+    assert captured_handlers == [()]
+
+
+def test_insar_download_scene_uses_earthdata_netrc_for_asf_burst_host(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    captured_handlers = []
+
+    class FakeNetrc:
+        def authenticators(self, host):
+            if host == "urs.earthdata.nasa.gov":
+                return ("earthdata-user", None, "earthdata-password")
+            return None
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+
+    class FakeOpener:
+        def open(self, url, timeout=None):
+            return FakeResponse(b"II*\x00fake")
+
+    def fake_build_opener(*handlers):
+        captured_handlers.append(handlers)
+        return FakeOpener()
+
+    monkeypatch.setattr("netrc.netrc", lambda: FakeNetrc())
+    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert "error" not in result
+    assert result["failed"] == []
+    assert any(type(handler).__name__ == "HTTPBasicAuthHandler" for handler in captured_handlers[0])
+
+
+def test_insar_download_scene_does_not_send_earthdata_netrc_to_non_asf_host(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    captured_handlers = []
+
+    class FakeNetrc:
+        def authenticators(self, host):
+            if host == "urs.earthdata.nasa.gov":
+                return ("earthdata-user", None, "earthdata-password")
+            return None
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+
+    class FakeOpener:
+        def open(self, url, timeout=None):
+            return FakeResponse(b"II*\x00fake")
+
+    def fake_build_opener(*handlers):
+        captured_handlers.append(handlers)
+        return FakeOpener()
+
+    monkeypatch.setattr("netrc.netrc", lambda: FakeNetrc())
+    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+
+    result = insar_download_scene(
+        urls=["https://example.test/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert "error" not in result
+    assert result["failed"] == []
+    assert not any(type(handler).__name__ == "HTTPBasicAuthHandler" for handler in captured_handlers[0])
+
+
+def test_insar_download_scene_redacts_proxy_in_params_log(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+
+    class FakeOpener:
+        def open(self, url, timeout=None):
+            return FakeResponse(b"II*\x00fake")
+
+    monkeypatch.setattr("netrc.netrc", lambda: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr("urllib.request.build_opener", lambda *handlers: FakeOpener())
+
+    result = insar_download_scene(
+        urls=["https://example.test/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="http://user:password@proxy.example:8080",
+    )
+
+    params = json.loads(Path(result["params_path"]).read_text(encoding="utf-8"))
+    assert params["proxy"] == "<redacted>"
 
 
 def test_prepare_sentinel_data_can_prepare_dem_and_orbits(tmp_path, monkeypatch):

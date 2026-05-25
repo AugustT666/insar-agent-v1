@@ -167,6 +167,8 @@ def _safe_link(src: Path, dest: Path) -> None:
 
 
 def _parse_coordinates(text: str | None) -> list[float] | None:
+    # Sentinel-1 SAFE manifest and ASF HyP3 burst XMLs store gml:coordinates
+    # as "lat,lon" pairs (latitude first), matching the ESA SAFE convention.
     if not text:
         return None
     lon_vals: list[float] = []
@@ -175,7 +177,7 @@ def _parse_coordinates(text: str | None) -> list[float] | None:
         parts = pair.split(",")
         if len(parts) != 2:
             continue
-        lon, lat = float(parts[0]), float(parts[1])
+        lat, lon = float(parts[0]), float(parts[1])
         lon_vals.append(lon)
         lat_vals.append(lat)
     if not lon_vals or not lat_vals:
@@ -754,6 +756,15 @@ def _extract_manifest_for_burst(path: Path) -> bytes:
     return ET.tostring(xfdu, encoding="utf-8", xml_declaration=True)
 
 
+def _to_isce2_manifest_bytes(manifest_bytes: bytes) -> bytes:
+    # ASF HyP3 burst XMLs already store gml:coordinates in "lat,lon" order,
+    # which is the ESA SAFE convention that ISCE2 expects.  No coordinate swap
+    # is needed; return the manifest bytes as-is after round-tripping through
+    # the XML parser to ensure well-formed output.
+    root = ET.fromstring(manifest_bytes)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def _track_dir(satellite: str, pass_direction: str, relative_orbit: int) -> str:
     return f"{satellite.lower()}_{'asc' if pass_direction.upper().startswith('ASC') else 'desc'}_rel{relative_orbit:03d}"
 
@@ -1261,7 +1272,13 @@ def prepare_sentinel_data(
             src = Path(line).expanduser().resolve()
             if not src.exists():
                 raise FileNotFoundError(f"Burst source does not exist: {line}")
-            burst_source_paths.append(src)
+            if src.is_dir():
+                burst_files = _collect_burst_source_files(src)
+                if not burst_files:
+                    raise ValueError(f"Burst manifest directory contains no XML/TIFF burst files: {src}")
+                burst_source_paths.extend(burst_files)
+            else:
+                burst_source_paths.append(src)
         _append_log(prep_log_path, f"burst_manifest={manifest_path}")
 
     if burst_source_paths:
@@ -1282,7 +1299,7 @@ def prepare_sentinel_data(
             track_dir = _track_dir(satellite, pass_direction, relative_orbit)
             safe_dir = safe_root / track_dir / f"{scene_id}.SAFE"
             _ensure_dir(safe_dir)
-            (safe_dir / "manifest.safe").write_bytes(manifest_bytes)
+            (safe_dir / "manifest.safe").write_bytes(_to_isce2_manifest_bytes(manifest_bytes))
             _ensure_preview_overlay(safe_dir, metadata["bbox"])
             _synthesize_annotation_and_measurement(scene_id, scene_paths, safe_dir, metadata["bbox"])
             _validate_safe_annotation_geolocation(safe_dir, metadata["bbox"], require_annotations=True)

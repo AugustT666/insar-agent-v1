@@ -16,19 +16,17 @@ from insar_agent.core.layout import (
 # ---------------------------------------------------------------------------
 
 def test_make_run_id_format():
-    rid = make_run_id("E1")
-    # Must start with task_id
-    assert rid.startswith("E1_")
-    # Timestamp part: 15 chars YYYYMMDDTHHMMSSz
-    parts = rid.split("_", 1)
-    assert len(parts) == 2
-    ts = parts[1]
-    assert len(ts) == 16  # YYYYMMDDTHHMMSSz
+    rid = make_run_id("d-insar-isce2")
+    # Hyphens are preserved in sanitize_identifier
+    assert rid.startswith("d-insar-isce2_")
+    # Timestamp part after the last _: 16 chars YYYYMMDDTHHMMSSz
+    ts = rid.rsplit("_", 1)[-1]
+    assert len(ts) == 16
     assert ts.endswith("Z")
 
 
 def test_make_run_id_sanitizes():
-    rid = make_run_id("E1 task/test")
+    rid = make_run_id("d-insar-isce2 task/test")
     assert " " not in rid
     assert "/" not in rid
 
@@ -46,16 +44,30 @@ def test_validate_workspace_root_ok(tmp_path):
     assert ws == tmp_path.resolve()
 
 
-def test_validate_workspace_root_rejects_outputs_nested(tmp_path):
-    bad = tmp_path / "outputs" / "E1" / "E1_20260511T000000Z"
+def test_validate_workspace_root_rejects_run_root(tmp_path):
+    # <workspace>/<task_id>/outputs/<run_id> — this is a run_root, not a workspace
+    bad = tmp_path / "d-insar-isce2" / "outputs" / "d-insar-isce2_20260511T000000Z"
     with pytest.raises(ValueError, match="outputs"):
         validate_workspace_root(bad)
 
 
 def test_validate_workspace_root_rejects_products_nested(tmp_path):
-    bad = tmp_path / "outputs" / "E1" / "run1" / "products"
+    bad = tmp_path / "d-insar-isce3" / "outputs" / "run1" / "products"
     with pytest.raises(ValueError, match="outputs"):
         validate_workspace_root(bad)
+
+
+def test_validate_workspace_root_rejects_task_outputs_dir(tmp_path):
+    bad = tmp_path / "d-insar-isce2" / "outputs"
+    with pytest.raises(ValueError, match="outputs"):
+        validate_workspace_root(bad)
+
+
+def test_validate_workspace_root_accepts_task_dir(tmp_path):
+    # A task_id subdirectory is NOT a run_root — it's valid as a workspace
+    good = tmp_path / "d-insar-isce2"
+    ws = validate_workspace_root(good)
+    assert ws == good.resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +75,8 @@ def test_validate_workspace_root_rejects_products_nested(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_run_layout_paths(tmp_path):
-    layout = RunLayout(workspace_root=tmp_path, task_id="E1", run_id="E1_test")
-    assert layout.run_root == tmp_path / "outputs" / "E1" / "E1_test"
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce3", run_id="d-insar-isce3_test")
+    assert layout.run_root == tmp_path / "d-insar-isce3" / "outputs" / "d-insar-isce3_test"
     assert layout.products_dir == layout.run_root / "products"
     assert layout.scratch_dir == layout.run_root / "scratch"
     assert layout.configs_dir == layout.run_root / "configs"
@@ -77,14 +89,20 @@ def test_run_layout_paths(tmp_path):
 
 
 def test_run_layout_auto_run_id(tmp_path):
-    layout = RunLayout(workspace_root=tmp_path, task_id="E2")
-    assert layout.run_id.startswith("E2_")
-    assert layout.run_root.parent.name == "E2"
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce2")
+    # Hyphens are preserved
+    assert layout.run_id.startswith("d-insar-isce2_")
+    # run_root is <workspace>/<task_id>/outputs/<run_id>
+    assert layout.run_root.parent.name == "outputs"
+    assert layout.run_root.parent.parent.name == "d-insar-isce2"
 
 
 def test_run_layout_sanitizes_task_id(tmp_path):
-    layout = RunLayout(workspace_root=tmp_path, task_id="E 1/test", run_id="myrun")
-    assert layout.task_id == "E_1_test"
+    # Spaces and slashes are replaced; hyphens are preserved
+    layout = RunLayout(workspace_root=tmp_path, task_id="d insar/isce3", run_id="myrun")
+    assert layout.task_id == "d_insar_isce3"
+    layout2 = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce3", run_id="myrun")
+    assert layout2.task_id == "d-insar-isce3"
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +110,9 @@ def test_run_layout_sanitizes_task_id(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_run_layout_rejects_nested_workspace(tmp_path):
-    bad_ws = tmp_path / "outputs" / "E1" / "runid"
+    bad_ws = tmp_path / "d-insar-isce2" / "outputs" / "runid"
     with pytest.raises(ValueError):
-        RunLayout(workspace_root=bad_ws, task_id="E1", run_id="x")
+        RunLayout(workspace_root=bad_ws, task_id="d-insar-isce2", run_id="x")
 
 
 # ---------------------------------------------------------------------------
@@ -102,14 +120,14 @@ def test_run_layout_rejects_nested_workspace(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_validate_path_inside_workspace_ok(tmp_path):
-    layout = RunLayout(workspace_root=tmp_path, task_id="E1", run_id="r1")
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce3", run_id="r1")
     p = layout.validate_path_inside_workspace(layout.products_dir)
     assert p == layout.products_dir.resolve()
 
 
 def test_validate_path_inside_workspace_rejects_outside(tmp_path, tmp_path_factory):
     other = tmp_path_factory.mktemp("other")
-    layout = RunLayout(workspace_root=tmp_path, task_id="E1", run_id="r1")
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce3", run_id="r1")
     with pytest.raises(ValueError, match="outside workspace_root"):
         layout.validate_path_inside_workspace(other / "evil.h5")
 
@@ -119,11 +137,11 @@ def test_validate_path_inside_workspace_rejects_outside(tmp_path, tmp_path_facto
 # ---------------------------------------------------------------------------
 
 def test_run_layout_to_dict(tmp_path):
-    layout = RunLayout(workspace_root=tmp_path, task_id="E1", run_id="E1_run")
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce3", run_id="d-insar-isce3_run")
     d = layout.to_dict()
-    assert d["task_id"] == "E1"
-    assert d["run_id"] == "E1_run"
-    assert d["run_root"] == str(tmp_path / "outputs" / "E1" / "E1_run")
+    assert d["task_id"] == "d-insar-isce3"
+    assert d["run_id"] == "d-insar-isce3_run"
+    assert d["run_root"] == str(tmp_path / "d-insar-isce3" / "outputs" / "d-insar-isce3_run")
     assert "products_dir" in d
     assert "mintpy_dir" in d
 
@@ -133,15 +151,15 @@ def test_run_layout_to_dict(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_from_job_metadata(tmp_path):
-    layout = RunLayout.from_job_metadata(tmp_path, task_id="E3", run_id="E3_abc")
-    assert layout.task_id == "E3"
-    assert layout.run_id == "E3_abc"
+    layout = RunLayout.from_job_metadata(tmp_path, task_id="stack-insar-isce3", run_id="stack-insar-isce3_abc")
+    assert layout.task_id == "stack-insar-isce3"
+    assert layout.run_id == "stack-insar-isce3_abc"
 
 
 def test_infer_from_project_name(tmp_path):
-    layout = RunLayout.infer_from_project(tmp_path, project_name="nisar_test")
-    assert layout.task_id == "nisar_test"
-    assert layout.run_id.startswith("nisar_test_")
+    layout = RunLayout.infer_from_project(tmp_path, project_name="d-insar-isce3")
+    assert layout.task_id == "d-insar-isce3"
+    assert layout.run_id.startswith("d-insar-isce3_")
 
 
 def test_infer_from_project_id_fallback(tmp_path):

@@ -96,7 +96,7 @@ insar_create_project(
     workspace_root=<workspace_root>,
     name="s1-stack-<region>",
     conda_env=<task/user specified ISCE2 env or "isce2">,
-    task_id=<task_id>        # short identifier, drives outputs/<task_id>/<run_id>/stack
+    task_id=<task_id>        # workflow task_id, auto-derived; drives <task_id>/outputs/<run_id>/stack
 )
 ```
 
@@ -150,7 +150,7 @@ The advisor flow should build a compressed evidence profile from:
 
 The skill then delegates recommendation generation to:
 
-- `agents/param-advisor.md`
+- `insar-agent-plugin:param-advisor` subagent
 
 and applies accepted changes via `insar_set_processing_param` only.
 
@@ -165,10 +165,15 @@ insar_run_workflow(project_id=project_id)
 This calls `stackSentinel.py` which:
 1. Reads the SAFE inputs from the selected grouped directory
 2. Downloads orbit files if needed
-3. Sets work_dir to `<workspace>/outputs/<task_id>/<run_id>/stack` (run-root layout)
+3. Sets work_dir to `<workspace>/<task_id>/outputs/<run_id>/stack` (run-root layout)
 4. Executes stack processing inside that work_dir, including generated `run_files`
 
 Returns `job_id`, `log_path`, `pid`, and `run_root`.
+
+> ⚠️ **严禁直接执行 run_files/ 里的任何脚本**，无论串行还是并行。
+> ISCE2 topsStack 的 run 文件必须通过 `insar_run_workflow()` 启动；
+> 该工具内部通过 `. "$f" || exit 1` 串行 source，保留所有 wait barriers 和环境变量。
+> 绕过工具直接 Bash 调用会导致竞态条件、环境变量丢失和不可预知的处理失败。
 
 For multi-hour stack jobs, rely on the background job returned by `insar_run_workflow`. Always return:
 
@@ -259,4 +264,4 @@ Key MintPy outputs:
 - `slc_dir` must contain only the S1 ZIPs/SAFEs for this stack (no mixed orbits).
 - Do not mix ascending and descending pass scenes in the same stack.
 - Processing must use the conda environment configured on the project and is launched by the MCP workflow tool.
-- Do not manually execute generated `run_files`, skip generated workflow steps, or copy/patch stack outputs.
+- Never directly execute run_files/ scripts (via Bash or any other means). All ISCE2 stack execution must go through `insar_run_workflow()`.

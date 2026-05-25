@@ -64,14 +64,14 @@ version: 0.1.0
    - Output filename: `runconfig.groups.product_path_group.sas_output_file`
 
    **Run-root layout (mandatory for all runs):**
-   - `workspace_root` must be the integration workspace root, NOT a subdirectory of `outputs/`.
+   - `workspace_root` must be the integration workspace root, NOT a task or run subdirectory.
    - `insar_run_workflow` automatically sets:
-     - `product_path = <workspace>/outputs/<task_id>/<run_id>/products`
-     - `scratch_path = <workspace>/outputs/<task_id>/<run_id>/scratch`
-     - `sas_output_file = <workspace>/outputs/<task_id>/<run_id>/products/<run_id>_GUNW.h5`
+     - `product_path = <workspace>/<task_id>/outputs/<run_id>/products`
+     - `scratch_path = <workspace>/<task_id>/outputs/<run_id>/scratch`
+     - `sas_output_file = <workspace>/<task_id>/outputs/<run_id>/products/<run_id>_GUNW.h5`
    - You only need to set the RSLC paths, DEM, and GPU settings; path fields are enforced by the server.
    - The returned `run_root` shows the exact output directory for this run.
-   - **Never** set `workspace_root` to an `outputs/…` subdirectory.
+   - **Never** set `workspace_root` to a task or run subdirectory.
 
    Optional exact dotted-key names:
 
@@ -100,7 +100,7 @@ version: 0.1.0
 
    param-advisor (engine=isce3) 调用链：
    - `insar_describe_rslc(reference_rslc, secondary_rslc, project_id)`
-   - `agents/param-advisor.md`（生成推荐 + yaml_diff_preview）
+   - `insar-agent-plugin:param-advisor` subagent（生成推荐 + yaml_diff_preview）
    - interactive：展示 diff，等待用户三选一确认；auto：自动接受推荐
    - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置
@@ -138,7 +138,7 @@ version: 0.1.0
    ```
    insar_export_geotiff(h5_path=<GUNW .h5 path>, output_dir=<run_root>)
    ```
-   Use `run_root` returned by `insar_run_workflow` (e.g. `<workspace>/outputs/<task_id>/<run_id>`).
+   Use `run_root` returned by `insar_run_workflow` (e.g. `<workspace>/<task_id>/outputs/<run_id>`).
    The exporter writes files under `<output_dir>/browse/`; do not pass a path that already ends in `browse`.
    Requires GDAL in the isce3 conda environment.
 

@@ -131,6 +131,21 @@ def test_build_evidence_profile_includes_runtime_resource_guidance(monkeypatch):
     assert "num_proc" in profile["runtime"]["parallelism_guidance"]["value"]
 
 
+def test_build_evidence_profile_high_memory_uses_cpu_bound(monkeypatch):
+    """High-RAM machines (>=64GB) should suggest cpu_bound, not a fixed cap of 8."""
+    import insar_agent.engines.isce2.param_advisor as param_advisor
+
+    monkeypatch.setattr(
+        param_advisor,
+        "_detect_runtime_resources",
+        lambda: {"logical_cpu_count": 32, "memory_gb": 125.0},
+    )
+
+    profile = build_evidence_profile({"num_proc": 1}, workflow="stack")
+    # cpu_bound = 32 // 2 = 16; memory >= 64GB → return cpu_bound directly
+    assert profile["runtime"]["suggested_num_proc_upper_bound"]["value"] == 16
+
+
 def test_build_evidence_profile_handles_undetectable_memory(monkeypatch):
     import insar_agent.engines.isce2.param_advisor as param_advisor
 

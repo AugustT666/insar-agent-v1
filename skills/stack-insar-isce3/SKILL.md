@@ -32,15 +32,19 @@ Each option generates shell scripts that can be launched manually or through `in
 - `data_dir`: directory containing multiple NISAR RSLC `.h5` files
 - `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, uses the built-in default `insar` template.
 - `isce3_conda_env`: conda env that contains ISCE3. Use the task/user specified value when provided; if missing or unclear, inspect environment availability and choose an available ISCE3-compatible env before launch.
-- DEM path (`.tif`) — if missing, invoke `data-prep` first
+- DEM path (`.tif`) — if missing, invoke `data-prep` first. If `insar_download_dem`
+  times out, check `<workspace>/<task_id>/dem/` for an existing DEM from a prior run
+  before retrying; if one exists and is non-zero, use it directly.
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
-  - **Run-root layout**: use `<workspace>/outputs/<task_id>/<run_id>/stack` for stack,
-    `<workspace>/outputs/<task_id>/<run_id>/network` for network.
-    `task_id` is the short task identifier from the task context (e.g. `E3`); `run_id` is
+  - **Run-root layout**: use `<workspace>/<task_id>/outputs/<run_id>/stack` for stack,
+    `<workspace>/<task_id>/outputs/<run_id>/network` for network.
+    `task_id` is the workflow name (e.g. `stack-insar-isce3`); `run_id` is
     auto-generated as `<task_id>_<YYYYMMDDTHHMMSSz>`.
-    Do NOT pass `<workspace>` or `<workspace>/outputs/<task_id>` directly.
-  - After batch completes, use `<run_root>/mintpy` as `mintpy_work_dir` when invoking the `mintpy` skill.
+    Do NOT pass `<workspace>` or `<workspace>/<task_id>` directly as a run_root.
+  - After batch completes, invoke the `mintpy` skill via `Skill(insar-agent-plugin:mintpy)`.
+    Use `<run_root>/mintpy` as `mintpy_work_dir`. Do not read the mintpy skill file directly
+    with the Read tool — always use the Skill tool.
 - Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
 - Number of parallel jobs (`N`) for the shell scripts
 - Interaction mode: determined by CLAUDE.md (auto if declared) or user preference (ask only in interactive mode)
@@ -55,7 +59,7 @@ Each option generates shell scripts that can be launched manually or through `in
   If the user does not provide one, use the built-in default `insar` template exposed by MCP.
 - `param-advisor (engine=isce3)` is the only supported route for processing-parameter changes in
   this workflow. It must call `insar_describe_rslc`, delegate recommendation generation
-  to `agents/param-advisor.md`, present `yaml_diff_preview`, collect user
+  to `insar-agent-plugin:param-advisor` subagent, present `yaml_diff_preview`, collect user
   confirmation, apply accepted changes via `insar_set_processing_param`, then export the
   tuned YAML as the new `base_runconfig`.
 - Before the first actual execution, confirm the chosen ISCE3 runtime. If batch execution
@@ -88,7 +92,7 @@ Each option generates shell scripts that can be launched manually or through `in
 
 param-advisor (engine=isce3) 调用链（Path B）：
 - `insar_describe_rslc`（data_dir 中代表性 RSLC 的元数据）
-- `agents/param-advisor.md`（生成推荐）
+- `insar-agent-plugin:param-advisor` subagent（生成推荐）
 - interactive：展示 yaml_diff_preview，等待确认；auto：自动接受
 - 若接受：`insar_set_processing_param`（临时 project）
 - **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用
@@ -116,6 +120,9 @@ insar_prepare_stack(
 - If `handoff_required=true`, stop. Show the reference date, number of secondary scenes,
   `run_command`, and the listed review artifacts. Wait for user approval before executing.
 - If `handoff_required=false`, show the same information briefly, then continue.
+- **Timeout**: if `insar_prepare_stack` times out (600 s), retry once without changing
+  any parameters — HDF5 metadata parsing of large RSLC sets can exceed 600 s on the
+  first scan. Do not modify arguments before retrying.
 
 ```
 insar_run_batch(
@@ -128,6 +135,11 @@ insar_run_batch(
 ```
 Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_logs=True` while polling — only use it once if the job fails.
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
+
+Progress reading: use `pairs_complete` from `insar_get_job` (GUNW product count) as the
+authoritative completion count. When ionosphere correction is enabled, the SNAPHU process
+runs 3× per pair (main + two sub-bands); `grep -c 'Program snaphu done'` will therefore
+return up to 3× the pair count — this is normal and does not indicate duplicate work.
 
 ### Option B — Short-baseline network
 
