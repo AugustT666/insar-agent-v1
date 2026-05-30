@@ -125,6 +125,9 @@ class TestInsarDownloadRslcTool:
     def test_resolves_aoi_before_download(self, tmp_path: Path):
         shp_path = tmp_path / "study_area.shp"
         shp_path.write_text("placeholder", encoding="utf-8")
+        workspace = tmp_path / "workspace"
+        run_root = workspace / "d-insar-isce3" / "outputs" / "rslc-run"
+        output_dir = run_root / "rslc"
 
         with (
             patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
@@ -134,19 +137,23 @@ class TestInsarDownloadRslcTool:
             result = insar_download_rslc(
                 urls=["https://example.test/NISAR_RSLC.h5"],
                 aoi_path=str(shp_path),
-                output_dir=str(tmp_path / "out"),
+                output_dir=str(output_dir),
             )
 
         assert result["status"] == "running"
-        params_files = list((tmp_path / "out" / ".insar_agent" / "logs").glob("*_params.json"))
+        params_files = list((run_root / "logs").glob("*_params.json"))
         assert len(params_files) == 1
         params = json.loads(params_files[0].read_text(encoding="utf-8"))
         assert params["bbox"] == [40.5, 13.4, 40.8, 13.7]
 
     def test_download_job_persisted_and_pollable(self, tmp_path: Path):
-        """insar_download_rslc saves a DownloadJob; insar_get_job(output_dir=) can read it."""
+        """insar_download_rslc saves a task-level DownloadJob; insar_get_job can read it."""
         shp_path = tmp_path / "study_area.shp"
         shp_path.write_text("placeholder", encoding="utf-8")
+        workspace = tmp_path / "workspace"
+        task_id = "d-insar-isce3"
+        run_root = workspace / task_id / "outputs" / "rslc-run"
+        output_dir = run_root / "rslc"
 
         with (
             patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
@@ -156,26 +163,33 @@ class TestInsarDownloadRslcTool:
             result = insar_download_rslc(
                 urls=["https://example.test/NISAR_RSLC.h5"],
                 aoi_path=str(shp_path),
-                output_dir=str(tmp_path / "out"),
+                output_dir=str(output_dir),
             )
 
         job_id = result["job_id"]
         out_dir = result["output_dir"]
-        assert result["poll"] == f'insar_get_job(job_id="{job_id}", output_dir="{out_dir}")'
+        expected_poll = f'insar_get_job(job_id="{job_id}", workspace_root="{workspace}", task_id="{task_id}")'
+        assert result["poll"] == expected_poll
 
-        # DownloadJob file must exist
         from insar_agent.core.jobs import DownloadJob
-        dl_job = DownloadJob.load(job_id, out_dir)
+        jobs_dir = workspace / task_id / ".insar_agent" / "jobs"
+        dl_job = DownloadJob.load(job_id, jobs_dir)
         assert dl_job.n_files == 1
         assert dl_job.pid == 99999
         assert dl_job.status == "running"
+        assert dl_job.task_id == task_id
+        assert dl_job.run_id == "rslc-run"
+        assert dl_job.tool_name == "insar_download_rslc"
+        assert dl_job.job_type == "rslc_download"
+        assert not (run_root / ".insar_agent" / "jobs").exists()
 
-        # insar_get_job(output_dir=...) should return job info
         from insar_agent.mcp.server import insar_get_job
-        status = insar_get_job(job_id=job_id, output_dir=out_dir)
+        status = insar_get_job(job_id=job_id, workspace_root=str(workspace), task_id=task_id)
         assert "error" not in status, status
         assert status["job_id"] == job_id
         assert status["n_files"] == 1
+        assert status["tool_name"] == "insar_download_rslc"
+        assert status["output_dir"] == out_dir
 
 
 class TestInsarDownloadDemTool:
@@ -421,6 +435,72 @@ class TestDownloadDemProxyBehavior:
             "HTTP_PROXY": "http://temporary-proxy:7890",
             "HTTPS_PROXY": "http://temporary-proxy:7890",
         }
+        assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
+
+    def test_empty_proxy_disables_system_proxy_for_download_session(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from insar_agent.engines.isce3 import dem as dem_mod
+
+        observed: dict[str, str | None] = {}
+
+        class _DummyDataset:
+            pass
+
+        def fake_warp(output_path, sources, options=None):
+            observed["HTTP_PROXY"] = os.environ.get("HTTP_PROXY")
+            observed["HTTPS_PROXY"] = os.environ.get("HTTPS_PROXY")
+            Path(output_path).write_bytes(b"dem")
+            return _DummyDataset()
+
+        monkeypatch.setenv("HTTP_PROXY", "http://system-proxy:8080")
+        monkeypatch.setenv("HTTPS_PROXY", "http://system-proxy:8443")
+
+        with (
+            patch("osgeo.gdal.UseExceptions", return_value=None),
+            patch("osgeo.gdal.Warp", side_effect=fake_warp),
+            patch("osgeo.gdal.WarpOptions", side_effect=lambda **kwargs: kwargs),
+        ):
+            result = dem_mod.download_dem(
+                output_path=str(tmp_path / "dem.tif"),
+                bbox=(40.5, 13.4, 40.8, 13.7),
+                proxy="",
+            )
+
+        assert result["output_path"] == str(tmp_path / "dem.tif")
+        assert observed == {"HTTP_PROXY": None, "HTTPS_PROXY": None}
+        assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
+        assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
+
+    def test_direct_proxy_value_disables_system_proxy_for_download_session(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        from insar_agent.engines.isce3 import dem as dem_mod
+
+        observed: dict[str, str | None] = {}
+
+        class _DummyDataset:
+            pass
+
+        def fake_warp(output_path, sources, options=None):
+            observed["HTTP_PROXY"] = os.environ.get("HTTP_PROXY")
+            observed["HTTPS_PROXY"] = os.environ.get("HTTPS_PROXY")
+            Path(output_path).write_bytes(b"dem")
+            return _DummyDataset()
+
+        monkeypatch.setenv("HTTP_PROXY", "http://system-proxy:8080")
+        monkeypatch.setenv("HTTPS_PROXY", "http://system-proxy:8443")
+
+        with (
+            patch("osgeo.gdal.UseExceptions", return_value=None),
+            patch("osgeo.gdal.Warp", side_effect=fake_warp),
+            patch("osgeo.gdal.WarpOptions", side_effect=lambda **kwargs: kwargs),
+        ):
+            result = dem_mod.download_dem(
+                output_path=str(tmp_path / "dem.tif"),
+                bbox=(40.5, 13.4, 40.8, 13.7),
+                proxy="direct",
+            )
+
+        assert result["output_path"] == str(tmp_path / "dem.tif")
+        assert observed == {"HTTP_PROXY": None, "HTTPS_PROXY": None}
         assert os.environ.get("HTTP_PROXY") == "http://system-proxy:8080"
         assert os.environ.get("HTTPS_PROXY") == "http://system-proxy:8443"
 

@@ -22,8 +22,10 @@ def test_insar_list_outputs_includes_isce2_merged_artifacts(tmp_path, monkeypatc
     (merged / "filt_topophase.unw.geo").write_bytes(b"geo")
     (merged / "phsig.cor.geo").write_bytes(b"cor")
 
+    from insar_agent.core.project import Project
+    project = Project.load(project_id)
     job = Job(project_id=project_id, engine="isce2", workflow="tops", status="done")
-    job.save(workspace / ".insar_agent" / "jobs")
+    job.save(project.jobs_dir())
 
     result = insar_list_outputs(job_id=job.job_id, project_id=project_id)
     paths = {item["path"] for item in result["outputs"]}

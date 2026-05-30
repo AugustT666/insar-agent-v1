@@ -84,7 +84,7 @@ def test_build_topsapp_xml_infers_iw2_only_safe_swaths(tmp_path: Path) -> None:
     assert 'property name="swaths">[2]</property>' in xml
 
 
-def test_materialize_dem_for_tops_rewrites_stale_sidecar_paths(tmp_path: Path) -> None:
+def test_materialize_dem_for_tops_rewrites_stale_sidecar_paths_under_run_root(tmp_path: Path) -> None:
     source = tmp_path / "source" / "dem.tif"
     source.parent.mkdir()
     source.write_bytes(b"dem")
@@ -107,9 +107,9 @@ def test_materialize_dem_for_tops_rewrites_stale_sidecar_paths(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    dem_path = materialize_dem_for_tops(str(source), tmp_path / "workspace")
+    dem_path = materialize_dem_for_tops(str(source), tmp_path / "workspace" / "d-insar-isce2" / "outputs" / "run-1")
 
-    assert dem_path == str(tmp_path / "workspace" / "isce2_dem" / "dem.tif")
+    assert dem_path == str(tmp_path / "workspace" / "d-insar-isce2" / "outputs" / "run-1" / "isce2_dem" / "dem.tif")
     rendered_xml = Path(dem_path + ".xml").read_text(encoding="utf-8")
     rendered_vrt = Path(dem_path + ".vrt").read_text(encoding="utf-8")
     assert f"<value>{dem_path}</value>" in rendered_xml

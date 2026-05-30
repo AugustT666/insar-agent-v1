@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from insar_agent.core.config import get_path, set_path
-from insar_agent.core.layout import RunLayout, sanitize_identifier
+from insar_agent.core.layout import RunLayout, infer_run_root, sanitize_identifier
 from insar_agent.core.project import Project
 
 PARAM_ADVICE_FORMAT_VERSION = "param-advisor.v1"
@@ -11,8 +11,39 @@ PARAM_ADVICE_FORMAT_VERSION = "param-advisor.v1"
 
 def resolve_run_layout(project: Project) -> RunLayout | None:
     try:
+        workspace_root = Path(project.workspace_root).expanduser().resolve()
+    except ValueError:
+        return None
+
+    for key in (
+        "runconfig.groups.product_path_group.product_path",
+        "runconfig.groups.product_path_group.scratch_path",
+        "runconfig.groups.product_path_group.sas_output_file",
+        "runconfig.groups.logging.path",
+    ):
+        try:
+            value = get_path(project.runconfig, key)
+        except KeyError:
+            continue
+        if not isinstance(value, str) or not value:
+            continue
+        run_root = infer_run_root(value)
+        if run_root is None:
+            continue
+        try:
+            rel = run_root.relative_to(workspace_root)
+        except ValueError:
+            continue
+        parts = rel.parts
+        if len(parts) == 3 and parts[1] == "outputs" and (not project.task_id or parts[0] == project.task_id):
+            try:
+                return RunLayout(workspace_root=workspace_root, task_id=parts[0], run_id=parts[2])
+            except ValueError:
+                return None
+
+    try:
         return RunLayout(
-            workspace_root=project.workspace_root,
+            workspace_root=workspace_root,
             task_id=project.task_id or project.name or project.project_id,
         )
     except ValueError:
@@ -69,10 +100,11 @@ def param_advice_output_dir(project: Project, output_dir: str, task_id: str) -> 
         return candidate
 
     requested_task_id = sanitize_identifier(task_id) if task_id.strip() else ""
+    preferred_task_id = project.task_id or requested_task_id or project.name or project.project_id
     try:
         layout = RunLayout(
             workspace_root=project.workspace_root,
-            task_id=requested_task_id or project.name or project.project_id,
+            task_id=preferred_task_id,
             run_id=None,
         )
         try:
@@ -93,7 +125,7 @@ def param_advice_output_dir(project: Project, output_dir: str, task_id: str) -> 
                 pass
         return layout.param_advisor_dir
     except ValueError:
-        fallback_task_id = requested_task_id or sanitize_identifier(project.project_id)
+        fallback_task_id = sanitize_identifier(preferred_task_id or project.project_id)
         return Path(project.workspace_root) / fallback_task_id / "outputs" / "param_advisor"
 
 

@@ -78,7 +78,8 @@ def load_default_runconfig(workflow: str) -> dict:
 
 def get_default_runconfig_template_path(workflow: str) -> Path:
     """Return the absolute on-disk default runconfig template path for a workflow."""
-    template_file = (_ASSETS / f"{workflow}.yaml").resolve()
+    template_workflow = "insar" if workflow == "stack" else workflow
+    template_file = (_ASSETS / f"{template_workflow}.yaml").resolve()
     if not template_file.exists():
         raise FileNotFoundError(f"No default runconfig template for workflow: {workflow!r}")
     return template_file
@@ -96,5 +97,11 @@ SUPPORTED_WORKFLOWS = [
         workflow="insar",
         supports_gpu=True,
         description="Generate interferometric products from reference/secondary RSLC inputs.",
+    ),
+    WorkflowInfo(
+        engine="isce3",
+        workflow="stack",
+        supports_gpu=True,
+        description="Manage NISAR stack/network preparation under the stack-insar-isce3 task root.",
     ),
 ]

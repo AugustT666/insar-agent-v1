@@ -441,6 +441,64 @@ def test_prepare_network_uses_default_template_when_base_runconfig_omitted(tmp_p
 
 # ── MCP tool wrappers ─────────────────────────────────────────────────────────
 
+def test_mcp_insar_prepare_stack_derives_run_root_from_workspace(tmp_path):
+    workspace = tmp_path / "workspace"
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    runconfig = make_fixture_runconfig(tmp_path)
+    dem = make_dem(tmp_path)
+
+    result = insar_prepare_stack(
+        data_dir=str(data_dir),
+        base_runconfig=str(runconfig),
+        dem=str(dem),
+        output_dir="",
+        workspace_root=str(workspace),
+        interaction_mode="auto",
+    )
+
+    assert "error" not in result
+    run_root = Path(result["run_root"])
+    output_dir = Path(result["output_dir"])
+    assert result["task_id"] == "stack-insar-isce3"
+    assert result["run_id"].startswith("stack-insar-isce3_")
+    assert run_root == workspace / "stack-insar-isce3" / "outputs" / result["run_id"]
+    assert output_dir.is_relative_to(run_root)
+    assert not (workspace / "stack-insar-isce3" / "stack").exists()
+    assert not (workspace / "stack-insar-isce3" / "configs").exists()
+
+
+def test_mcp_insar_prepare_network_derives_run_root_from_workspace(tmp_path):
+    workspace = tmp_path / "workspace"
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    make_rslc(data_dir, "20251122")
+    make_rslc(data_dir, "20251204")
+    runconfig = make_fixture_runconfig(tmp_path)
+    dem = make_dem(tmp_path)
+
+    result = insar_prepare_network(
+        data_dir=str(data_dir),
+        base_runconfig=str(runconfig),
+        dem=str(dem),
+        output_dir="",
+        workspace_root=str(workspace),
+        interaction_mode="auto",
+    )
+
+    assert "error" not in result
+    run_root = Path(result["run_root"])
+    output_dir = Path(result["output_dir"])
+    assert result["task_id"] == "stack-insar-isce3"
+    assert result["run_id"].startswith("stack-insar-isce3_")
+    assert run_root == workspace / "stack-insar-isce3" / "outputs" / result["run_id"]
+    assert output_dir.is_relative_to(run_root)
+    assert not (workspace / "stack-insar-isce3" / "network").exists()
+    assert not (workspace / "stack-insar-isce3" / "configs").exists()
+
+
 def test_mcp_insar_prepare_stack_success(tmp_path):
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()

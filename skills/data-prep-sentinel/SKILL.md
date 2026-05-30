@@ -49,6 +49,11 @@ version: 0.1.0
   - `safe/`
   - `dem/`
   - `orbits/`
+- For IntegrationTest workspace tasks, pass existing burst scene directories via
+  `source_paths` directly. Do not create helper files such as
+  `burst_manifest.txt` in `workspace/<task_id>/`; task-root children other than
+  `.insar_agent`, `.insar_logs`, `outputs`, and `sessions` are treated as
+  artifact pollution.
 
 ## Standard workflow
 
@@ -87,8 +92,8 @@ insar_prepare_sentinel_data(
     ],
     burst_manifest="/path/to/burst_manifest.txt",  # only for burst input
     download_dem=True,
-    dem_output_path="/path/to/project-root/dem/copernicus_30.tif",
-    dem_backend="general",  # or "isce2"
+    dem_output_path="/path/to/project-root/dem/isce2.dem.wgs84",
+    dem_backend="isce2",    # required default for downstream d-insar-isce2 / stack-insar-isce2
     dem_type="version3",    # only for dem_backend="isce2"
     download_orbits=True,
     orbit_dir="/path/to/project-root/orbits",
@@ -96,6 +101,11 @@ insar_prepare_sentinel_data(
     resume=True,
 )
 ```
+
+For Sentinel workflows that will feed `d-insar-isce2` or `stack-insar-isce2`,
+use `dem_backend="isce2"` and an ISCE2 DEM output such as
+`isce2.dem.wgs84`. Use `dem_backend="general"` only when the downstream
+workflow explicitly needs a GeoTIFF DEM instead of ISCE2 DEM sidecars.
 
 For `burst_manifest` inputs, treat `isce2_import_validation.status != "passed"` as a data-prep failure and report each failed scene's `scene_id`, `safe_path`, `message`, and `log_path` before running D-InSAR or stack workflows.
 

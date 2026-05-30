@@ -117,17 +117,17 @@ def test_project_level_param_advisor_agent_exists_and_declares_contract():
 
 
 def test_core_docs_describe_skill_aware_subagent_boundary():
-    guide = (REPO_ROOT / "docs" / "agent-guide.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
     architecture = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    assert "skill-aware client" in guide
+    assert "Main InSAR Workflow Entry Skill" in guide
     assert "subagent" in guide.lower()
-    assert "plugin contract" in architecture.lower()
-    assert "mcp contract" in architecture.lower()
+    assert "skills/insar-agent/SKILL.md" in architecture
+    assert "MCP 工具不验证 skill 委派链路是否被遵守" in architecture
     assert "subagent" in claude.lower()
     assert "insar_describe_rslc" in guide
     assert "param-advisor" in guide
-    assert "insar-agent-plugin:param-advisor" in guide
+    assert "`param-advisor` skill" in guide
     assert "insar-agent-plugin:param-advisor" in architecture
-    assert "every parameter advisory call should perform web search" in guide.lower() or "每次参数建议都执行网络搜索" in guide
+    assert "Parameter Advisory Delegation" in guide
     assert "gpt-5.3-codex" in claude.lower() or "gpt codex5.3" in claude.lower()

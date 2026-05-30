@@ -136,10 +136,9 @@ insar_run_batch(
 Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_logs=True` while polling — only use it once if the job fails.
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
 
-Progress reading: use `pairs_complete` from `insar_get_job` (GUNW product count) as the
-authoritative completion count. When ionosphere correction is enabled, the SNAPHU process
-runs 3× per pair (main + two sub-bands); `grep -c 'Program snaphu done'` will therefore
-return up to 3× the pair count — this is normal and does not indicate duplicate work.
+Progress: monitor `tail -f <log_path>` in a terminal for real-time engine output.
+`insar_get_job` reports `num_pairs` (total) and `status` (running/done/failed) but
+does not attempt to parse per-pair progress from the engine log.
 
 ### Option B — Short-baseline network
 

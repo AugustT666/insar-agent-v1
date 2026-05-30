@@ -2,10 +2,10 @@
 Run layout helper: normalises task/run identifiers and resolves
 structured sub-directories under a single run root.
 
-Layout:
+Layout boundary:
     <workspace_root>/<task_id>/outputs/<run_id>/
-        products/   scratch/    configs/    logs/
-        param_advisor/   metrics/   browse/   stack/   mintpy/
+
+Processing-specific helper directories are always resolved under the run root.
 """
 from __future__ import annotations
 
@@ -31,6 +31,15 @@ def make_run_id(task_id: str) -> str:
     return f"{sanitize_identifier(task_id)}_{ts}"
 
 
+def infer_run_root(path: str | Path) -> Path | None:
+    p = Path(path).expanduser().resolve()
+    parts = p.parts
+    for index, part in enumerate(parts):
+        if part == "outputs" and index >= 3 and index + 1 < len(parts):
+            return Path(*parts[: index + 2])
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Workspace-root safety guard
 # ---------------------------------------------------------------------------
@@ -44,9 +53,8 @@ def validate_workspace_root(workspace_root: str | Path) -> Path:
     """
     ws = Path(workspace_root).resolve()
     parts = ws.parts
-    # Reject if the path contains an "outputs" segment preceded by a task-id segment
-    # (indicates the caller passed a run-root or sub-directory of one).
-    for i, part in enumerate(parts[2:], start=2):
+    # Reject if the path contains an "outputs" segment.
+    for part in parts[1:]:
         if part == "outputs":
             raise ValueError(
                 f"workspace_root appears to point inside a run outputs directory: {ws!r}. "
@@ -106,6 +114,10 @@ class RunLayout:
         return self.run_root / "param_advisor"
 
     @property
+    def param_tuned_dir(self) -> Path:
+        return self.run_root / "param_tuned"
+
+    @property
     def metrics_dir(self) -> Path:
         return self.run_root / "metrics"
 
@@ -114,8 +126,20 @@ class RunLayout:
         return self.run_root / "browse"
 
     @property
+    def dem_dir(self) -> Path:
+        return self.run_root / "dem"
+
+    @property
+    def isce2_dem_dir(self) -> Path:
+        return self.run_root / "isce2_dem"
+
+    @property
     def stack_dir(self) -> Path:
         return self.run_root / "stack"
+
+    @property
+    def network_dir(self) -> Path:
+        return self.run_root / "network"
 
     @property
     def mintpy_dir(self) -> Path:
@@ -123,7 +147,7 @@ class RunLayout:
 
     # Convenience creators
     def mkdir_all(self) -> None:
-        """Create all standard subdirectories."""
+        """Create common run-root directories without defining the full outputs shape."""
         for d in (
             self.products_dir, self.scratch_dir, self.configs_dir,
             self.logs_dir, self.param_advisor_dir, self.metrics_dir,
@@ -151,9 +175,13 @@ class RunLayout:
             "configs_dir": str(self.configs_dir),
             "logs_dir": str(self.logs_dir),
             "param_advisor_dir": str(self.param_advisor_dir),
+            "param_tuned_dir": str(self.param_tuned_dir),
             "metrics_dir": str(self.metrics_dir),
             "browse_dir": str(self.browse_dir),
+            "dem_dir": str(self.dem_dir),
+            "isce2_dem_dir": str(self.isce2_dem_dir),
             "stack_dir": str(self.stack_dir),
+            "network_dir": str(self.network_dir),
             "mintpy_dir": str(self.mintpy_dir),
         }
 

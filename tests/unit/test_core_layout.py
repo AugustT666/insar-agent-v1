@@ -1,10 +1,13 @@
 """Unit tests for src/insar_agent/core/layout.py."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from insar_agent.core.layout import (
     RunLayout,
+    infer_run_root,
     make_run_id,
     sanitize_identifier,
     validate_workspace_root,
@@ -82,10 +85,35 @@ def test_run_layout_paths(tmp_path):
     assert layout.configs_dir == layout.run_root / "configs"
     assert layout.logs_dir == layout.run_root / "logs"
     assert layout.param_advisor_dir == layout.run_root / "param_advisor"
+    assert layout.param_tuned_dir == layout.run_root / "param_tuned"
     assert layout.metrics_dir == layout.run_root / "metrics"
     assert layout.browse_dir == layout.run_root / "browse"
+    assert layout.dem_dir == layout.run_root / "dem"
+    assert layout.isce2_dem_dir == layout.run_root / "isce2_dem"
     assert layout.stack_dir == layout.run_root / "stack"
+    assert layout.network_dir == layout.run_root / "network"
     assert layout.mintpy_dir == layout.run_root / "mintpy"
+
+
+def test_run_layout_helpers_do_not_create_task_root_processing_siblings(tmp_path):
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce2", run_id="run1")
+
+    layout.mkdir_all()
+
+    task_root = tmp_path / "d-insar-isce2"
+    assert layout.run_root.exists()
+    for sibling in ("configs", "param_tuned", "dem", "isce2_dem", "stack", "network"):
+        assert not (tmp_path / sibling).exists()
+        assert not (task_root / sibling).exists()
+
+
+def test_infer_run_root_from_nested_output_path(tmp_path):
+    layout = RunLayout(workspace_root=tmp_path, task_id="d-insar-isce3", run_id="run1")
+
+    assert infer_run_root(layout.dem_dir / "dem.tif") == layout.run_root
+    assert infer_run_root(layout.run_root / "logs" / "download.log") == layout.run_root
+    assert infer_run_root(tmp_path / "d-insar-isce3" / "dem" / "dem.tif") is None
+    assert infer_run_root(Path("/tmp/outputs/run1/dem.tif")) is None
 
 
 def test_run_layout_auto_run_id(tmp_path):

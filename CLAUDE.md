@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. `docs/architecture.md` — 层次边界、MCP 设计原则、核心数据模型
 
 **应用（作为 agent 执行 InSAR 处理）：**
-1. `docs/agent-guide.md` — 工作流硬约束（同 `insar://workflow-guide`）
+1. 调用 `insar-agent-plugin:insar-agent` skill — 插件主入口，路由到各工作流 skill 并通过 `insar_*` MCP 工具执行
 
 ## Commands
 

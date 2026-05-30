@@ -47,6 +47,12 @@ These tools operate directly on completed filesystem-backed stack/network output
 ## Hard constraints
 
 - Run MintPy processing only through `insar_run_mintpy` or `insar_run_mintpy_isce2`; do not invoke MintPy, ISCE, GDAL conversion, or file-repair commands directly.
+- Poll MintPy jobs only through the returned `poll` call or
+  `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>)`. Do not monitor
+  the returned PID with shell commands such as `kill -0`, and do not start
+  background Bash polling loops. A completed `conda run` process may remain as a
+  zombie until the MCP server reaps it; the MCP status checker handles that
+  case, while PID-only shell monitors can hang.
 - Read-only local environment discovery is allowed only to choose a viable `conda_env`; do not install packages, mutate environments, or run processing binaries outside MCP tools.
 - Use the `stack_work_dir` from the just-completed stack job in the current task/session. Do not infer, reuse, or borrow stack paths from earlier experiment sessions or previous successful runs.
 - If `insar_run_mintpy_isce2` rejects a stack path or stack structure, report the MCP error as a blocker; do not patch/copy generated stack files manually.
@@ -109,6 +115,9 @@ Save the returned `job_id`. Show `log_path`, `poll`, and `progress_hint`.
 
 Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>)`
 every ~60 s until `status` is `done` or `failed`.
+Use the MCP response as the source of truth for status. If waiting between
+polls, use a bounded one-shot sleep and then call `insar_get_job` again; do not
+write shell PID monitors or `tail -f` loops.
 
 ### Step 4 — If failed, read logs
 
@@ -143,6 +152,9 @@ refer them to topsStack documentation or MintPy built-in plotting tools.
 
 Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>)`
 every ~60 s until `status` is `done` or `failed`.
+Use the MCP response as the source of truth for status. If waiting between
+polls, use a bounded one-shot sleep and then call `insar_get_job` again; do not
+write shell PID monitors or `tail -f` loops.
 
 ### Step 3 — If failed, read logs
 

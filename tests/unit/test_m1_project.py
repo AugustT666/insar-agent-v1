@@ -85,12 +85,51 @@ def test_create_project_returns_id(workspace):
     assert result["workflow"] == "insar"
 
 
-def test_create_project_writes_project_json(workspace):
-    result = insar_create_project(engine="isce3", workflow="insar", workspace_root=workspace)
-    project_file = Path(workspace) / ".insar_agent" / "project.json"
-    assert project_file.exists()
+@pytest.mark.parametrize(
+    ("engine", "workflow", "expected_task_id"),
+    [
+        ("isce2", "tops", "d-insar-isce2"),
+        ("isce3", "insar", "d-insar-isce3"),
+        ("isce2", "stack", "stack-insar-isce2"),
+        ("isce3", "stack", "stack-insar-isce3"),
+    ],
+)
+def test_create_project_writes_task_scoped_project_json(workspace, engine, workflow, expected_task_id):
+    result = insar_create_project(engine=engine, workflow=workflow, workspace_root=workspace)
+    assert "error" not in result
+
+    project = Project.load(result["project_id"])
+    assert project.task_id == expected_task_id
+
+    project_file = Path(workspace) / expected_task_id / ".insar_agent" / "project.json"
     data = json.loads(project_file.read_text())
     assert data["project_id"] == result["project_id"]
+    assert data["task_id"] == expected_task_id
+    assert not (Path(workspace) / ".insar_agent" / "project.json").exists()
+
+
+def test_project_task_scoped_management_dirs_stay_under_task_root(workspace):
+    project = new_project(
+        name="sentinel-tops",
+        engine="isce2",
+        workflow="tops",
+        workspace_root=workspace,
+        task_id="d-insar-isce2",
+    )
+
+    assert project.insar_dir() == Path(workspace) / "d-insar-isce2" / ".insar_agent"
+    assert project.outputs_dir() == Path(workspace) / "d-insar-isce2" / "outputs"
+    assert project.jobs_dir() == Path(workspace) / "d-insar-isce2" / ".insar_agent" / "jobs"
+    assert project.configs_dir().is_relative_to(Path(workspace) / "d-insar-isce2" / "outputs")
+
+
+def test_isce3_stack_project_is_not_runnable_with_run_workflow(workspace):
+    result = insar_create_project(engine="isce3", workflow="stack", workspace_root=workspace)
+
+    run = insar_run_workflow(result["project_id"], dry_run=True)
+
+    assert run["error"] == "workflow_not_runnable"
+    assert "insar_prepare_stack" in run["message"]
 
 
 def test_create_project_with_conda_env(workspace):
@@ -274,6 +313,49 @@ def test_export_runconfig_custom_dir(insar_project, tmp_path):
     result = insar_export_runconfig(pid, output_dir=custom)
     assert Path(result["yaml_path"]).parent == Path(custom)
     assert Path(result["yaml_path"]).exists()
+
+
+def test_export_runconfig_rejects_workspace_root_sibling_for_task_project(insar_project, workspace):
+    pid = insar_project["project_id"]
+
+    result = insar_export_runconfig(pid, output_dir=str(Path(workspace) / "param_tuned"))
+
+    assert result["error"] == "invalid_input"
+    assert "outputs/<run_id>" in result["message"]
+    assert not (Path(workspace) / "param_tuned").exists()
+
+
+def test_export_runconfig_accepts_current_run_root_param_tuned_dir(insar_project, workspace):
+    pid = insar_project["project_id"]
+    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / "current-run"
+    project = Project.load(pid)
+    set_path(project.runconfig, "runconfig.groups.product_path_group.product_path", str(run_root / "products"))
+    set_path(project.runconfig, "runconfig.groups.product_path_group.scratch_path", str(run_root / "scratch"))
+    set_path(
+        project.runconfig,
+        "runconfig.groups.product_path_group.sas_output_file",
+        str(run_root / "products" / "current-run_GUNW.h5"),
+    )
+    project.save()
+
+    result = insar_export_runconfig(pid, output_dir=str(run_root / "param_tuned"))
+
+    assert "error" not in result
+    assert Path(result["yaml_path"]).parent == run_root / "param_tuned"
+    assert Path(result["yaml_path"]).exists()
+
+
+def test_export_runconfig_default_dir_reuses_current_run_root(insar_project, workspace):
+    pid = insar_project["project_id"]
+    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / "current-run"
+    project = Project.load(pid)
+    set_path(project.runconfig, "runconfig.groups.product_path_group.product_path", str(run_root / "products"))
+    project.save()
+
+    result = insar_export_runconfig(pid)
+
+    assert "error" not in result
+    assert Path(result["yaml_path"]).parent == run_root / "configs"
 
 
 def test_export_runconfig_records_path_on_project(insar_project):

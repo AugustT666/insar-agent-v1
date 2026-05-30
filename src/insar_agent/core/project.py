@@ -7,6 +7,8 @@ from datetime import datetime, UTC
 from pathlib import Path
 from uuid import uuid4
 
+from insar_agent.core.layout import infer_run_root
+
 _WORKSPACE_MARKERS = (".insar_agent", ".insar_logs")
 
 
@@ -59,6 +61,12 @@ def resolve_plugin_logs_dir(
 ) -> Path:
     if workspace_root not in (None, ""):
         return plugin_logs_dir(Path(workspace_root).expanduser().resolve())
+    for raw in paths:
+        if raw in (None, ""):
+            continue
+        run_root = infer_run_root(raw)
+        if run_root is not None:
+            return run_root / "logs"
     discovered = discover_workspace_root(*paths)
     if discovered is not None:
         return plugin_logs_dir(discovered)
@@ -95,11 +103,13 @@ class Project:
     # ── directories ────────────────────────────────────────────────────────────
 
     def insar_dir(self) -> Path:
+        if self.task_id:
+            return Path(self.workspace_root) / self.task_id / ".insar_agent"
         return Path(self.workspace_root) / ".insar_agent"
 
     def configs_dir(self) -> Path:
         if self.task_id:
-            return Path(self.workspace_root) / self.task_id / "configs"
+            return self.outputs_dir() / "configs"
         return Path(self.workspace_root) / "configs"
 
     def logs_dir(self) -> Path:
@@ -119,11 +129,10 @@ class Project:
         self.updated_at = _utc_now()
         insar_dir = self.insar_dir()
         insar_dir.mkdir(parents=True, exist_ok=True)
-        (insar_dir / "project.json").write_text(
-            json.dumps(asdict(self), indent=2)
-        )
+        project_file = insar_dir / "project.json"
+        project_file.write_text(json.dumps(asdict(self), indent=2))
         reg = _load_registry()
-        reg[self.project_id] = self.workspace_root
+        reg[self.project_id] = str(project_file)
         _save_registry(reg)
 
     @classmethod
@@ -131,8 +140,13 @@ class Project:
         reg = _load_registry()
         if project_id not in reg:
             raise KeyError(project_id)
-        workspace_root = reg[project_id]
-        project_file = Path(workspace_root) / ".insar_agent" / "project.json"
+        entry_path = Path(reg[project_id])
+        if entry_path.exists() and entry_path.is_dir():
+            project_file = entry_path / ".insar_agent" / "project.json"
+        elif entry_path.name == "project.json" or entry_path.suffix == ".json":
+            project_file = entry_path
+        else:
+            project_file = entry_path / ".insar_agent" / "project.json"
         if not project_file.exists():
             raise FileNotFoundError(project_file)
         data = json.loads(project_file.read_text())

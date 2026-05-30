@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 import zipfile
@@ -21,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from insar_agent.core.config import get_path, set_path, unset_path
 from insar_agent.core.jobs import BatchJob, DownloadJob, Job
-from insar_agent.core.layout import RunLayout
+from insar_agent.core.layout import RunLayout, infer_run_root
 from insar_agent.core.project import Project, new_project, resolve_plugin_logs_dir
 from insar_agent.mcp.layout_helpers import (
     apply_run_layout_to_runconfig as _apply_run_layout_to_runconfig,
@@ -84,12 +85,10 @@ ENGINE_ALLOWED_FIELDS: dict[str, dict[str, list[str]]] = {
 # Canonical task_id derived from engine+workflow.  Maps directly to the
 # top-level workspace directory for that workflow type.
 _WORKFLOW_TO_TASK_ID: dict[tuple[str, str], str] = {
-    ("isce2", "tops"):  "d-insar-isce2",
+    ("isce2", "tops"): "d-insar-isce2",
     ("isce3", "insar"): "d-insar-isce3",
     ("isce2", "stack"): "stack-insar-isce2",
-    # ("isce3", "stack") is intentionally absent: ISCE3 stack-insar-isce3 uses
-    # insar_prepare_stack/network (Path B) which works directly on the filesystem
-    # without a project registry entry.
+    ("isce3", "stack"): "stack-insar-isce3",
 }
 
 _ADAPTER = ISCE3Adapter()
@@ -148,9 +147,9 @@ def _launch_detached_shell_job(
     return int(pid_text)
 
 
-# Path to the external agent guide — single source of truth for AI constraints.
-# Stored in docs/agent-guide.md so it can be edited without touching server code.
-_GUIDE_PATH = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "agent-guide.md"
+# Entry point for AI clients that reach the MCP server directly.
+# Keep workflow guidance single-sourced in the packaged main router skill.
+_WORKFLOW_GUIDE_SKILL_PATH = Path(__file__).resolve().parents[3] / "skills" / "insar-agent" / "SKILL.md"
 
 
 def _ensure_logging_group(runconfig: dict, workspace_root: str) -> None:
@@ -221,6 +220,151 @@ def _redact_sensitive_params(value: object) -> object:
     return value
 
 
+def _run_root_logs_dir(*paths: str | Path | None) -> Path | None:
+    for raw in paths:
+        if raw in (None, ""):
+            continue
+        run_root = infer_run_root(raw)
+        if run_root is not None:
+            return run_root / "logs"
+    return None
+
+
+def _task_root_from_run_root(run_root: Path) -> Path:
+    return run_root.parent.parent
+
+
+def _task_jobs_dir_from_run_root(run_root: Path) -> Path:
+    return _task_root_from_run_root(run_root) / ".insar_agent" / "jobs"
+
+
+def _task_job_context_from_path(path: str | Path) -> dict | None:
+    run_root = infer_run_root(path)
+    if run_root is None:
+        return None
+    task_root = _task_root_from_run_root(run_root)
+    workspace_root = task_root.parent
+    return {
+        "workspace_root": str(workspace_root),
+        "task_id": task_root.name,
+        "run_id": run_root.name,
+        "run_root": str(run_root),
+        "jobs_dir": _task_jobs_dir_from_run_root(run_root),
+    }
+
+
+def _task_job_context(workspace_root: str = "", task_id: str = "", path: str | Path | None = None) -> dict | None:
+    if workspace_root.strip() and task_id.strip():
+        workspace = Path(workspace_root).expanduser().resolve()
+        task = task_id.strip()
+        context = {
+            "workspace_root": str(workspace),
+            "task_id": task,
+            "jobs_dir": DownloadJob.jobs_dir_for_task(workspace, task),
+        }
+        if path is not None:
+            run_context = _task_job_context_from_path(path)
+            if run_context is not None:
+                context.update({"run_id": run_context["run_id"], "run_root": run_context["run_root"]})
+        return context
+    if path is not None:
+        return _task_job_context_from_path(path)
+    return None
+
+
+def _task_job_poll(job_id: str, job_context: dict, *, include_logs: bool = False) -> str:
+    poll = (
+        f'insar_get_job(job_id="{job_id}", '
+        f'workspace_root="{job_context["workspace_root"]}", '
+        f'task_id="{job_context["task_id"]}"'
+    )
+    if include_logs:
+        poll += ", include_logs=True"
+    return poll + ")"
+
+
+def _infer_task_context_from_path(path: Path, workspace_root: str = "", task_id: str = "") -> tuple[Path, str, str] | None:
+    resolved_task_id = task_id.strip()
+    resolved_workspace = workspace_root.strip()
+
+    if resolved_workspace and resolved_task_id:
+        task_root = Path(resolved_workspace).expanduser().resolve() / resolved_task_id
+        if path == task_root or path.is_relative_to(task_root):
+            return task_root, str(task_root.parent), task_root.name
+
+    for index, part in enumerate(path.parts):
+        if part in _WORKFLOW_TO_TASK_ID.values() and index > 0 and path.parts[index - 1] == "workspace":
+            task_root = Path(*path.parts[: index + 1])
+            return task_root, str(task_root.parent), task_root.name
+
+    return None
+
+
+def _normalize_task_root_output(
+    output_root: str,
+    workspace_root: str = "",
+    task_id: str = "",
+    run_id: str = "",
+    leaf: str = "",
+) -> tuple[str, str, str, str]:
+    resolved = Path(output_root).expanduser().resolve()
+    context = _infer_task_context_from_path(resolved, workspace_root=workspace_root, task_id=task_id)
+    if context is None:
+        return str(resolved), workspace_root.strip(), task_id.strip(), run_id
+
+    task_root, resolved_workspace, resolved_task_id = context
+    if not (resolved == task_root or resolved.is_relative_to(task_root)):
+        return str(resolved), resolved_workspace, resolved_task_id, run_id
+
+    relative = resolved.relative_to(task_root)
+    if relative.parts and relative.parts[0] == "outputs":
+        return str(resolved), resolved_workspace, resolved_task_id, run_id
+
+    layout = RunLayout(
+        workspace_root=resolved_workspace,
+        task_id=resolved_task_id,
+        run_id=run_id.strip() or None,
+    )
+    normalized = layout.run_root / relative if relative.parts else layout.run_root
+    if leaf and not relative.parts:
+        normalized = normalized / leaf
+    return str(normalized), str(layout.workspace_root), layout.task_id, layout.run_id
+
+
+_TASK_ROOT_MANAGEMENT_DIRS = {".insar_agent", ".insar_logs", "sessions", "outputs"}
+
+
+def _task_root_pollution(workspace_root: str = "", task_id: str = "") -> dict | None:
+    if not workspace_root.strip() or not task_id.strip():
+        return None
+    task_root = Path(workspace_root).expanduser().resolve() / task_id.strip()
+    if not task_root.exists() or not task_root.is_dir():
+        return None
+    polluting_paths = sorted(
+        str(path)
+        for path in task_root.iterdir()
+        if path.name not in _TASK_ROOT_MANAGEMENT_DIRS
+    )
+    if not polluting_paths:
+        return None
+    return {
+        "error": "task_root_pollution",
+        "message": "Active processing artifacts must be under workspace/<task_id>/outputs/<run_id> or a user custom output root.",
+        "workspace_root": str(task_root.parent),
+        "task_id": task_root.name,
+        "polluting_paths": polluting_paths,
+    }
+
+
+def _with_task_root_guard(result: dict, workspace_root: str = "", task_id: str = "") -> dict:
+    pollution = _task_root_pollution(workspace_root, task_id)
+    if pollution is None:
+        return result
+    guarded = dict(pollution)
+    guarded["tool_result"] = result
+    return guarded
+
+
 def _prepare_tool_log(
     paths: list[str | Path | None],
     prefix: str,
@@ -229,7 +373,7 @@ def _prepare_tool_log(
     fallback_root: str | Path | None = None,
 ) -> tuple[str, Path, Path]:
     job_id = uuid.uuid4().hex[:12]
-    logs_dir = resolve_plugin_logs_dir(*paths, fallback_root=fallback_root)
+    logs_dir = _run_root_logs_dir(*paths) or resolve_plugin_logs_dir(*paths, fallback_root=fallback_root)
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / f"{prefix}_{job_id}.log"
     params_path = logs_dir / f"{prefix}_{job_id}_params.json"
@@ -247,11 +391,8 @@ def _append_log(log_path: Path, message: str) -> None:
 
 @mcp.resource("insar://workflow-guide")
 def get_workflow_guide() -> str:
-    """Workflow constraints and step-by-step guide for ISCE3 InSAR processing."""
-    try:
-        return _GUIDE_PATH.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return "# Agent guide not found — see docs/agent-guide.md"
+    """Return the main workflow router skill used by skill-aware clients."""
+    return _WORKFLOW_GUIDE_SKILL_PATH.read_text(encoding="utf-8")
 
 
 @mcp.resource("insar://allowed-fields/{workflow}")
@@ -621,6 +762,11 @@ def _job_result(job: Job, include_logs: bool = False) -> dict:
         "log_path": job.log_path,
         "output_paths": job.output_paths,
         "runconfig_path": job.runconfig_path,
+        "task_id": job.task_id,
+        "run_id": job.run_id,
+        "run_root": job.run_root,
+        "tool_name": job.tool_name,
+        "job_type": job.job_type,
     }
     if include_logs:
         if job.log_path and Path(job.log_path).exists():
@@ -1429,13 +1575,12 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
     Render the current runconfig as a YAML file on disk.
 
     The exported file can be used directly with ISCE3 or reviewed by the user.
-    To save a param-tuned snapshot, pass output_dir="<workspace_root>/<task_id>/param_tuned".
-    The resulting file (<output_dir>/runconfig.yaml) will be detected automatically
-    by insar_run_workflow as a previously-tuned config.
+    Per-run exports should live under <workspace_root>/<task_id>/outputs/<run_id>/...
+    so they do not pollute the task root.
 
     Args:
         project_id: Project UUID
-        output_dir: Directory to write YAML into (default: <workspace_root>/<task_id>/configs/)
+        output_dir: Directory to write YAML into (default: a run-root configs directory)
     """
     try:
         project = Project.load(project_id)
@@ -1443,7 +1588,20 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
         return _project_error(project_id)
 
     _ensure_project_logging(project)
-    dest_dir = Path(output_dir.strip()) if output_dir.strip() else project.configs_dir()
+    run_layout = _resolve_run_layout(project)
+    dest_dir = Path(output_dir.strip()) if output_dir.strip() else (run_layout.configs_dir if run_layout else project.configs_dir())
+    if output_dir.strip() and project.task_id and run_layout is not None:
+        workspace_root = Path(project.workspace_root).expanduser().resolve()
+        resolved_dest = dest_dir.expanduser().resolve()
+        if resolved_dest.is_relative_to(workspace_root) and not resolved_dest.is_relative_to(run_layout.run_root):
+            return {
+                "error": "invalid_input",
+                "message": (
+                    "For task projects, output_dir inside workspace_root must be under "
+                    "<workspace>/<task_id>/outputs/<run_id>; do not write runconfig exports "
+                    "beside task directories or beside outputs/<run_id>."
+                ),
+            }
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
@@ -1627,9 +1785,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             "errors": errors,
         }
 
-    configs_dir = project.configs_dir()
-    configs_dir.mkdir(parents=True, exist_ok=True)
-
+    configs_dir: Path | None = None
     _isce2_layout: RunLayout | None = None
 
     if project.workflow == "tops":
@@ -1640,11 +1796,14 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             _isce2_layout.run_root.mkdir(parents=True, exist_ok=True)
             _isce2_layout.logs_dir.mkdir(parents=True, exist_ok=True)
             configs_dir = _isce2_layout.configs_dir
-            configs_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            configs_dir = project.configs_dir()
+        configs_dir.mkdir(parents=True, exist_ok=True)
         isce2_work_dir = str(_isce2_layout.run_root) if _isce2_layout else project.workspace_root
 
         try:
-            dem_file = materialize_dem_for_tops(params["dem_file"], project.workspace_root)
+            dem_root = _isce2_layout.run_root if _isce2_layout else Path(project.workspace_root)
+            dem_file = materialize_dem_for_tops(params["dem_file"], dem_root)
             xml_content = build_topsapp_xml({**params, "dem_file": dem_file})
         except Exception as exc:
             return {"error": "config_generation_failed", "message": str(exc)}
@@ -1691,6 +1850,8 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             run_id=_isce2_layout.run_id,
             run_root=str(_isce2_layout.run_root),
             logs_dir=str(_isce2_layout.logs_dir),
+            tool_name="insar_run_workflow",
+            job_type=f"{project.engine}_{project.workflow}_workflow",
         )
         _logs_dir = _isce2_layout.logs_dir
     else:
@@ -1700,6 +1861,8 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             workflow=project.workflow,
             command=command,
             runconfig_path=str(config_path) if config_path else "",
+            tool_name="insar_run_workflow",
+            job_type=f"{project.engine}_{project.workflow}_workflow",
         )
         _logs_dir = project.logs_dir()
 
@@ -1787,6 +1950,12 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
     # Dispatch to engine-specific run logic
     if project.engine == "isce2":
         return _run_workflow_isce2(project, dry_run)
+    if project.engine == "isce3" and project.workflow == "stack":
+        return {
+            "error": "workflow_not_runnable",
+            "message": "ISCE3 stack projects are managed through insar_prepare_stack, insar_prepare_network, insar_run_batch, and MintPy tools, not insar_run_workflow.",
+            "project_id": project_id,
+        }
 
     # Resolve run layout (enforces workspace_root structure, generates run_id)
     run_layout = _resolve_run_layout(project)
@@ -1797,8 +1966,11 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
         _ensure_project_logging(project)
         _normalize_isce3_output_paths(project)
 
-    _task_dir = (Path(project.workspace_root) / project.task_id) if project.task_id else Path(project.workspace_root)
-    _param_tuned_path = _task_dir / "param_tuned" / "runconfig.yaml"
+    if run_layout is not None:
+        _param_tuned_path = run_layout.param_tuned_dir / "runconfig.yaml"
+    else:
+        _task_dir = (Path(project.workspace_root) / project.task_id) if project.task_id else Path(project.workspace_root)
+        _param_tuned_path = _task_dir / "param_tuned" / "runconfig.yaml"
     _param_tuned_found = _param_tuned_path.exists()
     # Step 1: validate
     errors = validate_runconfig(project.runconfig, project.workflow)
@@ -1852,6 +2024,8 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             logs_dir=str(run_layout.logs_dir),
             metrics_path=str(run_layout.metrics_dir / "product_metrics.json"),
             output_paths=[expected_output],
+            tool_name="insar_run_workflow",
+            job_type=f"{project.engine}_{project.workflow}_workflow",
         )
     else:
         logs_dir = project.logs_dir()
@@ -1862,6 +2036,8 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
             workflow=project.workflow,
             command=command,
             runconfig_path=runconfig_path,
+            tool_name="insar_run_workflow",
+            job_type=f"{project.engine}_{project.workflow}_workflow",
         )
 
     log_path = str(logs_dir / f"{job.job_id}.log")
@@ -1948,6 +2124,8 @@ def insar_get_job(
     work_dir: str = "",
     batch_dir: str = "",
     output_dir: str = "",
+    workspace_root: str = "",
+    task_id: str = "",
     include_logs: bool = False,
 ) -> dict:
     """
@@ -1956,25 +2134,39 @@ def insar_get_job(
     For ISCE3 workflow jobs: provide project_id.
     For MintPy jobs: provide work_dir (the mintpy_work_dir passed to insar_run_mintpy).
     For batch jobs (insar_run_batch): provide batch_dir (the output_dir of prepare_stack/network).
-    For download jobs (insar_download_rslc): provide output_dir.
+    For download/prep jobs: provide workspace_root and task_id; output_dir is accepted only to infer that task context from an outputs/<run_id> path.
 
     Args:
         job_id: Job UUID
         project_id: Parent project UUID (for ISCE3 workflow jobs)
         work_dir: MintPy work directory (for MintPy jobs)
         batch_dir: Batch output directory (for insar_run_batch jobs)
-        output_dir: Download output directory (for insar_download_rslc jobs)
+        output_dir: Download/prep output directory, used only to infer task context
+        workspace_root: Top-level workspace root for task-level background jobs
+        task_id: Workflow task_id for task-level background jobs
         include_logs: If true, include the full log content in the response
     """
-    if output_dir:
-        if not Path(output_dir).exists():
+    if output_dir or (workspace_root and task_id):
+        output_path = Path(output_dir).expanduser() if output_dir else None
+        if output_path is not None and not output_path.exists():
             return {"error": "path_not_found", "message": f"output_dir not found: {output_dir!r}"}
+        job_context = _task_job_context(
+            workspace_root=workspace_root,
+            task_id=task_id,
+            path=output_path,
+        )
+        if job_context is None:
+            return {
+                "error": "missing_task_context",
+                "message": "Provide workspace_root and task_id, or an output_dir under <workspace>/<task_id>/outputs/<run_id>.",
+            }
+        jobs_dir = Path(job_context["jobs_dir"])
         try:
-            dl_job = DownloadJob.load(job_id, output_dir)
+            dl_job = DownloadJob.load(job_id, jobs_dir)
         except ValueError as exc:
             return {"error": "invalid_job_id", "message": str(exc)}
         except FileNotFoundError:
-            return {"error": "job_not_found", "message": f"No download job {job_id!r} in {output_dir!r}"}
+            return {"error": "job_not_found", "message": f"No download/prep job {job_id!r} in {str(jobs_dir)!r}"}
         except Exception as exc:
             return {"error": "load_failed", "message": str(exc)}
 
@@ -2003,7 +2195,7 @@ def insar_get_job(
                 dl_job.status = "failed" if failed else "done"
                 dl_job.finished_at = _utc_now()
                 dl_job.exit_code = 1 if failed else 0
-                dl_job.save()
+                dl_job.save(jobs_dir)
 
         result: dict = {
             "job_id": dl_job.job_id,
@@ -2015,6 +2207,13 @@ def insar_get_job(
             "submitted_at": dl_job.submitted_at,
             "finished_at": dl_job.finished_at,
             "log_path": dl_job.log_path,
+            "task_id": dl_job.task_id,
+            "run_id": dl_job.run_id,
+            "run_root": dl_job.run_root,
+            "tool_name": dl_job.tool_name,
+            "job_type": dl_job.job_type,
+            "output_path": dl_job.output_path,
+            "params_path": dl_job.params_path,
         }
         if include_logs:
             if dl_job.log_path and Path(dl_job.log_path).exists():
@@ -2075,23 +2274,11 @@ def insar_get_job(
                 batch_job.exit_code = 1 if failed else 0
                 batch_job.save()
 
-        # Count completed GUNW products as the authoritative pair progress indicator.
-        # More reliable than grep-counting log lines: SNAPHU runs 3× per pair when
-        # ionosphere correction is enabled (main + two sub-bands), so raw log counts
-        # exceed num_pairs and confuse progress estimation.
-        _runs_dir = Path(batch_job.batch_dir) / "runs"
-        _pairs_complete = (
-            sum(1 for _ in _runs_dir.glob("*/products/*.h5"))
-            if _runs_dir.exists()
-            else 0
-        )
-
         result: dict = {
             "job_id": batch_job.job_id,
             "batch_dir": batch_job.batch_dir,
             "batch_type": batch_job.batch_type,
             "num_pairs": batch_job.num_pairs,
-            "pairs_complete": _pairs_complete,
             "status": batch_job.status,
             "pid": batch_job.pid,
             "exit_code": batch_job.exit_code,
@@ -2100,8 +2287,6 @@ def insar_get_job(
             "finished_at": batch_job.finished_at,
             "log_path": batch_job.log_path,
         }
-        if batch_job.num_pairs and _pairs_complete is not None:
-            result["progress_pct"] = round(100 * _pairs_complete / batch_job.num_pairs)
         if include_logs:
             if batch_job.log_path and Path(batch_job.log_path).exists():
                 result["log_content"] = Path(batch_job.log_path).read_text(errors="replace")
@@ -2383,13 +2568,40 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
 
 # ── Group 5: Stack / Network (M4) ─────────────────────────────────────────────
 
+def _resolve_prepare_output_dir(
+    *,
+    output_dir: str,
+    workspace_root: str,
+    task_id: str,
+    run_id: str,
+    subdir: str,
+) -> tuple[str, RunLayout | None]:
+    if output_dir.strip():
+        return output_dir, None
+    if not workspace_root.strip():
+        raise ValueError("output_dir is required unless workspace_root is provided")
+    layout = RunLayout(
+        workspace_root=workspace_root,
+        task_id=task_id.strip() or "stack-insar-isce3",
+        run_id=run_id.strip() or None,
+    )
+    if subdir == "stack":
+        return str(layout.stack_dir), layout
+    if subdir == "network":
+        return str(layout.network_dir), layout
+    raise ValueError(f"unknown prepare subdir: {subdir!r}")
+
+
 @mcp.tool()
 def insar_prepare_stack(
     data_dir: str,
     base_runconfig: str = "",
     *,
     dem: str,
-    output_dir: str,
+    output_dir: str = "",
+    workspace_root: str = "",
+    task_id: str = "stack-insar-isce3",
+    run_id: str = "",
     reference: str = "auto",
     interaction_mode: str = "interactive",
 ) -> dict:
@@ -2406,29 +2618,48 @@ def insar_prepare_stack(
             When omitted, use the built-in default `insar` template.
         dem: Path to the DEM file to inject into each runconfig.
         output_dir: Directory where runconfigs and runner scripts will be written.
+            If omitted, workspace_root is required and the output directory is derived
+            under workspace_root/task_id/outputs/run_id.
+        workspace_root: Top-level workspace used to derive output_dir when output_dir is empty.
+        task_id: Task directory name for derived output_dir; defaults to stack-insar-isce3.
+        run_id: Optional run id. Pass the same value to stack and network prepare to share a run root.
         reference: Reference scene selector — 'auto' (earliest date), a YYYYMMDD
                    string, or an absolute RSLC file path.
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
+        resolved_output_dir, run_layout = _resolve_prepare_output_dir(
+            output_dir=output_dir,
+            workspace_root=workspace_root,
+            task_id=task_id,
+            run_id=run_id,
+            subdir="stack",
+        )
         result = prepare_stack(
             data_dir=data_dir,
             base_runconfig=base_runconfig or None,
             dem=dem,
-            output_dir=output_dir,
+            output_dir=resolved_output_dir,
             reference=reference,
         )
+        if run_layout is not None:
+            result.update({
+                "task_id": run_layout.task_id,
+                "run_id": run_layout.run_id,
+                "run_root": str(run_layout.run_root),
+                "stack_dir": str(run_layout.stack_dir),
+            })
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
         result["param_tuned_found"] = _param_tuned.exists()
         result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
-        # Warn if output_dir is too shallow for run-root layout
-        _workspace_guess = Path(data_dir).parents[0]
-        _depth_warn = _check_output_dir_depth(output_dir, _workspace_guess, "stack")
-        if _depth_warn:
-            result["layout_warning"] = (
-                _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/stack"
-            )
+        if run_layout is None:
+            _workspace_guess = Path(data_dir).parents[0]
+            _depth_warn = _check_output_dir_depth(resolved_output_dir, _workspace_guess, "stack")
+            if _depth_warn:
+                result["layout_warning"] = (
+                    _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/stack"
+                )
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -2460,7 +2691,10 @@ def insar_prepare_network(
     base_runconfig: str = "",
     *,
     dem: str,
-    output_dir: str,
+    output_dir: str = "",
+    workspace_root: str = "",
+    task_id: str = "stack-insar-isce3",
+    run_id: str = "",
     network_mode: str = "tbase",
     max_temporal_baseline_days: int = 36,
     connection_span: int = 3,
@@ -2481,6 +2715,11 @@ def insar_prepare_network(
             When omitted, use the built-in default `insar` template.
         dem: Path to the DEM file.
         output_dir: Directory where runconfigs and runner scripts will be written.
+            If omitted, workspace_root is required and the output directory is derived
+            under workspace_root/task_id/outputs/run_id.
+        workspace_root: Top-level workspace used to derive output_dir when output_dir is empty.
+        task_id: Task directory name for derived output_dir; defaults to stack-insar-isce3.
+        run_id: Optional run id. Pass the same value to stack and network prepare to share a run root.
         network_mode: 'tbase' — connect pairs within a temporal baseline threshold
                       (uses max_temporal_baseline_days); 'conn' — connect each date
                       to the next N dates (uses connection_span).
@@ -2491,28 +2730,42 @@ def insar_prepare_network(
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
+        resolved_output_dir, run_layout = _resolve_prepare_output_dir(
+            output_dir=output_dir,
+            workspace_root=workspace_root,
+            task_id=task_id,
+            run_id=run_id,
+            subdir="network",
+        )
         result = prepare_network(
             data_dir=data_dir,
             base_runconfig=base_runconfig or None,
             dem=dem,
-            output_dir=output_dir,
+            output_dir=resolved_output_dir,
             network_mode=network_mode,
             max_temporal_baseline_days=max_temporal_baseline_days,
             connection_span=connection_span,
             pair_list=pair_list or None,
         )
+        if run_layout is not None:
+            result.update({
+                "task_id": run_layout.task_id,
+                "run_id": run_layout.run_id,
+                "run_root": str(run_layout.run_root),
+                "network_dir": str(run_layout.network_dir),
+            })
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         result["gunw_pattern"] = f"{result['output_dir']}/runs/*/products/*.h5"
         _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
         result["param_tuned_found"] = _param_tuned.exists()
         result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
-        # Warn if output_dir is too shallow for run-root layout
-        _workspace_guess = Path(data_dir).parents[0]
-        _depth_warn = _check_output_dir_depth(output_dir, _workspace_guess, "network")
-        if _depth_warn:
-            result["layout_warning"] = (
-                _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/network"
-            )
+        if run_layout is None:
+            _workspace_guess = Path(data_dir).parents[0]
+            _depth_warn = _check_output_dir_depth(resolved_output_dir, _workspace_guess, "network")
+            if _depth_warn:
+                result["layout_warning"] = (
+                    _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/network"
+                )
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -3054,7 +3307,7 @@ def insar_plot_baseline(
 @mcp.tool()
 def insar_download_rslc(
     urls: list[str],
-    output_dir: str,
+    output_dir: str = "",
     bbox: list[float] | None = None,
     aoi_path: str = "",
     freq: str = "A",
@@ -3062,6 +3315,9 @@ def insar_download_rslc(
     n_workers: int = 8,
     chunk_rows: int = 256,
     proxy: str | None = None,
+    workspace_root: str = "",
+    task_id: str = "",
+    run_id: str = "",
     confirm: bool = False,
 ) -> dict:
     """Download and bbox-crop NISAR RSLC files from NASA Earthdata (ASF).
@@ -3085,6 +3341,9 @@ def insar_download_rslc(
                     If omitted, the download process inherits current system
                     proxy settings. If provided, it is applied only to this
                     download process.
+        workspace_root: Top-level workspace root for task-level job tracking.
+        task_id:    Workflow task_id for task-level job tracking.
+        run_id:     Optional run identifier used to derive output_dir if omitted.
         confirm:    Set to True to proceed with a full-frame download when
                     neither bbox nor aoi_path is provided. Default False.
 
@@ -3124,6 +3383,24 @@ def insar_download_rslc(
     if not h5_urls:
         return {"error": "invalid_input", "message": "No RSLC .h5 URLs found in the provided list"}
 
+    if not output_dir.strip():
+        if workspace_root.strip() and task_id.strip():
+            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id.strip() or None)
+            output_dir = str(layout.run_root / "rslc")
+        else:
+            return {
+                "error": "missing_input",
+                "message": "Either output_dir or both workspace_root and task_id must be provided.",
+            }
+    output_dir_path = Path(output_dir).expanduser().resolve()
+    output_dir = str(output_dir_path)
+    job_context = _task_job_context(workspace_root=workspace_root, task_id=task_id, path=output_dir_path)
+    if job_context is None:
+        return {
+            "error": "missing_task_context",
+            "message": "Background RSLC downloads must be associated with <workspace>/<task_id>; provide workspace_root and task_id or an output_dir under outputs/<run_id>.",
+        }
+
     params = {
         "urls": h5_urls,
         "bbox": list(resolved_bbox) if resolved_bbox is not None else None,
@@ -3134,9 +3411,17 @@ def insar_download_rslc(
         "chunk_rows": chunk_rows,
         "proxy": proxy,
     }
-    dl_job = DownloadJob(output_dir=output_dir, n_files=len(h5_urls))
+    dl_job = DownloadJob(
+        output_dir=output_dir,
+        n_files=len(h5_urls),
+        task_id=job_context.get("task_id"),
+        run_id=job_context.get("run_id"),
+        run_root=job_context.get("run_root"),
+        tool_name="insar_download_rslc",
+        job_type="rslc_download",
+    )
     job_id = dl_job.job_id
-    logs_dir = Path(output_dir) / ".insar_agent" / "logs"
+    logs_dir = _run_root_logs_dir(output_dir_path) or resolve_plugin_logs_dir(output_dir_path, fallback_root=output_dir_path)
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path_obj = logs_dir / f"nisar_download_{job_id}.log"
     params_path = logs_dir / f"nisar_download_{job_id}_params.json"
@@ -3146,6 +3431,7 @@ def insar_download_rslc(
     params_file = str(params_path)
     runner_file = str(logs_dir / f"nisar_download_{job_id}_run.py")
     dl_job.log_path = log_path
+    dl_job.params_path = params_file
 
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
@@ -3180,7 +3466,7 @@ except Exception as _e:
         return {"error": "launch_failed", "message": str(exc)}
 
     dl_job.pid = proc.pid
-    dl_job.save()
+    dl_job.save(Path(job_context["jobs_dir"]))
 
     return {
         "job_id": job_id,
@@ -3190,7 +3476,11 @@ except Exception as _e:
         "output_dir": output_dir,
         "log_path": log_path,
         "params_path": params_file,
-        "poll": f'insar_get_job(job_id="{job_id}", output_dir="{output_dir}")',
+        "workspace_root": job_context.get("workspace_root"),
+        "task_id": job_context.get("task_id"),
+        "run_id": job_context.get("run_id"),
+        "run_root": job_context.get("run_root"),
+        "poll": _task_job_poll(job_id, job_context),
     }
 
 
@@ -3239,6 +3529,101 @@ def _ensure_isce2_dem_xml(dem_path: Path, log_path: Path) -> str | None:
     return str(xml_path)
 
 
+def _launch_dem_download_background(params: dict) -> dict:
+    output_path = Path(params["output_path"]).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    run_root = infer_run_root(output_path)
+    output_dir = run_root or output_path.parent
+    job_context = _task_job_context(
+        workspace_root=str(params.get("workspace_root") or ""),
+        task_id=str(params.get("task_id") or ""),
+        path=output_path,
+    )
+    if job_context is None:
+        return {
+            "error": "missing_task_context",
+            "message": "Background DEM downloads must be associated with <workspace>/<task_id>; provide workspace_root and task_id or an output_path under outputs/<run_id>.",
+        }
+    logs_dir = _run_root_logs_dir(output_path) or resolve_plugin_logs_dir(output_path, fallback_root=output_path.parent)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    job = DownloadJob(
+        output_dir=str(output_dir),
+        n_files=1,
+        task_id=job_context.get("task_id"),
+        run_id=job_context.get("run_id"),
+        run_root=job_context.get("run_root"),
+        tool_name="insar_download_dem",
+        job_type="dem_download",
+        output_path=str(output_path),
+    )
+    log_path = logs_dir / f"sentinel_dem_{job.job_id}.log"
+    params_path = logs_dir / f"sentinel_dem_{job.job_id}_params.json"
+    runner_path = logs_dir / f"sentinel_dem_{job.job_id}_run.py"
+    params_for_disk = {**params, "background": False}
+    dem_proxy = params_for_disk.pop("proxy", None)
+    params_for_disk["proxy"] = None
+    params_path.write_text(json.dumps(params_for_disk, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    src_dir = str(Path(__file__).resolve().parent.parent.parent)
+    runner_script = f"""\
+import json
+import os
+import sys
+import traceback
+sys.path.insert(0, {src_dir!r})
+from insar_agent.mcp.server import insar_download_dem
+
+with open({str(params_path)!r}, encoding="utf-8") as _f:
+    _params = json.load(_f)
+_dem_proxy = os.environ.get("INSAR_AGENT_DEM_PROXY")
+if _dem_proxy is not None:
+    _params["proxy"] = _dem_proxy
+
+try:
+    _result = insar_download_dem(**_params)
+    if isinstance(_result, dict) and _result.get("error"):
+        print("ERROR: " + json.dumps(_result, ensure_ascii=False), flush=True)
+    else:
+        print(json.dumps({{"status": "done", "result": _result}}, ensure_ascii=False), flush=True)
+except Exception as _exc:
+    print(json.dumps({{"status": "failed", "error": str(_exc), "traceback": traceback.format_exc()}}, ensure_ascii=False), flush=True)
+"""
+    runner_path.write_text(runner_script, encoding="utf-8")
+    log_path.touch()
+    job.log_path = str(log_path)
+    job.params_path = str(params_path)
+
+    try:
+        with open(log_path, "w", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                [sys.executable, str(runner_path)],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=_conda_safe_env({"INSAR_AGENT_DEM_PROXY": str(dem_proxy)} if dem_proxy is not None else None),
+                start_new_session=True,
+            )
+    except Exception as exc:
+        return {"error": "launch_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
+
+    job.pid = proc.pid
+    job.save(Path(job_context["jobs_dir"]))
+    return {
+        "job_id": job.job_id,
+        "status": "running",
+        "pid": proc.pid,
+        "output_path": str(output_path),
+        "output_dir": str(output_dir),
+        "n_files": job.n_files,
+        "log_path": str(log_path),
+        "params_path": str(params_path),
+        "workspace_root": job_context.get("workspace_root"),
+        "task_id": job_context.get("task_id"),
+        "run_id": job_context.get("run_id"),
+        "run_root": job_context.get("run_root"),
+        "poll": _task_job_poll(job.job_id, job_context, include_logs=True),
+    }
+
+
 @mcp.tool()
 def insar_download_dem(
     output_path: str = "",
@@ -3251,26 +3636,41 @@ def insar_download_dem(
     dem_type: str | None = None,
     workspace_root: str = "",
     task_id: str = "",
+    run_id: str = "",
+    background: bool = False,
 ) -> dict:
     """Download a DEM covering the given bbox or AOI file.
 
     Args:
         output_path: Destination path for the downloaded DEM.  When omitted,
-            defaults to ``<workspace_root>/<task_id>/dem/<source>_dem.tif``
+            defaults under ``<workspace_root>/<task_id>/outputs/<run_id>/dem/``
             if workspace_root and task_id are provided.
         workspace_root: Top-level workspace root.  Used only to derive the
             default output_path when output_path is omitted.
         task_id: Workflow task_id (e.g. ``"d-insar-isce3"``).  Used only to
             derive the default output_path when output_path is omitted.
+        run_id: Optional run identifier used with workspace_root/task_id.
+        background: If true, launch the DEM download as a background job and poll with insar_get_job.
     """
     if not output_path.strip():
         if workspace_root.strip() and task_id.strip():
-            output_path = str(Path(workspace_root) / task_id / "dem" / f"{source}_dem.tif")
+            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id.strip() or None)
+            output_path = str(layout.dem_dir / f"{source}_dem.tif")
+            workspace_root = str(layout.workspace_root)
+            task_id = layout.task_id
+            run_id = layout.run_id
         else:
             return {
                 "error": "missing_input",
                 "message": "Either output_path or both workspace_root and task_id must be provided.",
             }
+    else:
+        output_path, workspace_root, task_id, run_id = _normalize_task_root_output(
+            output_path,
+            workspace_root=workspace_root,
+            task_id=task_id,
+            run_id=run_id,
+        )
 
     try:
         resolved_bbox = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
@@ -3281,6 +3681,21 @@ def insar_download_dem(
     except Exception as exc:
         return {"error": "bbox_failed", "message": str(exc)}
 
+    if background:
+        return _launch_dem_download_background({
+            "output_path": output_path,
+            "bbox": list(resolved_bbox),
+            "aoi_path": "",
+            "source": source,
+            "margin_deg": margin_deg,
+            "proxy": proxy,
+            "backend": backend,
+            "dem_type": dem_type,
+            "workspace_root": workspace_root,
+            "task_id": task_id,
+            "run_id": run_id,
+        })
+
     params = {
         "output_path": output_path,
         "bbox": list(bbox) if bbox is not None else None,
@@ -3290,6 +3705,7 @@ def insar_download_dem(
         "proxy": proxy,
         "backend": backend,
         "dem_type": dem_type,
+        "run_id": run_id,
     }
     _, log_path, params_path = _prepare_tool_log(
         [output_path, aoi_path],
@@ -3410,16 +3826,20 @@ def insar_download_dem(
                 "params_path": str(params_path),
             }
 
-        return {
-            "output_path": str(output),
-            "source": isce2_dem_type,
-            "bbox": list(resolved_bbox),
-            "backend": backend,
-            "command": command,
-            "log": messages,
-            "log_path": str(log_path),
-            "params_path": str(params_path),
-        }
+        return _with_task_root_guard(
+            {
+                "output_path": str(output),
+                "source": isce2_dem_type,
+                "bbox": list(resolved_bbox),
+                "backend": backend,
+                "command": command,
+                "log": messages,
+                "log_path": str(log_path),
+                "params_path": str(params_path),
+            },
+            workspace_root=workspace_root,
+            task_id=task_id,
+        )
 
     try:
         result = download_dem(
@@ -3456,7 +3876,7 @@ def insar_download_dem(
         result["isce_xml_path"] = isce_xml_path
     result["log_path"] = str(log_path)
     result["params_path"] = str(params_path)
-    return result
+    return _with_task_root_guard(result, workspace_root=workspace_root, task_id=task_id)
 
 
 # ── New tools: Sentinel download, S1 metadata, environment check ───────────────
@@ -3467,6 +3887,7 @@ def insar_download_scene(
     output_dir: str,
     n_workers: int = 4,
     proxy: str | None = None,
+    overwrite: bool = False,
 ) -> dict:
     """
     Download Sentinel-1 or Sentinel-2 scene files (ZIP/SAFE) from provided URLs.
@@ -3482,14 +3903,14 @@ def insar_download_scene(
         proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
                     If omitted, inherits current system proxy settings.
                     Use "direct" or "none" to bypass environment proxies.
+        overwrite:  If true, re-download even when the destination file exists.
+                    Existing partial ``.part`` files are discarded first.
 
     Returns:
         {ok: [{url, path, size_mb}], failed: [{url, error}], output_dir}
     """
     import concurrent.futures
-    import http.cookiejar
-    import netrc
-    import urllib.request
+    from urllib.parse import urlparse
 
     out_dir = Path(output_dir)
     try:
@@ -3499,87 +3920,140 @@ def insar_download_scene(
 
     direct_proxy_values = {"direct", "none", "off", "false", "no_proxy", "no-proxy"}
     proxy_mode = proxy.strip().lower() if proxy else None
-    try:
-        netrc_credentials = netrc.netrc()
-    except (FileNotFoundError, netrc.NetrcParseError):
-        netrc_credentials = None
-
-    def _netrc_credentials(host: str | None) -> tuple[str, str] | None:
-        if netrc_credentials is None:
-            return None
-        normalized_host = host.lower() if host else None
-        authenticators = None
-        if normalized_host:
-            authenticators = netrc_credentials.authenticators(normalized_host)
-        if not authenticators and normalized_host and normalized_host.endswith(".asf.alaska.edu"):
-            authenticators = netrc_credentials.authenticators("urs.earthdata.nasa.gov")
-        if not authenticators:
-            return None
-        login, account, password = authenticators
-        username = login or account
-        if not username or not password:
-            return None
-        return username, password
-
     def _downloaded_file_error(path: Path) -> str | None:
         data = path.read_bytes()[:512]
         stripped = data.lstrip().lower()
-        if stripped.startswith(b"<html") or b"asf-urs" in stripped:
+        if stripped.startswith((b"<html", b"<!doctype html")) or b"asf-urs" in stripped:
             return "download returned an HTML login page instead of data"
         suffix = path.suffix.lower()
         if suffix in {".tif", ".tiff"} and not (data.startswith(b"II*\x00") or data.startswith(b"MM\x00*")):
             return "downloaded TIFF does not have a TIFF header"
         if suffix == ".xml" and not (stripped.startswith(b"<burst") or stripped.startswith(b"<?xml")):
             return "downloaded XML does not have an XML/burst header"
+        if suffix == ".xml":
+            from xml.etree import ElementTree as ET
+
+            try:
+                ET.parse(path)
+            except ET.ParseError as exc:
+                return f"downloaded XML is not well-formed: {exc}"
         return None
 
+    def _download_with_curl(url: str, dest: Path) -> dict:
+        if shutil.which("curl") is None:
+            return {"url": url, "error": "curl executable not found"}
+        tmp_path = dest.with_suffix(dest.suffix + ".part")
+
+        def _last_http_status(header_path: Path) -> int | None:
+            if not header_path.exists():
+                return None
+            statuses = []
+            for line in header_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if line.startswith("HTTP/"):
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1].isdigit():
+                        statuses.append(int(parts[1]))
+            return statuses[-1] if statuses else None
+
+        def _keep_chunk_progress(chunk_path: Path, existing_size: int, status: int | None) -> None:
+            if not chunk_path.exists() or chunk_path.stat().st_size == 0:
+                return
+            if existing_size and status == 206:
+                with tmp_path.open("ab") as target, chunk_path.open("rb") as chunk:
+                    shutil.copyfileobj(chunk, target)
+            elif status == 200:
+                chunk_path.replace(tmp_path)
+
+        last_error = "curl download failed"
+        for attempt in range(1, 6):
+            cookie_path = Path(tempfile.gettempdir()) / f"insar_asf_cookies_{uuid.uuid4().hex}.txt"
+            header_path = Path(tempfile.gettempdir()) / f"insar_asf_headers_{uuid.uuid4().hex}.txt"
+            chunk_path = tmp_path.with_name(f"{tmp_path.name}.{uuid.uuid4().hex}.chunk")
+            existing_size = tmp_path.stat().st_size if tmp_path.exists() else 0
+            command = [
+                "curl",
+                "--fail",
+                "--location",
+                "--netrc",
+                "--cookie-jar",
+                str(cookie_path),
+                "--cookie",
+                str(cookie_path),
+                "--connect-timeout",
+                "30",
+                "--speed-time",
+                "120",
+                "--speed-limit",
+                "1024",
+                "--dump-header",
+                str(header_path),
+                "--output",
+                str(chunk_path),
+            ]
+            if existing_size:
+                command.extend(["--range", f"{existing_size}-"])
+            if proxy_mode in direct_proxy_values:
+                command.extend(["--noproxy", "*"])
+            elif proxy:
+                command.extend(["--proxy", proxy])
+            command.append(url)
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=None)
+                status = _last_http_status(header_path)
+                if result.returncode != 0:
+                    last_error = result.stderr.strip() or result.stdout.strip() or "curl download failed"
+                    _keep_chunk_progress(chunk_path, existing_size, status)
+                    continue
+                if existing_size and status == 206:
+                    _keep_chunk_progress(chunk_path, existing_size, status)
+                elif existing_size and status == 200:
+                    _keep_chunk_progress(chunk_path, existing_size, status)
+                elif existing_size:
+                    last_error = f"curl resume returned HTTP status {status or 'unknown'}"
+                    continue
+                else:
+                    chunk_path.replace(tmp_path)
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            finally:
+                cookie_path.unlink(missing_ok=True)
+                header_path.unlink(missing_ok=True)
+                chunk_path.unlink(missing_ok=True)
+            if attempt < 5:
+                time.sleep(2)
+        else:
+            return {"url": url, "error": last_error}
+
+        try:
+            tmp_path.replace(dest)
+            file_error = _downloaded_file_error(dest)
+            if file_error:
+                dest.unlink(missing_ok=True)
+                return {"url": url, "error": file_error}
+            return {"url": url, "path": str(dest), "size_mb": round(dest.stat().st_size / 1024 / 1024, 2)}
+        except Exception as exc:
+            return {"url": url, "error": str(exc)}
+
     def _download_one(url: str) -> dict:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        rel_path = parsed.path.lstrip("/").split("?")[0] or f"scene_{uuid.uuid4().hex[:8]}"
+        rel_path = urlparse(url).path.lstrip("/").split("?")[0] or f"scene_{uuid.uuid4().hex[:8]}"
         dest = out_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
-            existing_error = _downloaded_file_error(dest)
-            if existing_error is None:
+            existing_error = None if overwrite else _downloaded_file_error(dest)
+            if not overwrite and existing_error is None:
                 size_mb = round(dest.stat().st_size / 1024 / 1024, 2)
                 return {"url": url, "path": str(dest), "size_mb": size_mb, "skipped": True}
             dest.unlink()
-        try:
-            handlers = []
-            if proxy_mode in direct_proxy_values:
-                handlers.append(urllib.request.ProxyHandler({}))
-            elif proxy:
-                handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
-            auth = _netrc_credentials(parsed.hostname)
-            if auth:
-                username, password = auth
-                cookie_jar = http.cookiejar.CookieJar()
-                handlers.append(urllib.request.HTTPCookieProcessor(cookie_jar))
-                password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-                auth_uris = ["https://urs.earthdata.nasa.gov/", "urs.earthdata.nasa.gov"]
-                if parsed.hostname:
-                    auth_uris.extend([f"{parsed.scheme}://{parsed.hostname}/", parsed.hostname])
-                password_mgr.add_password(None, auth_uris, username, password)
-                handlers.append(urllib.request.HTTPBasicAuthHandler(password_mgr))
-            opener = urllib.request.build_opener(*handlers)
-            with opener.open(url, timeout=120) as response, dest.open("wb") as fh:
-                shutil.copyfileobj(response, fh)
-            if dest.exists():
-                file_error = _downloaded_file_error(dest)
-                if file_error:
-                    dest.unlink(missing_ok=True)
-                    return {"url": url, "error": file_error}
-                return {"url": url, "path": str(dest),
-                        "size_mb": round(dest.stat().st_size / 1024 / 1024, 2)}
-            return {"url": url, "error": "file not created after download"}
-        except Exception as exc:
-            return {"url": url, "error": str(exc)}
+            if overwrite:
+                dest.with_suffix(dest.suffix + ".part").unlink(missing_ok=True)
+        return _download_with_curl(url, dest)
 
     _, log_path, params_path = _prepare_tool_log(
         [output_dir],
         "sentinel_scene",
-        {"urls": urls, "output_dir": output_dir, "n_workers": n_workers, "proxy": proxy},
+        {"urls": urls, "output_dir": output_dir, "n_workers": n_workers, "proxy": proxy, "overwrite": overwrite},
         fallback_root=Path(output_dir).expanduser().parent,
     )
     ok: list[dict] = []
@@ -3652,9 +4126,27 @@ def insar_describe_s1(zip_path: str) -> dict:
 def _launch_sentinel_prepare_background(params: dict) -> dict:
     root = Path(params["project_root"]).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
-    logs_dir = resolve_plugin_logs_dir(root, fallback_root=root)
+    job_context = _task_job_context(
+        workspace_root=str(params.get("workspace_root") or ""),
+        task_id=str(params.get("task_id") or ""),
+        path=root,
+    )
+    if job_context is None:
+        return {
+            "error": "missing_task_context",
+            "message": "Background Sentinel preparation must be associated with <workspace>/<task_id>; provide workspace_root and task_id or a project_root under outputs/<run_id>.",
+        }
+    logs_dir = _run_root_logs_dir(root) or resolve_plugin_logs_dir(root, fallback_root=root)
     logs_dir.mkdir(parents=True, exist_ok=True)
-    job = DownloadJob(output_dir=str(root), n_files=len(params.get("source_paths") or []))
+    job = DownloadJob(
+        output_dir=str(root),
+        n_files=len(params.get("source_paths") or []),
+        task_id=job_context.get("task_id"),
+        run_id=job_context.get("run_id"),
+        run_root=job_context.get("run_root"),
+        tool_name="insar_prepare_sentinel_data",
+        job_type="sentinel_prepare",
+    )
     log_path = logs_dir / f"sentinel_prepare_{job.job_id}.log"
     params_path = logs_dir / f"sentinel_prepare_{job.job_id}_params.json"
     runner_path = logs_dir / f"sentinel_prepare_{job.job_id}_run.py"
@@ -3675,6 +4167,9 @@ from insar_agent.mcp.server import insar_download_dem
 
 with open({str(params_path)!r}, encoding="utf-8") as _f:
     _params = json.load(_f)
+_params.pop("workspace_root", None)
+_params.pop("task_id", None)
+_params.pop("run_id", None)
 _orbit_password = os.environ.get("INSAR_AGENT_ORBIT_PASSWORD")
 if _orbit_password is not None:
     _params["orbit_password"] = _orbit_password
@@ -3687,6 +4182,7 @@ except Exception as _exc:
 """
     runner_path.write_text(runner_script, encoding="utf-8")
     job.log_path = str(log_path)
+    job.params_path = str(params_path)
 
     env_overrides = {"INSAR_AGENT_ORBIT_PASSWORD": str(orbit_password)} if orbit_password else None
     try:
@@ -3702,7 +4198,7 @@ except Exception as _exc:
         return {"error": "launch_failed", "message": str(exc), "log_path": str(log_path), "params_path": str(params_path)}
 
     job.pid = proc.pid
-    job.save()
+    job.save(Path(job_context["jobs_dir"]))
     return {
         "job_id": job.job_id,
         "status": "running",
@@ -3711,7 +4207,11 @@ except Exception as _exc:
         "n_files": job.n_files,
         "log_path": str(log_path),
         "params_path": str(params_path),
-        "poll": f'insar_get_job(job_id="{job.job_id}", output_dir="{root}")',
+        "workspace_root": job_context.get("workspace_root"),
+        "task_id": job_context.get("task_id"),
+        "run_id": job_context.get("run_id"),
+        "run_root": job_context.get("run_root"),
+        "poll": _task_job_poll(job.job_id, job_context),
     }
 
 
@@ -3720,6 +4220,7 @@ def insar_prepare_sentinel_data(
     project_root: str = "",
     workspace_root: str = "",
     task_id: str = "",
+    run_id: str = "",
     mode: str = "auto",
     aoi_path: str | None = None,
     bbox: list[float] | None = None,
@@ -3752,23 +4253,48 @@ def insar_prepare_sentinel_data(
 
     Args:
         project_root: Output directory for prepared SAFE data.  When omitted,
-            defaults to ``<workspace_root>/<task_id>/prep`` if workspace_root
-            and task_id are provided.
+            defaults under ``<workspace_root>/<task_id>/outputs/<run_id>/prep``
+            if workspace_root and task_id are provided.
         workspace_root: Top-level workspace root.  Used only to derive the
             default project_root when project_root is omitted.
         task_id: Workflow task_id (e.g. ``"d-insar-isce2"``).  Used only to
             derive the default project_root when project_root is omitted.
+        run_id: Optional run identifier used with workspace_root/task_id.
     """
     if not project_root.strip():
         if workspace_root.strip() and task_id.strip():
-            project_root = str(Path(workspace_root) / task_id / "prep")
+            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id.strip() or None)
+            project_root = str(layout.run_root / "prep")
+            workspace_root = str(layout.workspace_root)
+            task_id = layout.task_id
+            run_id = layout.run_id
         else:
             return {
                 "error": "missing_input",
                 "message": "Either project_root or both workspace_root and task_id must be provided.",
             }
+    else:
+        project_root, workspace_root, task_id, run_id = _normalize_task_root_output(
+            project_root,
+            workspace_root=workspace_root,
+            task_id=task_id,
+            run_id=run_id,
+            leaf="prep",
+        )
+
+    if dem_output_path is not None and dem_output_path.strip():
+        dem_output_path, workspace_root, task_id, run_id = _normalize_task_root_output(
+            dem_output_path,
+            workspace_root=workspace_root,
+            task_id=task_id,
+            run_id=run_id,
+        )
+
     params = {
         "project_root": project_root,
+        "workspace_root": workspace_root,
+        "task_id": task_id,
+        "run_id": run_id,
         "mode": mode,
         "aoi_path": aoi_path,
         "bbox": bbox,
@@ -3793,7 +4319,7 @@ def insar_prepare_sentinel_data(
         return _launch_sentinel_prepare_background(params)
 
     try:
-        return prepare_sentinel_data(
+        result = prepare_sentinel_data(
             project_root=project_root,
             mode=mode,
             aoi_path=aoi_path,
@@ -3816,6 +4342,7 @@ def insar_prepare_sentinel_data(
             validate_isce2_import=validate_isce2_import,
             dem_downloader=insar_download_dem,
         )
+        return _with_task_root_guard(result, workspace_root=workspace_root, task_id=task_id)
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
     except FileExistsError as exc:

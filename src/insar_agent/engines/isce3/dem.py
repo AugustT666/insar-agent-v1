@@ -120,9 +120,14 @@ def download_dem(
     proxy_keys = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")
     old_proxy_env = {k: os.environ.get(k) for k in proxy_keys}
     if proxy is not None:
-        for k in proxy_keys:
-            os.environ[k] = proxy
-        proxy_info = f"proxy override: {proxy}"
+        if proxy.strip().lower() in {"", "direct", "none"}:
+            for k in proxy_keys:
+                os.environ.pop(k, None)
+            proxy_info = "proxy: disabled"
+        else:
+            for k in proxy_keys:
+                os.environ[k] = proxy
+            proxy_info = f"proxy override: {proxy}"
     else:
         proxy_info = "proxy: system settings"
 

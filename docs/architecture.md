@@ -1,186 +1,278 @@
 # Architecture
 
-`insar-agent` is an MCP-first InSAR orchestration project. Its job is to turn real processing knowledge into a compact tool surface for agent clients while keeping domain logic reusable and host-agnostic. It supports a dual-engine design, orchestrating both NISAR (ISCE3) and Sentinel-1 (ISCE2) processing graphs.
+## 系统总览
 
-## System Layers
+insar-agent 是一个 Python 包，通过 MCP stdio 服务器向 AI agent 客户端（Claude Code、Codex 等）暴露 NISAR/Sentinel-1 InSAR 处理能力。agent 只通过 MCP 工具与系统交互，不直接执行 conda/Python 命令。
 
-```text
-User / AI Model
-  -> Agent Client (Claude Code, OpenCode, etc.)
-  -> Plugin Skills & Subagents (Advisory & Workflow Routing)
-  -> MCP Tools / Resources / Prompts
-  -> insar_agent.mcp (FastMCP stdio server)
-  -> insar_agent.core (Protocol-agnostic project/job models)
-  ├──> insar_agent.engines.isce3 (NISAR execution)
-  └──> insar_agent.engines.isce2 (Sentinel-1 execution)
-  -> insar_agent.runtime (Workspace, logging, env detection)
-  -> Local Conda Environments / External Processors
+## 层次结构
+
+```
+Agent Client (Claude Code / Codex / etc.)
+  ↓  MCP stdio 协议  ↓
+insar_agent.mcp           # FastMCP stdio 服务器 — 仅负责工具/资源/prompt 注册
+insar_agent.core          # 协议无关层：Project, Job, BatchJob, config, session
+insar_agent.engines.isce3 # NISAR/ISCE3 适配器：adapter, validator, runner, stack,
+                          #   network, dem, bbox, geotiff, rslc_metadata, mintpy,
+                          #   param_advisor, baseline, aoi, download
+insar_agent.engines.isce2 # Sentinel-1/ISCE2 适配器：adapter, runner, sentinel_prep,
+                          #   stack, stack_runtime, mintpy, param_advisor, validator,
+                          #   defaults
+insar_agent.runtime       # 工作区布局、conda 环境检测、日志
+  ↓  conda run  ↓
+本地 conda 环境           # isce3, isce3gpu, isce2, mintpy, …
 ```
 
-### Responsibility Split
+**关键分层原则：**
+- 协议无关逻辑属于 `core/` 和 `engines/`
+- MCP 绑定（`@mcp.tool()`、`@mcp.resource()`、`@mcp.prompt()`）仅在 `mcp/server.py` 中
+- 引擎函数只处理已验证输入；文件存在性、路径合法性等边界检查在 MCP 层完成
 
-#### `insar_agent.mcp`
-- Owns the FastMCP stdio server entry point.
-- Registers tools, resources, and prompts.
-- Delegates all domain logic to `core`, `engines`, and `runtime`.
-- Carries no workflow-specific business logic beyond orchestration wiring.
+---
 
-#### `insar_agent.core`
-- Protocol-agnostic persistence for projects, configs, sessions, and jobs.
-- Shared by CLI and MCP entry points.
-- Defines the unified `Job` model used by single-pair, batch, and MintPy flows across all engines.
+## 核心数据模型
 
-#### `insar_agent.engines` (Dual-Engine)
-- **`isce3`**: NISAR specific behavior. Default runconfig loading, workflow command construction, stack/network generation, GeoTIFF export, and RSLC metadata summarization.
-- **`isce2`**: Sentinel-1 specific behavior. Sentinel data preparation, ISCE2 topsStack launch support, and Sentinel-1 metadata summarization.
-- Both engines support MintPy launch configuration tailored to their outputs.
+### Project
 
-#### `insar_agent.runtime`
-- Workspace layout definitions.
-- Conda environment execution and detection (`conda run`).
-- Process logging and exit-code capture helpers.
+持久化路径：`{workspace_root}/.insar_agent/project.json`
 
-#### Plugin Skill Layer & Subagents
-- Workflow narrative, tool routing, and constraints live in the `skills/` directory as Markdown documents.
-- Parameter advisory logic delegates to `insar-agent-plugin:param-advisor` subagent to prevent context pollution in the main conversation.
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `project_id` | UUID str | 全局唯一标识 |
+| `engine` | str | `"isce3"` 或 `"isce2"` |
+| `workflow` | str | `"insar"` / `"gslc"` (isce3) 或 `"tops"` / `"stack"` (isce2) |
+| `workspace_root` | str | 绝对路径 |
+| `conda_env` | str | conda 环境名 |
+| `task_id` | str | 由 engine+workflow 推导，如 `"d-insar-isce3"` |
+| `runconfig` | dict | 当前活动配置（ISCE3 YAML 结构或 ISCE2 平坦参数字典） |
+| `runconfig_template` | dict | 未修改的模板副本，用于重置和差分 |
+| `runconfig_exported_path` | str | 最后一次导出的 YAML 路径 |
 
-## MCP Tool Design Principles
+ISCE3 runconfig 是嵌套 YAML 结构（`runconfig.groups.*`）。ISCE2 是平坦键值字典（`reference_safe`, `dem_file`, `do_esd` 等）。
 
-MCP tool count directly affects agent decision depth — fewer, more semantic tools mean faster decisions and shorter task chains.
+### Job
 
-1. **数量优先**：每个新能力首先问"能否扩展现有工具"，不能才增加新工具。
-2. **合并同概念操作**：同一概念的读/写/删不超过 2 个工具，能合并参数就不拆工具。
-3. **顺序必然的步骤合并**：如 validate → export → run 必然顺序执行，合并为一个工具，内部串联。
-4. **统一 Job 模型**：任何新 workflow 类型必须复用标准 `Job` dataclass 和 `project_id` 索引，禁止创建平行的状态追踪机制。
-5. **小而美**：工具语义清晰、职责单一；优先精简，非必要不新增；必要时可新增（有明确职责边界即合理）。
+持久化路径：`{workspace_root}/{task_id}/.insar_agent/jobs/{job_id}.json`
 
-## MCP Surface
+| 字段 | 说明 |
+|------|------|
+| `job_id` | 12 位 hex UUID |
+| `status` | `running` / `done` / `failed` |
+| `pid` | 后台进程 PID |
+| `exit_code` | shell 退出码（由 `.exitcode` 文件读取） |
+| `log_path` | `{logs_dir}/{job_id}.log` |
+| `exit_code_path` | `{logs_dir}/{job_id}.exitcode` |
+| `task_id`, `run_id`, `run_root` | 运行布局感知字段 |
+| `submitted_at`, `started_at`, `finished_at` | ISO 8601 时间戳 |
 
-The source MCP registration surface exposes **24 tools**, 2 resources, and 2 prompts. The `--describe` summary is synchronized with that surface, including `insar_export_runconfig` and `insar_run_mintpy_isce2`.
+### BatchJob
 
-### Resources
-- `insar://workflow-guide`
-- `insar://allowed-fields/{workflow}`
+持久化路径：`{batch_dir}/.insar_agent/jobs/{job_id}.json`
 
-### Prompts
-- `process_insar_pair`
-- `process_insar_batch`
+与 Job 类似，但面向批处理场景，额外记录 `batch_dir`、`batch_type`（`"stack"` 或 `"network"`）、`num_pairs`。
 
-### Tools (24 Total)
+### DownloadJob
 
-Full signatures, parameters, and return structures are in `docs/developer-documents/mcp-tools.md`.
+持久化路径：`{workspace}/{task_id}/.insar_agent/jobs/{job_id}.json`
 
-**Discovery**
-- `insar_discover` — List available engines (no args), or list supported workflows for a specific engine.
-- `insar_check_env` — Inspect conda environments, MCP registration status, and skill plugin installation. Read-only; never modifies the environment.
+跟踪后台下载/数据准备任务（RSLC、DEM、Sentinel-1 场景）。
 
-**Project**
-- `insar_create_project` — Create a new project, initialize its workspace directory, and load the default runconfig template for the chosen engine/workflow. Returns `project_id` and the list of required path fields.
-- `insar_get_project` — Return project metadata, current runconfig key list, and latest job status.
+---
 
-**Config**
-- `insar_get_runconfig` — Return the current project runconfig as JSON (default) or YAML.
-- `insar_set_runconfig_value` — Set or remove one runconfig field by dotted path (e.g. `runconfig.groups.worker.gpu_enabled`). Pass `value=null` to restore the template default.
-- `insar_set_processing_param` — Apply a whitelist-controlled processing parameter (multilook, filter mode, unwrap settings, atmospheric correction flags). Enforces type, range, and enum constraints. Intended to be called after `param-advisor` produces a confirmed recommendation — not for free-form YAML editing.
-- `insar_export_runconfig` — Render the current runconfig to a YAML file on disk. Not required in the normal launch path because `insar_run_workflow` does this automatically; useful for manual review or parameter-tuning snapshots.
+## 工作区布局
 
-**Execution**
-- `insar_run_workflow` — Validate runconfig, export YAML, and launch the engine workflow in one step. Returns `job_id` and a poll hint. Replaces the former separate validate and export steps.
-- `insar_get_job` — Query status (running / done / failed) for any job type. Pass exactly one of `project_id` (ISCE3 workflow), `work_dir` (MintPy), or `batch_dir` (batch). Set `include_logs=true` to receive log content inline.
-- `insar_list_outputs` — List output artifacts produced by a completed job, including artifact type and recommended viewer.
+### 单对 D-InSAR（Path A）
 
-**Stack / Batch**
-- `insar_prepare_stack` — Generate single-reference ISCE3 runconfigs for all secondary scenes in an RSLC directory (Layer 1 of the two-layer batch workflow). Outputs `run_all.sh`, `run_parallel.sh`, and a `stack_manifest.csv`.
-- `insar_prepare_network` — Generate interferogram-network runconfigs from an RSLC directory using `tbase` (temporal baseline threshold), `conn` (fixed neighbor span), or a custom pair list (Layer 2). Outputs per-pair runconfigs and a `pairs_selected.txt`.
-- `insar_run_batch` — Launch a prepared stack or network by executing the generated `run_parallel.sh` (or `run_all.sh`) as a background process. Returns immediately with `job_id`; poll via `insar_get_job(batch_dir=...)`.
-
-**Time-series**
-- `insar_run_mintpy` — Asynchronously launch MintPy time-series analysis for a completed ISCE3/GUNW interferogram network. Wraps the proven `run_mintpy_nisar_stack.sh` pipeline: common-mask → `reference_point` → re-mask → `correct_unwrap_error`.
-- `insar_run_mintpy_isce2` — Asynchronously launch MintPy for a completed ISCE2/topsStack Sentinel-1 working directory. Runs `prep_isce.py` first to prepare `.rsc` metadata, then calls `smallbaselineApp.py --end velocity`.
-- `insar_plot_baseline` — Generate a spatiotemporal baseline network plot (PNG + PDF) and pair/scene CSV files from completed GUNW products. Acts as a mandatory human review gate before MintPy in `interactive` mode.
-
-**Data / NISAR**
-- `insar_describe_rslc` — Summarize NISAR RSLC metadata (sensor, band, polarizations, orbit, bbox, temporal baseline) for metadata-first parameter advisory. Designed to be called inside the `param-advisor` skill before the subagent generates a recommendation.
-- `insar_download_rslc` — Download and bbox-crop NISAR RSLC files from a list of URLs. Accepts an explicit bbox or an AOI file; runs as a background job and returns a log path.
-- `insar_download_dem` — Download a Copernicus 30 m DEM tile mosaic for a given bbox or AOI. Returns the merged GeoTIFF path and tile URLs used.
-
-**Data / Sentinel**
-- `insar_describe_s1` — Read Sentinel-1 SAFE or ZIP metadata (mode, polarizations, relative orbit, pass direction, bbox) for ISCE2 parameter advisory and scene pairing.
-- `insar_download_scene` — Download Sentinel-1 SAFE/ZIP files from a list of direct URLs. Used when the user does not yet have local SAFE/ZIP inputs; if inputs already exist, go straight to `insar_prepare_sentinel_data`.
-- `insar_prepare_sentinel_data` — Organize Sentinel-1 SAFE/ZIP inputs, orbit files, and DEM into the directory structure expected by ISCE2. Supports optional orbit download and AOI-based DEM preparation.
-
-**Export**
-- `insar_export_geotiff` — Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images for all spatial datasets in the file. Writes output under `<output_dir>/browse/`.
-
-## Execution Modes
-
-### Path A: D-InSAR (Single Pair)
-1. `insar_create_project`
-2. `insar_set_runconfig_value`
-3. Parameter tuning consultation:
-   - NISAR/ISCE3: `param-advisor` skill → calls `insar_describe_rslc` → delegates to `param-advisor` subagent.
-   - Sentinel/ISCE2: `param-advisor` skill → calls `insar_describe_s1` → delegates to `param-advisor` subagent.
-4. `insar_set_processing_param`
-5. `insar_run_workflow`
-6. `insar_get_job`
-7. `insar_list_outputs`
-
-### Path B: Stack InSAR (Batch / Time Series)
-1. `insar_prepare_stack`
-2. `insar_prepare_network`
-3. `insar_run_batch`
-4. Poll `insar_get_job`
-5. `insar_run_mintpy` (ISCE3/GUNW) or `insar_run_mintpy_isce2` (ISCE2/topsStack)
-6. Poll `insar_get_job`
-
-## Parameter Optimization Boundary
-
-Parameter optimization is intentionally split between the MCP server and the host agent's plugin contract:
-
-- `skills/param-advisor/SKILL.md` gathers evidence and handles user confirmation for both engines.
-- `insar-agent-plugin:param-advisor` subagent produces the structured recommendation package using historical templates and advisory heuristics.
-- `insar_set_processing_param` acts as the strict MCP enforcement layer, applying only whitelist-controlled changes.
-
-This keeps detailed reasoning out of the main conversation while preserving a visible diff-and-confirmation step for the user. The plugin contract owns advisory reasoning and user-facing confirmation flow, while the MCP contract stays focused on validated execution and state mutation.
-
-## Planned Plugin Evolution
-
-The current `skills/insar-agent/SKILL.md` router is a Markdown skill and therefore a soft client-side constraint. A planned direction is to promote it into a real plugin agent entry point that injects session-level prompts, routing rules, runtime bootstrap requirements, and MCP resource preload instructions automatically when the AI connects to the plugin. The existing skill should remain as readable documentation and a compatibility layer; the dedicated `param-advisor` subagent should remain responsible only for advisory packages.
-
-## Core Data Model
-
-All domain objects are defined in `src/insar_agent/core/`.
-
-- **Project** — one processing workspace + runconfig state. Persisted at `{workspace_root}/.insar_agent/project.json`.
-- **Job** — one `insar_run_workflow` execution. Persisted at `{workspace_root}/.insar_agent/jobs/{job_id}.json`. `insar_get_job` uses an exit-code sidecar for finalization; falls back to log heuristics if unavailable.
-- **BatchJob** — one async `run_parallel.sh` execution. Persisted at `{batch_dir}/.insar_agent/jobs/{job_id}.json`.
-- **WorkflowTemplate** — in-memory description of a supported engine workflow.
-- **Artifact** — output metadata returned by `insar_list_outputs`.
-
-## Workspace Layout
-
-```text
-workspace_root/
+```
+{workspace_root}/
   .insar_agent/
     project.json
-    jobs/
-      {job_id}.json
-  configs/
-    runconfig.yaml
-  logs/
-    {job_id}.log
-    {job_id}.exitcode
-  outputs/
-    {job_id}/
-      *.h5
-      *.tif
-      *.png
+  {task_id}/                          # e.g. d-insar-isce3, d-insar-isce2
+    .insar_agent/
+      jobs/                           # Job JSON 文件
+    outputs/
+      {run_id}/                       # 自动生成的 UUID，每次 insar_run_workflow 一个
+        configs/                      # 导出的 runconfig.yaml
+        products/                     # GUNW .h5 等产品
+        scratch/                      # ISCE3 临时文件
+        logs/                         # {job_id}.log, {job_id}.exitcode
+        qa/
+        param_tuned/                  # param-advisor 输出快照
+        metrics/
 ```
 
-Batch and MintPy jobs keep state beside their own output roots:
+### 批处理 Stack + Network（Path B）
 
-```text
-batch_dir/.insar_agent/jobs/{job_id}.json
-mintpy_work_dir/.jobs/{job_id}.json
-mintpy_work_dir/logs/{job_id}.log
 ```
+{output_dir}/                         # batch_dir
+  runconfigs/                         # 每个干涉对一个 YAML
+  runs/{date1}_{date2}/
+    products/
+    scratch/
+    logs/
+  run_all.sh                          # 串行执行脚本
+  run_parallel.sh                     # 并行执行脚本
+  stack_manifest.csv                  # reference/secondary/runconfig 索引
+  pair_lists/
+    pairs_selected.txt                # YYYYMMDD_YYYYMMDD，每行一个
+  .insar_agent/
+    jobs/                             # BatchJob JSON 文件
+```
+
+---
+
+## MCP 接口层
+
+MCP server 通过 FastMCP 注册三类对象：
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| **Tools** | 25 | AI 可调用的操作；全部 `@mcp.tool()` |
+| **Resources** | 2 | 只读文档，agent 在处理任务前加载 |
+| **Prompts** | 2 | 预填路径的引导式任务模板 |
+
+详细规范见 [developer-documents/MCP-tools.md](developer-documents/MCP-tools.md)。
+
+### Resources
+
+- `insar://workflow-guide` — 主路由 skill 内容（读取 `skills/insar-agent/SKILL.md`，由该 skill 统一维护路由、硬约束与参数顾问入口）
+- `insar://allowed-fields/{workflow}` — 指定工作流可写字段的动态列表
+
+### Prompts
+
+- `process_insar_pair` — 单对 RSLC ISCE3 处理的 8 步引导模板
+- `process_insar_batch` — 批处理 stack + network 准备的 2 步引导模板
+
+---
+
+## 引擎启动机制
+
+两个引擎均通过 `_launch_detached_shell_job()` 以 **nohup 方式脱离会话**启动：
+
+```python
+launcher = (
+    f"nohup bash -lc {shlex.quote(shell_command)} "
+    f"> {shlex.quote(log_path)} 2>&1 < /dev/null & "
+    "printf '%s\\n' \"$!\""
+)
+```
+
+shell_command 内部包含 exit code 持久化逻辑：
+```bash
+<engine_cmd>; status=$?; printf '%s' "$status" > <job_id>.exitcode; exit $status
+```
+
+| 引擎 | 命令格式 |
+|------|---------|
+| ISCE3 | `conda run -n {env} --no-capture-output python -m nisar.workflows.{workflow} {runconfig.yaml}` |
+| ISCE2 tops | `conda run -n {env} ... topsApp.py [--dostep esd]`（以 `topsApp.xml` 为配置） |
+| ISCE2 stack | `conda run -n {env} ... stackSentinel.py {args}`（参数直接传 CLI） |
+
+---
+
+## 进程状态检测（三级降级）
+
+`_refresh_workflow_job_status()` 在每次 `insar_get_job` 调用时执行：
+
+```
+1. exitcode 文件（最可靠）
+   └── {job_id}.exitcode 由 shell wrapper 原子写入
+       exit 0 → done，非 0 → failed
+
+2. PID 存活检查
+   ├── os.kill(pid, 0) — 无权限说明进程存在
+   └── /proc/{pid}/status 中 State 含 "Z" → 僵尸进程，视为结束
+
+3. 日志末 80 行扫描（兜底）
+   ├── WORKFLOW_LOG_FAILURE_PATTERNS：error:, Traceback, Exception:, Killed
+   ├── WORKFLOW_LOG_FAILURE_SUBSTRINGS：environmentlocationnotfound, condaerror, …
+   └── WORKFLOW_LOG_SUCCESS_MARKERS：workflow finished successfully, …
+```
+
+ISCE2 stack 额外要求日志中出现成功标记（`requires_success_marker=True`），因为 stackSentinel.py 多步骤运行 exit 0 不等于全部完成。
+
+---
+
+## Skill 系统与 MCP 的关系
+
+Skills 位于 `skills/` 目录，打包为 Claude Code 插件（`insar-agent-plugin@insar-agent`）。
+
+```
+CLAUDE.md（应用节）
+  → 调用 insar-agent-plugin:insar-agent skill
+    → skills/insar-agent/SKILL.md（路由层）
+      Session Bootstrap:
+        1. readMcpResource("insar://workflow-guide") — 加载硬约束
+        2. 收集 engine/环境等跨切面信息
+      Workflow Routing:
+        → d-insar-isce3 / stack-insar-isce3 / d-insar-isce2 / stack-insar-isce2
+          → 调用 insar_* MCP 工具执行
+      Parameter Advisory:
+        → param-advisor skill
+          → insar-agent-plugin:param-advisor subagent
+            → insar_describe_rslc / insar_describe_s1
+            → insar_set_processing_param（用户确认后）
+            → insar_record_param_advice（存档）
+```
+
+**约束层级：**
+```
+insar-agent skill（会话引导 + 路由）
+  → 工作流 skills（步骤排序 + 交互门控）
+    → param-advisor skill（参数建议编排）
+      → param-advisor subagent（建议生成，仅顾问角色）
+        → MCP server 白名单 + 验证器（硬性执行）
+```
+
+MCP 工具不验证 skill 委派链路是否被遵守——它只校验参数更新本身。
+
+---
+
+## 参数白名单机制
+
+### 路径类字段（`insar_set_runconfig_value`）
+
+由 `engines/isce3/defaults.py::ALLOWED_SET_FIELDS` 和 `engines/isce2/defaults.py::ALLOWED_SET_FIELDS` 按 workflow 维护允许列表。未在列表中的键返回 `key_not_allowed`。
+
+### 处理参数（`insar_set_processing_param`）
+
+由 YAML 注册表文件维护：
+- `engines/isce3/assets/processing_params_insar.yaml`
+- `engines/isce2/assets/processing_params_tops.yaml` / `processing_params_stack.yaml`
+
+每条注册表项包含：`key`, `label`, `type`, `valid_values`/`valid_range`/`list_shape`, `risk_level`, `depends_on`。`justification` 字段不能为空或模糊（如 `"better performance"`）——空/模糊字符串会被拒绝。
+
+---
+
+## 处理路径速览
+
+| 路径 | 场景 | 核心工具序列 |
+|------|------|-------------|
+| **Path A — 单对 D-InSAR（ISCE3）** | 单 RSLC 对 → GUNW | `create_project` → `set_runconfig_value`×N → `[param-advisor]` → `run_workflow` → `get_job`(poll) → `list_outputs` |
+| **Path A — 单对 D-InSAR（ISCE2）** | 单 S1 对 → 干涉图 | `create_project` → `set_processing_param`×N → `run_workflow` → `get_job`(poll) |
+| **Path B — 批处理（ISCE3）** | 多 RSLC → 干涉图网络 | `prepare_stack` → `run_batch` → `prepare_network` → `run_batch` → `plot_baseline` → `run_mintpy` |
+| **Path B — 时序（ISCE2）** | S1 stack → 形变时序 | `create_project`(stack) → `run_workflow` → `run_mintpy_isce2` |
+
+---
+
+## 测试
+
+```bash
+pytest                                # 默认套件，排除 real_data 标记
+pytest -m real_data tests/integration # 真实数据测试（需手动选择）
+pytest --cov=src --cov-report=term-missing  # 覆盖率
+```
+
+测试分布：
+- `tests/unit/` — 单元测试（不需要 conda 环境或真实数据）
+- `tests/integration/` — 集成测试，标记 `real_data`
+
+---
+
+## 知识库来源
+
+| 目录 | 内容 |
+|------|------|
+| `docs/archive/knowledge-base/tianxiaolong/` | 工作流约束、runconfig 模板、DEM/GeoTIFF 脚本 |
+| `docs/archive/knowledge-base/wangshuai/` | stack/network 准备、MintPy 时序、基线可视化脚本 |
+
+引擎层模块保留了上述脚本的核心逻辑，移除了 argparse/sys.argv 入口，改为函数参数；原始文件只做存档。

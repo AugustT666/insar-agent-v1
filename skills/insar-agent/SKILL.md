@@ -25,7 +25,12 @@ use `insar_*` MCP tools for execution.
 - Set path-type runconfig fields through `insar_set_runconfig_value`. Set core
   processing parameters through the `param-advisor` flow and
   `insar_set_processing_param`.
-- For long-running jobs, prefer one-shot self-paced background monitoring: choose the wait interval from current workflow evidence, call Bash with `run_in_background=true`, and on wake use `insar_get_job` plus the explicit log path to report progress without blocking the session.
+- For long-running jobs, use the `poll` call returned by the MCP tool, or call
+  `insar_get_job` with the returned job id and context. If you need to wait, use
+  only a bounded one-shot sleep and then poll the MCP tool again. Do not create
+  Bash PID monitors, `kill -0` loops, `tail -f` loops, or other shell status
+  checkers; zombie child processes can make PID-based monitors hang after the
+  MCP job has actually finished.
 - Do not invent workflow parameters when reference material is incomplete. Ask
   the user or collect metadata through `insar_describe_rslc` /
   `insar_describe_s1`.
@@ -35,19 +40,13 @@ use `insar_*` MCP tools for execution.
 Before routing into an execution workflow, collect only the cross-cutting session
 facts that are missing for the requested workflow:
 
-1. Read the MCP resource `insar://workflow-guide` to load hard workflow
-   constraints. Call `insar_check_env` first to get the correct `mcp.server_name`,
-   then pass it to `readMcpResource`. Both `uri` and `server` are required:
-   `readMcpResource(uri="insar://workflow-guide", server=<mcp.server_name>)`.
-   If `insar_check_env` is unavailable, use `plugin:insar-agent-plugin:insar-mcp-server`
-   (colons, not underscores) as the fallback server name.
-2. For ISCE3 execution, use the environment specified by the task/user; if none
+1. For ISCE3 execution, use the environment specified by the task/user; if none
    is specified, ask which ISCE3 environment to use (`isce3`, `isce3gpu`, or a
    project-specific name).
-3. For MintPy, use workflow-specific defaults when available. In particular,
+2. For MintPy, use workflow-specific defaults when available. In particular,
    ISCE2/topsStack MintPy defaults to `isce2` unless the task/user overrides it;
    ISCE3 MintPy should use a dedicated MintPy environment with `numpy<2`.
-4. Ask whether the user has an approved base runconfig template path only for
+3. Ask whether the user has an approved base runconfig template path only for
    workflows that need one and do not already have a default.
 
 Defer these questions when the user only wants documentation, architecture review,

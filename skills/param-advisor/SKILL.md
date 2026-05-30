@@ -161,9 +161,11 @@ subagent 返回内容至少应包含：
 2. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 3. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 4. **落盘（防重复调优）：**
-   - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<workspace_root>/param_tuned")`
-     → 保存为 `<workspace_root>/param_tuned/runconfig.yaml`
+   - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<current_run_root>/param_tuned")`
+     → `<current_run_root>` 必须来自本轮 `insar_run_workflow(project_id, dry_run=True)` 返回的 `run_root`，或当前 runconfig 的 product/scratch/log 路径反推出的 run-root
+     → 保存为 `<workspace>/<task_id>/outputs/<run_id>/param_tuned/runconfig.yaml`
      → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
+     → 禁止写到 `<workspace_root>/param_tuned` 或 `<workspace>/<task_id>/param_tuned`
    - **ISCE3 Path B**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
      → 此后 `insar_prepare_stack` / `insar_prepare_network` 返回 `param_tuned_found: true`
      和 `param_tuned_base_runconfig` 路径

@@ -1,6 +1,8 @@
 """Tests for MCP Resources, Prompts, and tool return fields."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from insar_agent.mcp.server import (
@@ -18,6 +20,9 @@ from insar_agent.mcp.server import (
 )
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 # ── Resources ─────────────────────────────────────────────────────────────────
 
 def test_workflow_guide_is_string():
@@ -26,29 +31,30 @@ def test_workflow_guide_is_string():
     assert len(guide) > 100
 
 
-def test_workflow_guide_mentions_hard_constraints():
+def test_workflow_guide_is_main_router_skill():
     guide = get_workflow_guide()
-    assert "Hard constraints" in guide
-    assert "key_not_allowed" in guide
+    router_skill = (REPO_ROOT / "skills" / "insar-agent" / "SKILL.md").read_text(encoding="utf-8")
+    assert guide == router_skill
 
 
 def test_workflow_guide_mentions_skills():
     guide = get_workflow_guide()
-    # Guide should point to skills as the guidance source
+    assert "# insar-agent — Main InSAR Workflow Entry Skill" in guide
     assert "skill" in guide.lower()
+    assert "Workflow Routing" in guide
     assert "param-advisor" in guide
 
 
-def test_workflow_guide_has_error_codes():
+def test_workflow_guide_mentions_hard_constraints():
     guide = get_workflow_guide()
+    assert "Hard Constraints" in guide
     assert "key_not_allowed" in guide
-    assert "path_not_found" in guide
-    assert "runconfig_invalid" in guide
 
 
-def test_workflow_guide_has_allowed_fields_resource():
+def test_allowed_fields_resource_is_separate_from_workflow_guide():
     guide = get_workflow_guide()
-    assert "allowed-fields" in guide
+    assert "insar://allowed-fields" not in guide
+    assert "reference_rslc_file" in get_allowed_fields("insar")
 
 
 def test_allowed_fields_insar():

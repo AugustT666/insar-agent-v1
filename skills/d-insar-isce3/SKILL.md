@@ -5,8 +5,10 @@ description: >
   RSLC files into a GUNW interferogram product. Invoke when the user provides reference and secondary RSLC
   paths, mentions D-InSAR, interferogram, coherence map, unwrapped phase, GUNW, or
   asks to "process a pair". Also invoke when the user has finished data preparation
-  and has two RSLC files ready. If the DEM or RSLC files are missing, invoke
-  `data-prep` first.
+  and has two RSLC files ready. If RSLC files are missing, invoke `data-prep` first;
+  if only the DEM is missing, derive the RSLC bbox first, then use only MCP `insar_download_dem`.
+  If DEM download stalls on inherited proxies, retry via MCP with `source="srtm_c"`, `proxy=""`,
+  and `background=True`, or stop and report the blocker.
 version: 0.1.0
 ---
 
@@ -16,27 +18,28 @@ version: 0.1.0
 
 - Reference RSLC path (`.h5`)
 - Secondary RSLC path (`.h5`)
-- DEM path (`.tif`) — if missing, invoke `data-prep` first
+- DEM path (`.tif`) — if missing, derive the RSLC bbox first, then prepare it with `insar_download_dem(background=True)`
 - Workspace / output directory (absolute path)
 - Conda environment name — use the value from the project instructions or `insar_check_env`;
   do not run shell commands to inspect conda environments.
 
 ## Execution modes
 
-- Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
+- Check the current workspace `CLAUDE.md` first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
 - Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
-- **interactive**: At Step 2.5, pause and ask the user whether to run param-advisor (engine=isce3).
+- **interactive**: At Step 4, pause and ask the user whether to run param-advisor (engine=isce3).
   Wait for confirmation before proceeding.
-- **auto**: At Step 2.5, automatically enter param-advisor (engine=isce3) without asking.
+- **auto**: At Step 4, automatically enter param-advisor (engine=isce3) without asking.
   Skip only if the user has explicitly said to use default parameters.
 
 ## Hard constraints
 
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
+- Do not use shell commands to download, rebuild, copy, or patch DEM/science inputs; if an MCP download path fails, retry with MCP parameters or stop and report the blocker.
 - If workflow parameters are unclear, ask the user — do not invent them.
 - Core processing parameters (multilook, filtering, unwrapping, thresholds) cannot be changed
   through `insar_set_runconfig_value`. If the user wants to tune them, this workflow must
-  invoke `param-advisor (engine=isce3)` **between Step 2 and Step 3** (after setting paths,
+  invoke `param-advisor (engine=isce3)` **between Step 3 and Step 5** (after setting paths,
   before launch).
 - Always start from the default runconfig template — `insar_create_project` loads it automatically.
 - If `insar_set_runconfig_value` returns `key_not_allowed`, do NOT attempt workarounds. Tell the
@@ -52,16 +55,31 @@ version: 0.1.0
    ```
    Save the returned `project_id`. The response also includes `required_fields`.
 
-2. **Set required path fields** (6 calls via `insar_set_runconfig_value`)
+2. **Set RSLC paths and derive DEM bbox**
 
-   Use these exact dotted-key names:
+   Set the RSLC paths before any DEM download:
 
    - Reference RSLC: `runconfig.groups.input_file_group.reference_rslc_file`
    - Secondary RSLC: `runconfig.groups.input_file_group.secondary_rslc_file`
+
+   Then call `insar_describe_rslc(reference_rslc=<reference>, secondary_rslc=<secondary>, project_id=<project_id>)` and save `pair_metadata.union_bbox` as `dem_bbox` in this order: `[min_lon, min_lat, max_lon, max_lat]`.
+   If `union_bbox` is missing or invalid, stop and report the metadata error; do **not** call `insar_download_dem` without a bbox or AOI.
+
+3. **Prepare DEM without blocking MCP, then set remaining fields**
+
+   If the DEM path is missing, call `insar_download_dem(bbox=<dem_bbox>, workspace_root=<workspace>, task_id=<task_id from the current workspace instructions>, background=True)`. If the current workspace instructions do not provide a task_id, stop and ask; do not invent one.
+   Save `job_id`, `output_dir`, `output_path`, and the returned `poll` instruction from the `insar_download_dem` response. Poll with `insar_get_job(job_id=<job_id>, output_dir=<output_dir>, include_logs=True)` until `status` is `done` or `failed`; only if `status` is `done`, use the saved `output_path` as the DEM path.
+   If the DEM job fails or stalls because the inherited system proxy is slow/broken, retry only through MCP, e.g. `insar_download_dem(bbox=<dem_bbox>, workspace_root=<workspace>, task_id=<task_id>, source="srtm_c", proxy="", background=True)`. `proxy=""` means direct/no inherited proxy.
+   If MCP DEM retries fail, summarize the log and stop; do not continue to param-advisor or workflow launch with a missing DEM.
+   If polling times out but MCP job output or MCP-returned logs show that a DEM file exists under the DEM job output directory, reuse it only after `insar_get_job` or logs show successful completion. If logs are unavailable or inconclusive, stop and report a blocker; do not restart the same long synchronous download and do not hand-build a DEM with shell commands.
+
+   Set these exact dotted-key names when applicable:
+
    - DEM: `runconfig.groups.dynamic_ancillary_file_group.dem_file`
-   - Output directory: `runconfig.groups.product_path_group.product_path`
-   - Scratch directory: `runconfig.groups.product_path_group.scratch_path`
-   - Output filename: `runconfig.groups.product_path_group.sas_output_file`
+   - GPU enabled: `runconfig.groups.worker.gpu_enabled`
+   - GPU device ID: `runconfig.groups.worker.gpu_id`
+   - Log path: `runconfig.groups.logging.path`
+   - Water mask: `runconfig.groups.dynamic_ancillary_file_group.water_mask_file`
 
    **Run-root layout (mandatory for all runs):**
    - `workspace_root` must be the integration workspace root, NOT a task or run subdirectory.
@@ -73,21 +91,14 @@ version: 0.1.0
    - The returned `run_root` shows the exact output directory for this run.
    - **Never** set `workspace_root` to a task or run subdirectory.
 
-   Optional exact dotted-key names:
-
-   - GPU enabled: `runconfig.groups.worker.gpu_enabled`
-   - GPU device ID: `runconfig.groups.worker.gpu_id`
-   - Log path: `runconfig.groups.logging.path`
-   - Water mask: `runconfig.groups.dynamic_ancillary_file_group.water_mask_file`
-
-2.5. **参数调优**
+4. **参数调优**
 
    收到 `PARAM_ADVISOR_PROMPT` 后，先调用 `insar_run_workflow(project_id, dry_run=True)`
    获取 `param_tuned_found` 和 `param_tuned_config` 字段：
 
    - **若 `param_tuned_found: true`**：
      - interactive：提示用户"已有已优化参数文件（`param_tuned_config`），是否复用？"，等待确认后复用或重新调优
-     - auto：直接复用，跳过调优，继续 Step 3
+     - auto：直接复用，跳过调优，继续 Step 5
    - **若 `param_tuned_found: false`**，根据 interaction_mode 决策：
 
    **interactive 模式：** 询问用户是否进入参数调优，等待确认后再继续。
@@ -105,36 +116,33 @@ version: 0.1.0
    - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置
    - **落盘**：调优完成后 `insar_record_param_advice` 自动写入 `<run_root>/param_advisor/recommendation.json`
-   完成后继续 Step 3。
+   完成后继续 Step 5。
 
-3. **Run workflow**
+5. **Run workflow**
    ```
    insar_run_workflow(project_id)
    ```
    This call already validates and exports the YAML before launch. Save the returned `job_id`
    and `log_path`. Tell the user the log path so they can monitor
-   real-time ISCE3 output if desired:
-   ```bash
-   tail -f <log_path>
-   ```
+   real-time ISCE3 output themselves if desired; do not run shell monitoring commands directly.
    The response also includes a `poll` field with the exact call to use.
 
-4. **Poll status** — call `insar_get_job(job_id, project_id)` every ~30 s until
+6. **Poll status** — call `insar_get_job(job_id, project_id)` every ~30 s until
    `status` is `done` or `failed`.
 
-5. **If failed — read logs**
+7. **If failed — read logs**
    ```
    insar_get_job(job_id, project_id, include_logs=True)
    ```
    Summarize the key error lines. Suggest path-only fixes. For whitelist-controlled
    processing issues, re-enter `param-advisor (engine=isce3)`.
 
-6. **List outputs**
+8. **List outputs**
    ```
    insar_list_outputs(job_id, project_id)
    ```
 
-7. **Export GeoTIFF (optional)** — if the user wants raster visualization:
+9. **Export GeoTIFF (optional)** — if the user wants raster visualization:
    ```
    insar_export_geotiff(h5_path=<GUNW .h5 path>, output_dir=<run_root>)
    ```

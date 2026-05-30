@@ -83,6 +83,8 @@ def test_record_param_advice_writes_json_and_markdown_under_product_path(tmp_pat
     assert "param_advisor" in json_path.parts
     # New layout: param_advisor is under workspace/<task_id>/outputs/<run_id>/param_advisor/
     assert json_path.is_relative_to(workspace / "d-insar-isce3" / "outputs")
+    assert not (workspace / "d-insar-isce3" / "param_advisor").exists()
+    assert not (workspace / "d-insar-isce3" / "param_tuned").exists()
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["format_version"] == "param-advisor.v1"
     assert data["recommendation_package"]["external_context"]["study_area_name"] == "Afar Rift"
@@ -118,7 +120,7 @@ def test_record_param_advice_rejects_output_dir_outside_workspace(tmp_path):
     assert not outside.exists()
 
 
-def test_record_param_advice_sanitizes_task_id_fallback(tmp_path):
+def test_record_param_advice_prefers_project_task_id_over_label(tmp_path):
     workspace = tmp_path / "workspace"
     result = insar_create_project(engine="isce3", workflow="insar", workspace_root=str(workspace))
 
@@ -131,5 +133,6 @@ def test_record_param_advice_sanitizes_task_id_fallback(tmp_path):
     assert "error" not in record
     advice_dir = Path(record["advice_dir"])
     assert advice_dir.resolve().is_relative_to(workspace.resolve())
+    assert advice_dir.is_relative_to(workspace / "d-insar-isce3" / "outputs")
     assert ".." not in advice_dir.parts
-    assert "../evil task" not in str(advice_dir)
+    assert "evil" not in str(advice_dir)

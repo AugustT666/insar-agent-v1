@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
-import io
 import json
 import subprocess
 import zipfile
@@ -923,24 +922,21 @@ def test_insar_download_scene_writes_plugin_log_to_workspace_root(tmp_path):
 
 def test_insar_download_scene_direct_proxy_disables_environment_proxies(tmp_path, monkeypatch):
     (tmp_path / ".insar_logs").mkdir()
-    captured_handlers = []
+    captured_commands = []
 
-    class FakeResponse(io.BytesIO):
-        def __enter__(self):
-            return self
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
 
-        def __exit__(self, exc_type, exc, tb):
-            self.close()
+    def fake_run(command, capture_output, text, timeout):
+        captured_commands.append(command)
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00fake")
+        return FakeCompleted()
 
-    class FakeOpener:
-        def open(self, url, timeout=None):
-            return FakeResponse(b"II*\x00fake")
-
-    def fake_build_opener(*handlers):
-        captured_handlers.append(handlers)
-        return FakeOpener()
-
-    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     result = insar_download_scene(
         urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
@@ -951,33 +947,29 @@ def test_insar_download_scene_direct_proxy_disables_environment_proxies(tmp_path
 
     assert "error" not in result
     assert result["failed"] == []
-    assert captured_handlers
-    proxy_handler = next(handler for handler in captured_handlers[0] if getattr(handler, "proxies", None) == {})
-    assert proxy_handler.proxies == {}
+    assert captured_commands
+    assert "--noproxy" in captured_commands[0]
+    assert "*" in captured_commands[0]
     assert Path(result["ok"][0]["path"]).relative_to(tmp_path / "downloads") == Path("scene/IW2/VV/0.tiff")
 
 
 def test_insar_download_scene_omitted_proxy_inherits_environment_proxies(tmp_path, monkeypatch):
     (tmp_path / ".insar_logs").mkdir()
-    captured_handlers = []
+    captured_commands = []
 
-    class FakeResponse(io.BytesIO):
-        def __enter__(self):
-            return self
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
 
-        def __exit__(self, exc_type, exc, tb):
-            self.close()
+    def fake_run(command, capture_output, text, timeout):
+        captured_commands.append(command)
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00fake")
+        return FakeCompleted()
 
-    class FakeOpener:
-        def open(self, url, timeout=None):
-            return FakeResponse(b"II*\x00fake")
-
-    def fake_build_opener(*handlers):
-        captured_handlers.append(handlers)
-        return FakeOpener()
-
-    monkeypatch.setattr("netrc.netrc", lambda: (_ for _ in ()).throw(FileNotFoundError()))
-    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     result = insar_download_scene(
         urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
@@ -987,36 +979,27 @@ def test_insar_download_scene_omitted_proxy_inherits_environment_proxies(tmp_pat
 
     assert "error" not in result
     assert result["failed"] == []
-    assert captured_handlers == [()]
+    assert "--noproxy" not in captured_commands[0]
+    assert "--proxy" not in captured_commands[0]
 
 
-def test_insar_download_scene_uses_earthdata_netrc_for_asf_burst_host(tmp_path, monkeypatch):
+def test_insar_download_scene_uses_curl_for_downloads(tmp_path, monkeypatch):
     (tmp_path / ".insar_logs").mkdir()
-    captured_handlers = []
+    captured_commands = []
 
-    class FakeNetrc:
-        def authenticators(self, host):
-            if host == "urs.earthdata.nasa.gov":
-                return ("earthdata-user", None, "earthdata-password")
-            return None
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
 
-    class FakeResponse(io.BytesIO):
-        def __enter__(self):
-            return self
+    def fake_run(command, capture_output, text, timeout):
+        captured_commands.append(command)
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00fake")
+        return FakeCompleted()
 
-        def __exit__(self, exc_type, exc, tb):
-            self.close()
-
-    class FakeOpener:
-        def open(self, url, timeout=None):
-            return FakeResponse(b"II*\x00fake")
-
-    def fake_build_opener(*handlers):
-        captured_handlers.append(handlers)
-        return FakeOpener()
-
-    monkeypatch.setattr("netrc.netrc", lambda: FakeNetrc())
-    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     result = insar_download_scene(
         urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
@@ -1025,67 +1008,271 @@ def test_insar_download_scene_uses_earthdata_netrc_for_asf_burst_host(tmp_path, 
         proxy="direct",
     )
 
-    assert "error" not in result
     assert result["failed"] == []
-    assert any(type(handler).__name__ == "HTTPBasicAuthHandler" for handler in captured_handlers[0])
+    assert captured_commands[0][:4] == ["curl", "--fail", "--location", "--netrc"]
+    assert "--cookie-jar" in captured_commands[0]
+    assert "--cookie" in captured_commands[0]
+    assert "--retry-all-errors" not in captured_commands[0]
+    assert "--continue-at" not in captured_commands[0]
+    assert "--dump-header" in captured_commands[0]
+    assert "--speed-time" in captured_commands[0]
+    assert Path(result["ok"][0]["path"]).read_bytes().startswith(b"II*\x00")
 
 
-def test_insar_download_scene_does_not_send_earthdata_netrc_to_non_asf_host(tmp_path, monkeypatch):
+def test_insar_download_scene_resumes_via_chunk_without_shrinking_part(tmp_path, monkeypatch):
     (tmp_path / ".insar_logs").mkdir()
-    captured_handlers = []
+    captured_commands = []
 
-    class FakeNetrc:
-        def authenticators(self, host):
-            if host == "urs.earthdata.nasa.gov":
-                return ("earthdata-user", None, "earthdata-password")
-            return None
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
 
-    class FakeResponse(io.BytesIO):
-        def __enter__(self):
-            return self
+    existing = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff.part"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"II*\x00partial")
+    existing_size = existing.stat().st_size
 
-        def __exit__(self, exc_type, exc, tb):
-            self.close()
+    def fake_run(command, capture_output, text, timeout):
+        captured_commands.append(command)
+        output = Path(command[command.index("--output") + 1])
+        header = Path(command[command.index("--dump-header") + 1])
+        header.write_text("HTTP/2 206\n", encoding="utf-8")
+        output.write_bytes(b"-rest")
+        return FakeCompleted()
 
-    class FakeOpener:
-        def open(self, url, timeout=None):
-            return FakeResponse(b"II*\x00fake")
-
-    def fake_build_opener(*handlers):
-        captured_handlers.append(handlers)
-        return FakeOpener()
-
-    monkeypatch.setattr("netrc.netrc", lambda: FakeNetrc())
-    monkeypatch.setattr("urllib.request.build_opener", fake_build_opener)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     result = insar_download_scene(
-        urls=["https://example.test/scene/IW2/VV/0.tiff"],
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
         output_dir=str(tmp_path / "downloads"),
         n_workers=1,
         proxy="direct",
     )
 
-    assert "error" not in result
     assert result["failed"] == []
-    assert not any(type(handler).__name__ == "HTTPBasicAuthHandler" for handler in captured_handlers[0])
+    assert "--range" in captured_commands[0]
+    assert captured_commands[0][captured_commands[0].index("--range") + 1] == f"{existing_size}-"
+    final = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff"
+    assert final.read_bytes() == b"II*\x00partial-rest"
+
+
+def test_insar_download_scene_keeps_partial_chunk_after_transient_curl_failure(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    captured_ranges = []
+
+    class FakeCompleted:
+        def __init__(self, returncode: int, stderr: str = ""):
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = stderr
+
+    existing = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff.part"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"II*\x00partial")
+
+    def fake_run(command, capture_output, text, timeout):
+        if "--range" in command:
+            captured_ranges.append(command[command.index("--range") + 1])
+        output = Path(command[command.index("--output") + 1])
+        header = Path(command[command.index("--dump-header") + 1])
+        header.write_text("HTTP/2 206\n", encoding="utf-8")
+        if len(captured_ranges) == 1:
+            output.write_bytes(b"-chunk")
+            return FakeCompleted(56, "curl: (56) Recv failure")
+        output.write_bytes(b"-rest")
+        return FakeCompleted(0)
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert result["failed"] == []
+    assert captured_ranges == ["11-", "17-"]
+    final = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff"
+    assert final.read_bytes() == b"II*\x00partial-chunk-rest"
+
+
+def test_insar_download_scene_does_not_use_absolute_transfer_timeout(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    captured = {}
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, capture_output, text, timeout):
+        captured["command"] = command
+        captured["timeout"] = timeout
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00fake")
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert result["failed"] == []
+    assert "--max-time" not in captured["command"]
+    assert captured["timeout"] is None
+    assert "--speed-time" in captured["command"]
+
+
+def test_insar_download_scene_rejects_html_login_page(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, capture_output, text, timeout):
+        output = Path(command[command.index("--output") + 1])
+        output.write_text("<html><title>ASF-URS | Logged in</title></html>", encoding="utf-8")
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert result["ok"] == []
+    assert "HTML login page" in result["failed"][0]["error"]
+    assert not (tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff").exists()
+
+
+def test_insar_download_scene_redownloads_truncated_existing_xml(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    existing = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.xml"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("<?xml version='1.0'?><burst>", encoding="utf-8")
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, capture_output, text, timeout):
+        output = Path(command[command.index("--output") + 1])
+        output.write_text("<?xml version='1.0'?><burst />", encoding="utf-8")
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.xml"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert result["failed"] == []
+    assert existing.read_text(encoding="utf-8").endswith("<burst />")
+
+
+def test_insar_download_scene_removes_existing_html_login_page(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    existing = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("<html><title>ASF-URS | Logged in</title></html>", encoding="utf-8")
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, capture_output, text, timeout):
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00fake")
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+    )
+
+    assert result["failed"] == []
+    assert existing.read_bytes().startswith(b"II*\x00")
+
+
+def test_insar_download_scene_overwrite_redownloads_existing_tiff(tmp_path, monkeypatch):
+    (tmp_path / ".insar_logs").mkdir()
+    existing = tmp_path / "downloads" / "scene" / "IW2" / "VV" / "0.tiff"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"II*\x00old-truncated")
+    part = existing.with_suffix(existing.suffix + ".part")
+    part.write_bytes(b"stale-part")
+    captured_commands = []
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, capture_output, text, timeout):
+        captured_commands.append(command)
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00new-complete")
+        return FakeCompleted()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = insar_download_scene(
+        urls=["https://sentinel1-burst.asf.alaska.edu/scene/IW2/VV/0.tiff"],
+        output_dir=str(tmp_path / "downloads"),
+        n_workers=1,
+        proxy="direct",
+        overwrite=True,
+    )
+
+    assert result["failed"] == []
+    assert captured_commands
+    assert "--range" not in captured_commands[0]
+    assert existing.read_bytes() == b"II*\x00new-complete"
+    assert not part.exists()
 
 
 def test_insar_download_scene_redacts_proxy_in_params_log(tmp_path, monkeypatch):
     (tmp_path / ".insar_logs").mkdir()
 
-    class FakeResponse(io.BytesIO):
-        def __enter__(self):
-            return self
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
 
-        def __exit__(self, exc_type, exc, tb):
-            self.close()
+    def fake_run(command, capture_output, text, timeout):
+        output = Path(command[command.index("--output") + 1])
+        output.write_bytes(b"II*\x00fake")
+        return FakeCompleted()
 
-    class FakeOpener:
-        def open(self, url, timeout=None):
-            return FakeResponse(b"II*\x00fake")
-
-    monkeypatch.setattr("netrc.netrc", lambda: (_ for _ in ()).throw(FileNotFoundError()))
-    monkeypatch.setattr("urllib.request.build_opener", lambda *handlers: FakeOpener())
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
 
     result = insar_download_scene(
         urls=["https://example.test/scene/IW2/VV/0.tiff"],
@@ -1198,7 +1385,10 @@ def test_prepare_sentinel_data_fails_fast_without_orbit_credentials(tmp_path, mo
 def test_prepare_sentinel_data_background_launch_returns_job(tmp_path, monkeypatch):
     import unittest.mock as mock
 
-    project_root = tmp_path / "project"
+    workspace = tmp_path / "workspace"
+    task_id = "d-insar-isce2"
+    run_root = workspace / task_id / "outputs" / "prep-run"
+    project_root = run_root / "prep"
     safe_root = tmp_path / "source"
     safe_dir = make_fake_safe_dir(
         safe_root,
@@ -1212,6 +1402,8 @@ def test_prepare_sentinel_data_background_launch_returns_job(tmp_path, monkeypat
     monkeypatch.setattr("insar_agent.mcp.server.subprocess.Popen", mock.MagicMock(return_value=mock_proc))
     result = insar_prepare_sentinel_data(
         project_root=str(project_root),
+        workspace_root=str(workspace),
+        task_id=task_id,
         source_paths=[str(safe_dir)],
         download_orbits=True,
         orbit_dir=str(project_root / "orbits"),
@@ -1223,6 +1415,10 @@ def test_prepare_sentinel_data_background_launch_returns_job(tmp_path, monkeypat
     assert result["pid"] == 45454
     assert result["output_dir"] == str(project_root)
     assert "insar_get_job" in result["poll"]
+    assert f'workspace_root="{workspace}"' in result["poll"]
+    assert f'task_id="{task_id}"' in result["poll"]
+    assert (workspace / task_id / ".insar_agent" / "jobs" / f"{result['job_id']}.json").exists()
+    assert not (run_root / ".insar_agent" / "jobs").exists()
     assert Path(result["log_path"]).exists()
     assert Path(result["params_path"]).exists()
 
