@@ -35,3 +35,16 @@ markers = [
   "real_data: tests that require mounted NAS data or launch real processing workflows",
   "timeout: maximum runtime hint for long-running integration tests",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# The mcp package is split into focused modules that share one FastMCP instance
+# and a common foundation (imports/constants) re-exported from ``_app``/``_helpers``
+# via ``from ... import *``.  server.py additionally re-exports every moved tool so
+# ``from insar_agent.mcp.server import <name>`` (and the background here-doc runner)
+# keeps resolving.  The star-import / intentional-re-export lint family is scoped to
+# these files only; the rest of the codebase keeps the default ruleset.
+"src/insar_agent/mcp/_helpers.py" = ["F403", "F405"]
+"src/insar_agent/mcp/resources.py" = ["F403", "F405"]
+"src/insar_agent/mcp/prompts.py" = ["F403", "F405"]
+"src/insar_agent/mcp/server.py" = ["F401", "F403", "F405"]
+"src/insar_agent/mcp/tools/*.py" = ["F403", "F405"]
