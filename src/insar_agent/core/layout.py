@@ -164,6 +164,21 @@ class RunLayout:
             )
         return p
 
+    def resolve_child(self, *parts: str | Path) -> Path:
+        """Join *parts* under the run root and verify the result stays inside it.
+
+        The single safe way to build a path beneath the run root. Absolute parts
+        and ``..`` traversal that would escape the run root raise ``ValueError``.
+        """
+        candidate = self.run_root.joinpath(*[str(p) for p in parts])
+        resolved = candidate.resolve()
+        run_root = self.run_root.resolve()
+        if resolved != run_root and run_root not in resolved.parents:
+            raise ValueError(
+                f"Path {resolved!r} escapes run root {run_root!r}"
+            )
+        return candidate
+
     def to_dict(self) -> dict:
         return {
             "workspace_root": str(self.workspace_root),
