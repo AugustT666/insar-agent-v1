@@ -11,9 +11,11 @@
 | 1 | 新建 `core/output_resolver.py`（`resolve_output`/`enforce_inside_run`/`OutputEscapeError`/`ResolvedOutput`）、`RunLayout.resolve_child`、`mcp/layout_helpers.py` 改为再导出垫片 | `ed9b0ab` | 453 passed |
 | 2 | `insar_download_dem` 默认路径接 `resolve_output`；containment 锁对齐真实签名；`INSAR_STRICT_OUTPUT` 强制原语 | `7b0b919` | 453 passed |
 | 3 | param-advisor 去重：抽 `_field`/`_pick_context`（两引擎逐字相同的部分）到 `engines/param_advisor_common.py` | `e0c30d9` | 453 passed |
-| 6 | 引擎接入标准：`engines/base.py` 加 Protocol（`task_id_for`/`allowed_set_fields`/`required_fields` + `@runtime_checkable`，保留 `WorkflowInfo` 原形状与 `list_workflows`）、`engines/__init__.py` 懒加载注册表（`get_adapter`/`register_adapter`/`available_engines`）、ISCE2/3 适配器补齐方法、`docs/engine-onboarding.md` 三层模型规范、`tests/unit/test_engine_adapter_contract.py` | `3641724` | 462 passed, ruff+mypy 干净 |
+| 6 | 引擎接入标准：`engines/base.py` 加 Protocol（`task_id_for`/`allowed_set_fields`/`required_fields` + `@runtime_checkable`，保留 `WorkflowInfo` 原形状与 `list_workflows`）、`engines/__init__.py` 懒加载注册表（`get_adapter`/`register_adapter`/`available_engines`）、ISCE2/3 适配器补齐方法、`docs/engine-onboarding.md` 三层模型规范、`tests/unit/test_engine_adapter_contract.py` | `50d766e` | 460 passed, ruff+mypy 干净 |
 
-**当前 HEAD 状态：462 passed, 40 deselected；ruff 干净；mypy（新模块）干净。**
+**当前 HEAD 状态：460 passed, 40 deselected；ruff 干净；mypy（新模块）干净。**
+（注：phase3/phase6 两条提交信息里写的 453/462 是当轮笔误，全量基线实为
+453→460；以本表与 `pytest` 实跑为准。）
 
 > 用户的首要诉求"输出路径混乱、需统一机制（自动默认 + 用户 override + 不泄漏）"已由
 > Phase 1–2 完整落地并验证；用户追加的"统一引擎接入标准（为 GAMMA/GMTSAR 等扫清障碍）"
