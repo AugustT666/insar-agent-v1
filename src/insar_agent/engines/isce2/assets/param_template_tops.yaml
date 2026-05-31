@@ -11,7 +11,9 @@ shared_defaults:
 workflow_defaults:
   range_looks: 4
   azimuth_looks: 1
-  unwrap_method: icu
+  # snaphu is the robust default; icu can silently emit an all-zero unwrapped
+  # phase on larger TOPS scenes. Matches defaults.py and the stack template.
+  unwrap_method: snaphu
   do_unwrap_2stage: false
 single_pair_only:
   - reference_safe

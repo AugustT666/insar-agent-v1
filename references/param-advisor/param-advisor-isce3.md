@@ -61,6 +61,27 @@ Defaults: `11 / 11`
 - Desert / dry bare land: defaults often remain acceptable
 - Time-series / MintPy-oriented processing: prefer coherence-preserving defaults or slightly larger looks
 
+### Geocode Output Posting: `geocode.output_posting.A.x_posting` / `y_posting`
+
+Defaults: `null / null` (ISCE3 auto-derives spacing from the radar grid + DEM)
+
+**Units follow `geocode.output_epsg`.** When `output_epsg` is `null`, ISCE3
+inherits the DEM CRS, which for Copernicus/SRTM DEMs is geographic
+**EPSG:4326 (degrees)**. A metric-looking value such as `30` is then
+interpreted as **30 degrees per pixel** and collapses the geocoded grid to a
+1×1 raster (observed failure mode).
+
+- **Strongly prefer leaving `output_posting` `null`** — auto-derivation yields
+  a correct ~30 m-equivalent spacing in whatever CRS applies. This matches the
+  stack/network path, which keeps it `null` and geocodes correctly.
+- Only recommend an explicit posting when the user needs a specific pixel size,
+  and then it MUST be unit-consistent with the output grid:
+  - For metric posting (e.g. `30` m), also recommend setting
+    `geocode.output_epsg` to the scene-center UTM zone in the **same** package.
+  - For a geographic grid (EPSG:4326), express posting in **degrees**
+    (≈ `0.000277` for ~30 m), never in metres.
+- Never recommend a bare metric `output_posting` while `output_epsg` is `null`.
+
 ## Time-series / Path B Guidance
 
 When a single tuned `base_runconfig` will be propagated to many stack or network pairs:

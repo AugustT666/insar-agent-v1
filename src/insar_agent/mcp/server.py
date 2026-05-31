@@ -49,7 +49,7 @@ from insar_agent.engines.isce3.baseline import plot_baseline_network
 from insar_agent.engines.isce3.bbox import union_bbox
 from insar_agent.engines.isce3.aoi import resolve_aoi_bbox
 from insar_agent.engines.isce3.dem import download_dem
-from insar_agent.engines.isce3.geotiff import export_geotiff
+from insar_agent.engines.isce3.geotiff import export_geotiff, geocode_runw_to_geotiff
 from insar_agent.engines.isce3.mintpy import get_mintpy_status, run_mintpy
 from insar_agent.engines.isce3.network import prepare_network
 from insar_agent.engines.isce3.rslc_metadata import describe_rslc_pair
@@ -3061,6 +3061,63 @@ def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
         return {"error": "dependency_missing", "message": str(exc)}
     except Exception as exc:
         return {"error": "export_failed", "message": str(exc)}
+
+    return {
+        "output_dir": result["output_dir"],
+        "n_files": len(result["files"]),
+        "files": result["files"],
+        "skipped": result["skipped"],
+    }
+
+
+@mcp.tool()
+def insar_geocode_runw(
+    runw_h5: str,
+    rdr2geo_dir: str,
+    output_dir: str,
+    frequency: str = "A",
+    polarization: str = "HH",
+) -> dict:
+    """
+    Salvage a geocoded GeoTIFF from a radar-geometry RUNW product.
+
+    Use this when the ISCE3 geocode step produced a degenerate GUNW grid (for
+    example a metric ``geocode.output_posting`` applied under a geographic
+    EPSG:4326 grid collapsed the raster to ~1x1 pixel). The radar-geometry RUNW
+    interferogram is unaffected, so its unwrappedPhase / coherenceMagnitude /
+    connectedComponents are re-geocoded directly via GDAL geolocation arrays
+    built from the rdr2geo lon/lat rasters — no ISCE3 re-run is required.
+
+    Outputs are written under <output_dir>/geocoded/. Requires h5py, numpy, and
+    GDAL — must be run inside the isce3 conda environment.
+
+    Args:
+        runw_h5: Absolute path to the RUNW .h5 file (e.g. <scratch>/RUNW.h5).
+        rdr2geo_dir: Directory holding x.rdr (lon) and y.rdr (lat), typically
+                     <scratch>/rdr2geo/freq<frequency>.
+        output_dir: Directory where the geocoded/ subdirectory will be created.
+        frequency: NISAR frequency band ("A" or "B").
+        polarization: Polarization channel (e.g. "HH").
+    """
+    if not Path(runw_h5).exists():
+        return {"error": "path_not_found", "message": f"File not found: {runw_h5!r}"}
+    if not Path(rdr2geo_dir).exists():
+        return {"error": "path_not_found", "message": f"Directory not found: {rdr2geo_dir!r}"}
+
+    try:
+        result = geocode_runw_to_geotiff(
+            runw_h5=runw_h5,
+            rdr2geo_dir=rdr2geo_dir,
+            output_dir=output_dir,
+            frequency=frequency,
+            polarization=polarization,
+        )
+    except RuntimeError as exc:
+        return {"error": "dependency_missing", "message": str(exc)}
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except Exception as exc:
+        return {"error": "geocode_failed", "message": str(exc)}
 
     return {
         "output_dir": result["output_dir"],

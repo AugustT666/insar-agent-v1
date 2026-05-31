@@ -187,3 +187,30 @@ def build_workflow_command(
     if conda_env:
         return ["conda", "run", "-n", conda_env, "--no-capture-output", "bash", "-c", inner_cmd]
     return ["bash", "-c", inner_cmd]
+
+
+def build_tops_resume_command(
+    config_path: str,
+    conda_env: str | None = None,
+    *,
+    start: str = "unwrap",
+    end: str = "geocode",
+) -> list[str]:
+    """
+    Build a command that resumes a completed topsApp run from an intermediate step.
+
+    Used to remediate a finished run from its existing PICKLE state without a full
+    re-run — e.g. re-running ``--start=unwrap --end=geocode`` with a corrected
+    ``unwrapper name`` after a bad unwrap (icu emitting an all-zero phase). Must be
+    executed with the run directory as the working directory so PICKLE/ and merged/
+    are discovered.
+    """
+    quoted_config = shlex.quote(config_path)
+    tops_app = f'python "$ISCE_HOME/applications/topsApp.py" {quoted_config}'
+    inner_cmd = (
+        'export PATH="$ISCE_HOME/applications:$PATH" && '
+        f"{tops_app} --steps --start={shlex.quote(start)} --end={shlex.quote(end)}"
+    )
+    if conda_env:
+        return ["conda", "run", "-n", conda_env, "--no-capture-output", "bash", "-c", inner_cmd]
+    return ["bash", "-c", inner_cmd]

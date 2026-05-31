@@ -175,3 +175,150 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
         "files": created_files,
         "skipped": skipped,
     }
+
+
+def geocode_runw_to_geotiff(
+    runw_h5: str | Path,
+    rdr2geo_dir: str | Path,
+    output_dir: str | Path,
+    *,
+    frequency: str = "A",
+    polarization: str = "HH",
+    datasets: tuple[str, ...] = ("unwrappedPhase", "coherenceMagnitude"),
+    output_epsg: int = 4326,
+) -> dict[str, object]:
+    """Salvage a geocoded GeoTIFF from a radar-geometry RUNW product.
+
+    Use this when the ISCE3 geocode step produced a degenerate GUNW grid
+    (e.g. a misconfigured ``geocode.output_posting`` was interpreted in
+    degrees under an EPSG:4326 output grid and collapsed the raster to 1x1).
+    The radar-geometry RUNW interferogram is unaffected, so this function
+    re-geocodes it directly via GDAL geolocation arrays built from the
+    ``rdr2geo`` longitude/latitude rasters — no ISCE3 re-run required.
+
+    The per-pixel lon/lat rasters are produced at full radar resolution by
+    ``rdr2geo``; they are block-averaged down to the (multilooked) RUNW grid
+    using the integer looks inferred from the size ratio.
+
+    Args:
+        runw_h5: Path to the RUNW .h5 file (radar geometry, healthy).
+        rdr2geo_dir: Directory holding ``x.rdr`` (lon) and ``y.rdr`` (lat),
+            typically ``<scratch>/rdr2geo/freq<frequency>``.
+        output_dir: Directory where a ``geocoded/`` subdirectory is written.
+        frequency: NISAR frequency band ("A" or "B").
+        polarization: Polarization channel (e.g. "HH").
+        datasets: RUNW interferogram datasets to geocode.
+        output_epsg: Target CRS for the geocoded output (default 4326).
+
+    Returns:
+        dict with keys ``output_dir`` (str), ``files`` (list[str]), and
+        ``skipped`` (int).
+    """
+    try:
+        import h5py
+        import numpy as np
+        from osgeo import gdal, osr
+    except ImportError as exc:
+        raise RuntimeError(
+            f"RUNW geocoding requires h5py, numpy, and GDAL (osgeo): {exc}. "
+            "Run this tool inside the isce3 conda environment."
+        ) from exc
+
+    runw_h5 = Path(runw_h5)
+    rdr2geo_dir = Path(rdr2geo_dir)
+    if not runw_h5.exists():
+        raise FileNotFoundError(str(runw_h5))
+    lon_path = rdr2geo_dir / "x.rdr"
+    lat_path = rdr2geo_dir / "y.rdr"
+    for p in (lon_path, lat_path):
+        if not p.exists():
+            raise FileNotFoundError(
+                f"Missing rdr2geo geometry raster: {p}. Expected x.rdr (lon) "
+                "and y.rdr (lat) at full radar resolution."
+            )
+
+    gdal.UseExceptions()
+    out_dir = Path(output_dir) / "geocoded"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    lon_full = gdal.Open(str(lon_path)).ReadAsArray().astype(np.float64)
+    lat_full = gdal.Open(str(lat_path)).ReadAsArray().astype(np.float64)
+
+    def _block_mean(arr, looks_az: int, looks_rg: int, rows: int, cols: int):
+        trimmed = arr[: rows * looks_az, : cols * looks_rg]
+        return trimmed.reshape(rows, looks_az, cols, looks_rg).mean(axis=(1, 3))
+
+    def _write_geoloc_tif(path: str, arr) -> None:
+        drv = gdal.GetDriverByName("GTiff")
+        ds = drv.Create(path, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float64)
+        ds.GetRasterBand(1).WriteArray(arr)
+        ds.FlushCache()
+
+    created_files: list[str] = []
+    skipped = 0
+    base = f"/science/LSAR/RUNW/swaths/frequency{frequency}/interferogram/{polarization}/"
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(output_epsg)
+
+    with h5py.File(runw_h5, "r") as f:
+        for name in datasets:
+            key = base + name
+            if key not in f:
+                _log.warning("RUNW dataset not found, skipped: %s", key)
+                skipped += 1
+                continue
+            try:
+                data = f[key][()].astype(np.float32)
+                rows, cols = data.shape
+                looks_az = lon_full.shape[0] // rows
+                looks_rg = lon_full.shape[1] // cols
+                if looks_az < 1 or looks_rg < 1:
+                    raise ValueError(
+                        f"geometry {lon_full.shape} smaller than RUNW grid "
+                        f"{data.shape}; cannot align"
+                    )
+                lon = _block_mean(lon_full, looks_az, looks_rg, rows, cols)
+                lat = _block_mean(lat_full, looks_az, looks_rg, rows, cols)
+
+                # RUNW uses 0 as fill for unwrapped phase; preserve coherence 0.
+                if name == "unwrappedPhase":
+                    data[data == 0] = np.nan
+
+                src = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Float32)
+                src.GetRasterBand(1).WriteArray(data)
+                src.GetRasterBand(1).SetNoDataValue(float("nan"))
+
+                lon_t = str(out_dir / f"_geoloc_lon_{name}.tif")
+                lat_t = str(out_dir / f"_geoloc_lat_{name}.tif")
+                _write_geoloc_tif(lon_t, lon)
+                _write_geoloc_tif(lat_t, lat)
+                src.SetMetadata(
+                    {
+                        "X_DATASET": lon_t, "X_BAND": "1",
+                        "Y_DATASET": lat_t, "Y_BAND": "1",
+                        "PIXEL_OFFSET": "0", "LINE_OFFSET": "0",
+                        "PIXEL_STEP": "1", "LINE_STEP": "1",
+                        "SRS": srs.ExportToWkt(),
+                    },
+                    "GEOLOCATION",
+                )
+                res = (float(lon.max()) - float(lon.min())) / cols
+                tif_path = str(out_dir / f"{name}_geo.tif")
+                gdal.Warp(
+                    tif_path, src, format="GTiff", geoloc=True,
+                    dstSRS=f"EPSG:{output_epsg}", xRes=res, yRes=res,
+                    dstNodata=float("nan"), resampleAlg="near",
+                    creationOptions=["COMPRESS=DEFLATE", "TILED=YES"],
+                )
+                Path(lon_t).unlink(missing_ok=True)
+                Path(lat_t).unlink(missing_ok=True)
+                created_files.append(tif_path)
+            except Exception as exc:  # noqa: BLE001 — surface per-dataset, keep going
+                _log.warning("Failed to geocode RUNW dataset %s: %s", name, exc)
+                skipped += 1
+
+    return {
+        "output_dir": str(out_dir),
+        "files": created_files,
+        "skipped": skipped,
+    }

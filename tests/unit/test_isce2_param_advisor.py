@@ -44,7 +44,10 @@ def test_load_param_template_for_tops_and_stack():
 
     assert tops["template_name"] == "sentinel-isce2-dinsar"
     assert stack["template_name"] == "sentinel-isce2-stack"
-    assert tops["workflow_defaults"]["unwrap_method"] == "icu"
+    # snaphu is the robust default for both workflows; icu can silently emit an
+    # all-zero unwrapped phase on larger TOPS scenes.
+    assert tops["workflow_defaults"]["unwrap_method"] == "snaphu"
+    assert stack["workflow_defaults"]["unwrap_method"] == "snaphu"
     assert stack["workflow_defaults"]["num_connections"] == 3
 
 
