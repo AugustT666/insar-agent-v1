@@ -1,5 +1,9 @@
 # Architecture
 
+> 接入新引擎（GAMMA/GMTSAR 等）请先读 [engine-onboarding.md](./engine-onboarding.md)
+> ——三层接入模型 + 流程清单。输出目录统一机制见 `core/output_resolver.py`：所有产物
+> 必须经 `resolve_output` 落到 `workspace/<task_id>/outputs/<run_id>/`，不得泄漏到树外。
+
 ## 系统总览
 
 insar-agent 是一个 Python 包，通过 MCP stdio 服务器向 AI agent 客户端（Claude Code、Codex 等）暴露 NISAR/Sentinel-1 InSAR 处理能力。agent 只通过 MCP 工具与系统交互，不直接执行 conda/Python 命令。
