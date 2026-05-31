@@ -8,6 +8,7 @@ import yaml
 
 from insar_agent.engines.isce2.defaults import load_default_params, load_processing_params
 from insar_agent.engines.isce2.sentinel_prep import _read_safe_metadata
+from insar_agent.engines.param_advisor_common import _field, _pick_context
 
 _ASSETS = Path(__file__).parent / "assets"
 
@@ -26,16 +27,6 @@ def load_param_template(workflow: str) -> dict:
         raise FileNotFoundError(f"No parameter template for ISCE2 workflow: {workflow!r}")
     with path.open(encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-def _field(value: object, source: str, inferred_from: list[str] | None = None) -> dict:
-    return {"value": value, "source": source, "inferred_from": inferred_from or []}
-
-
-def _pick_context(user_context: dict, key: str, *, default: object = None) -> dict:
-    if key in user_context and user_context[key] not in (None, ""):
-        return _field(user_context[key], "user_provided")
-    return _field(default, "missing")
 
 
 def _safe_scene_summary(path: str | None) -> dict:
