@@ -658,8 +658,8 @@ def test_prepare_sentinel_data_validates_isce2_import_for_synthesized_bursts(tmp
 
         return Result()
 
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.prepare.subprocess.run", fake_run)
 
     result = insar_prepare_sentinel_data(
         project_root=str(project_root),
@@ -700,8 +700,8 @@ def test_prepare_sentinel_data_reports_isce2_import_failure(tmp_path, monkeypatc
 
         return Result()
 
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.prepare.subprocess.run", fake_run)
 
     result = insar_prepare_sentinel_data(
         project_root=str(project_root),
@@ -736,8 +736,8 @@ def test_prepare_sentinel_data_reports_isce2_import_timeout(tmp_path, monkeypatc
     def fake_run(command, capture_output, text, timeout, env=None):
         raise subprocess.TimeoutExpired(command, timeout, output="partial", stderr="timeout")
 
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.prepare.subprocess.run", fake_run)
 
     result = insar_prepare_sentinel_data(
         project_root=str(project_root),
@@ -770,7 +770,7 @@ def test_prepare_sentinel_data_reports_missing_isce2_wrapper_as_validation_failu
     def missing_wrapper():
         raise FileNotFoundError("ISCE2 SentinelWrapper.py not found: /missing/SentinelWrapper.py")
 
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", missing_wrapper)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", missing_wrapper)
 
     result = insar_prepare_sentinel_data(
         project_root=str(project_root),
@@ -1322,9 +1322,9 @@ def test_prepare_sentinel_data_can_prepare_dem_and_orbits(tmp_path, monkeypatch)
         return Result()
 
     monkeypatch.setattr("insar_agent.mcp.server.insar_download_dem", fake_download_dem)
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file", lambda *args, **kwargs: None)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit.subprocess.run", fake_run)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._resolve_orbit_token_file", lambda *args, **kwargs: None)
 
     result = insar_prepare_sentinel_data(
         project_root=str(project_root),
@@ -1363,7 +1363,7 @@ def test_prepare_sentinel_data_fails_fast_without_orbit_credentials(tmp_path, mo
         relative_orbit=14,
     )
     monkeypatch.setattr(
-        "insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file",
+        "insar_agent.engines.isce2.sentinel.orbit._resolve_orbit_token_file",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             ValueError(
                 "Precise orbit download requires dataspace.copernicus.eu credentials in ~/.netrc"
@@ -1479,7 +1479,7 @@ def test_retry_with_backoff_retries_on_failure(tmp_path, monkeypatch):
             raise TimeoutError("Simulated timeout")
         return "success"
     
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.time.sleep", fake_sleep)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit.time.sleep", fake_sleep)
     
     result = _retry_with_backoff(sometimes_failing_func, max_retries=3, initial_delay=0.1)
     assert result == "success"
@@ -1500,7 +1500,7 @@ def test_retry_with_backoff_exhausts_retries_and_raises(tmp_path, monkeypatch):
         call_count["count"] += 1
         raise ValueError("Persistent failure")
     
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.time.sleep", fake_sleep)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit.time.sleep", fake_sleep)
     
     with pytest.raises(ValueError, match="Persistent failure"):
         _retry_with_backoff(always_failing_func, max_retries=3, initial_delay=0.1)
@@ -1526,7 +1526,7 @@ def test_retry_with_backoff_calls_on_retry_callback(tmp_path, monkeypatch):
             raise TimeoutError("Simulated timeout")
         return "success"
     
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.time.sleep", fake_sleep)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit.time.sleep", fake_sleep)
     
     result = _retry_with_backoff(
         sometimes_failing_func,
@@ -1599,9 +1599,9 @@ def test_orbit_download_retries_on_transient_failures(tmp_path, monkeypatch):
             stderr = ""
         return Result()
     
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file", lambda *args, **kwargs: None)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit.subprocess.run", fake_run)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._resolve_orbit_token_file", lambda *args, **kwargs: None)
     
     def on_log(msg: str) -> None:
         log_messages.append(msg)
@@ -1667,9 +1667,9 @@ def test_orbit_download_fails_after_exhausting_retries(tmp_path, monkeypatch):
             stderr = "Permanent authentication failure"
         return Result()
     
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep.subprocess.run", fake_run)
-    monkeypatch.setattr("insar_agent.engines.isce2.sentinel_prep._resolve_orbit_token_file", lambda *args, **kwargs: None)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._fetch_sentinel_wrapper_path", lambda: tmp_path / "SentinelWrapper.py")
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit.subprocess.run", fake_run)
+    monkeypatch.setattr("insar_agent.engines.isce2.sentinel.orbit._resolve_orbit_token_file", lambda *args, **kwargs: None)
     
     orbit_dir = tmp_path / "orbits"
     downloaded, failed = _download_orbits_for_scenes(
