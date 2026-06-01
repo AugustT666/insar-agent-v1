@@ -87,7 +87,7 @@ insar_create_project(
     workspace_root=<workspace_root>,
     name="s1-dinsar-<region>-<date>",
     conda_env="isce2",
-    task_id=<task_id>        # workflow task_id, auto-derived from engine+workflow; drives <task_id>/outputs/<run_id>/
+    task_id=<task_id>        # auto-derived; drives the run-root layout
 )
 ```
 
@@ -159,7 +159,7 @@ insar_run_workflow(project_id=project_id)
 
 ISCE2 will:
 1. Generate `configs/topsApp.xml` from project parameters
-2. Set work_dir to `<workspace>/<task_id>/outputs/<run_id>/` (run-root layout)
+2. Sets work_dir under the run root; use the `run_root` the tool returns, don't hand-assemble the path.
 3. Launch `topsApp.py` in the `isce2` conda env with work_dir as the working directory
 4. Return `job_id`, `log_path`, `pid`, and `run_root`
 

@@ -96,7 +96,7 @@ insar_create_project(
     workspace_root=<workspace_root>,
     name="s1-stack-<region>",
     conda_env=<task/user specified ISCE2 env or "isce2">,
-    task_id=<task_id>        # workflow task_id, auto-derived; drives <task_id>/outputs/<run_id>/stack
+    task_id=<task_id>        # auto-derived; drives the run-root layout
 )
 ```
 
@@ -165,7 +165,7 @@ insar_run_workflow(project_id=project_id)
 This calls `stackSentinel.py` which:
 1. Reads the SAFE inputs from the selected grouped directory
 2. Downloads orbit files if needed
-3. Sets work_dir to `<workspace>/<task_id>/outputs/<run_id>/stack` (run-root layout)
+3. Sets work_dir under the run root (`<run_root>/stack`); use the `run_root` the tool returns, don't hand-assemble the path.
 4. Executes stack processing inside that work_dir, including generated `run_files`
 
 Returns `job_id`, `log_path`, `pid`, and `run_root`.

@@ -83,10 +83,9 @@ version: 0.1.0
 
    **Run-root layout (mandatory for all runs):**
    - `workspace_root` must be the integration workspace root, NOT a task or run subdirectory.
-   - `insar_run_workflow` automatically sets:
-     - `product_path = <workspace>/<task_id>/outputs/<run_id>/products`
-     - `scratch_path = <workspace>/<task_id>/outputs/<run_id>/scratch`
-     - `sas_output_file = <workspace>/<task_id>/outputs/<run_id>/products/<run_id>_GUNW.h5`
+   - `insar_run_workflow` automatically sets `product_path`, `scratch_path`, and
+     `sas_output_file` under the run root — all three are set automatically under
+     the run root returned by the tool; do not hand-assemble these paths.
    - You only need to set the RSLC paths, DEM, and GPU settings; path fields are enforced by the server.
    - The returned `run_root` shows the exact output directory for this run.
    - **Never** set `workspace_root` to a task or run subdirectory.

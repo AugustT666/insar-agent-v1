@@ -31,10 +31,10 @@ These tools operate directly on completed filesystem-backed stack/network output
 - `network_dir` (ISCE3 only): completed interferogram network directory with real GUNW products under
   `runs/*/products/*.h5`
 - `stack_work_dir` (ISCE2 only): completed ISCE2 topsStack directory with `merged/interferograms`, `merged/geom_reference`, and `merged/baselines`
-- `mintpy_work_dir`: output directory for MintPy results. Recommended run-root path:
-  `<workspace>/<task_id>/outputs/<run_id>/mintpy`. A depth check warns if the path is too
-  shallow (< 4 levels from workspace root); `insar_run_mintpy` adds `layout_warning` to the
-  response if depth is insufficient.
+- `mintpy_work_dir`: output directory for MintPy results. Recommended: use `<run_root>/mintpy`
+  where `run_root` is returned by the upstream workflow tool. A depth check warns if the path
+  is too shallow (< 4 levels from workspace root); `insar_run_mintpy` adds `layout_warning` to
+  the response if depth is insufficient.
 - `mintpy_config`: path to MintPy smallbaselineApp config file (`.cfg` or `.txt`). Optional for both engines; omit or pass `""` to let the MCP tool generate an engine-appropriate default when supported.
 - `dem_path` (ISCE3 only): path to DEM GeoTIFF (`.tif`) — same DEM used in ISCE3 processing
 - `conda_env`:

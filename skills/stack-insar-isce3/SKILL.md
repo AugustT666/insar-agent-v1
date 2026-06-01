@@ -37,11 +37,9 @@ Each option generates shell scripts that can be launched manually or through `in
   before retrying; if one exists and is non-zero, use it directly.
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
-  - **Run-root layout**: use `<workspace>/<task_id>/outputs/<run_id>/stack` for stack,
-    `<workspace>/<task_id>/outputs/<run_id>/network` for network.
-    `task_id` is the workflow name (e.g. `stack-insar-isce3`); `run_id` is
-    auto-generated as `<task_id>_<YYYYMMDDTHHMMSSz>`.
-    Do NOT pass `<workspace>` or `<workspace>/<task_id>` directly as a run_root.
+  - **Run-root layout**: use `<run_root>/stack` for stack and `<run_root>/network` for network;
+    use the `run_root` the tool returns, don't hand-assemble the path.
+    Do NOT pass the workspace root or a task subdirectory directly as a run_root.
   - After batch completes, invoke the `mintpy` skill via `Skill(insar-agent-plugin:mintpy)`.
     Use `<run_root>/mintpy` as `mintpy_work_dir`. Do not read the mintpy skill file directly
     with the Read tool — always use the Skill tool.
