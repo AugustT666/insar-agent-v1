@@ -77,3 +77,56 @@ server.py 4642→1467+包。
    拆分即因此暂缓，列为可选 polish）。
 6. **大文件结构性搬移交给子 agent**（fresh context，本次 Phase 4/5 两次成功），但
    主会话**必须独立复核**子 agent 的"绿色"声明（describe md5 / collect 对比 / 实跑）。
+
+---
+
+## 第二轮交付：统一输出落点 + 用户交互契约（本分支，2026-06-01）
+
+对应 spec/plan：`docs/superpowers/specs/2026-06-01-unified-output-and-interaction-design.md`、
+`docs/superpowers/plans/2026-06-01-unified-output-and-interaction.md`。
+
+**动因**：首轮重构只搭好输出统一"地基"（仅 `insar_download_dem` 接了 `resolve_output`），
+日志仍写 `<workspace>/.insar_logs/`、越界仅警告、skills 到处复述内部目录树。本轮补完。
+
+### 交付结果（spec 验收 1–7 全过）
+- **日志归位**：`Project.logs_dir()` 与所有引擎/mcp 日志改落 `<run_root>/logs/`；
+  `.insar_logs` 机制连同 `plugin_logs_dir`/`resolve_plugin_logs_dir`/`discover_workspace_root`/
+  `_WORKSPACE_MARKERS` 整套删净。
+- **单入口收敛**：产物工具（prepare/run）统一经 `resolve_output`；删 `_resolve_prepare_output_dir`、
+  `_normalize_task_root_output`、死代码 `_infer_task_context_from_path`。
+- **越界硬阻断**：产物工具越界 → `{"error":"output_escape"}`（`OutputEscapeError`，
+  默认严格，`INSAR_STRICT_OUTPUT=0` 降级警告；task-root guard 复用同一 `_strict_output` 逃生阀）。
+- **skills 同步**：入口 skill 加"开工前门检"（workspace + 输入必填）；各 workflow skill
+  删内部目录树复述、改以工具返回的 `run_root` 为准；skills 中 `.insar_logs` 文案清零。
+- **契约冻结**：`--describe` md5 全程 `4846cb32938ba83206f9d6a0e8e5e0d6` 不变（26 工具）。
+- **基线**：`pytest -q` = 465 passed, 40 deselected；`ruff check src tests` 干净。
+- **验收 grep（重构非补丁的证据）**：`grep -rn "_resolve_prepare_output_dir\|_normalize_task_root_output\|plugin_logs_dir\|resolve_plugin_logs_dir\|\.insar_logs" src/insar_agent` → 空。
+
+### 关键策略决策（用户拍板）：输入 vs 产物分治
+- **产物工具**（prepare/run/mintpy/geotiff）：严格容器化，越界报错。
+- **输入/下载工具**（download DEM/RSLC/scene、sentinel prep）：灵活——不给输出默认进 run，
+  用户显式给的路径一律尊重（可落在 run 外，因为下载是"输入"非任务"产物"）；仅 task 根散落
+  仍由 `_with_task_root_guard` 拦。详见 memory `output_policy_inputs_vs_products`。
+
+### 执行中对 plan 的两处必要纠偏（对照真实代码，非照抄）
+1. **Task 3 顺序纠偏**：plan 让 Task 3 即删 `plugin_logs_dir`/`resolve_plugin_logs_dir`，
+   但二者尚被 8 个文件 import，立删则全表 ImportError。改为 Task 3 只改 `logs_dir()`，
+   函数删除推迟到 Task 5（所有调用方迁完后）。
+2. **Task 8 重塑**：plan 让 download 也走严格 `resolve_output`，与"输入灵活"冲突且会劣化
+   下载 UX、改约 20 个测试。改为 download override 用新 `_honor_output_path`（只 honor +
+   派生 run 上下文，绝不搬移路径）。
+
+### 各 Phase 提交
+- A0 安全网：`1572544`
+- A1 日志归位：`49d2e74`(run_logs_dir) → `fae587c`(logs_dir) → `2fd4721`(engine) → `bb725e9`(mcp+core 删净)
+- A2 单入口：`c488c14`(prepare) → `a847444`(real_data 迁移) → `2132902`(download flexible) → `4d12727`(死代码)
+- A3 硬阻断：`c31e2c2`(lock test + 逃生阀)
+- A4 skill 同步：`e80b929`(门检) → `15537cb`(去复述) → `11609e7`(日志文案)
+
+### 本轮新教训
+- **用户交互契约 > 机械套用 plan**：spec 字面"download 也走 resolve_output"与用户"输入可自
+  定义路径"诉求冲突时，停下用 AskUserQuestion 拍板（选"输入灵活"），而非硬改 20 个测试。
+- **删一个函数要看级联**：删 `resolve_plugin_logs_dir` 连带 `discover_workspace_root`/
+  `_WORKSPACE_MARKERS`/`infer_run_root` import 全成死代码，一并清掉才算"重构非补丁"。
+- **Pyright 星号导入误报**：mcp 包 `from _app import *` 全程触发 reportMissingImports/
+  未定义假阳性（pytest 经 `pythonpath=src` 正常）；以 `pytest`+`ruff` 为准，勿被诊断带偏。
