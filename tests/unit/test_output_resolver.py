@@ -129,3 +129,9 @@ def test_resolve_child_blocks_traversal(workspace):
     layout = RunLayout(workspace_root=str(workspace), task_id="t", run_id="r1")
     with pytest.raises(ValueError):
         layout.resolve_child("..", "..", "escape")
+
+
+def test_run_logs_dir_under_run_root(workspace):
+    from insar_agent.core.output_resolver import run_logs_dir
+    p = run_logs_dir(workspace_root=str(workspace), task_id="d-insar-isce2", run_id="r1")
+    assert p == workspace / "d-insar-isce2" / "outputs" / "r1" / "logs"

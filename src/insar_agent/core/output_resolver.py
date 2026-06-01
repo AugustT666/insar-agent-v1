@@ -314,3 +314,16 @@ def param_advice_output_dir(project: "Project", output_dir: str, task_id: str) -
     except ValueError:
         fallback_task_id = sanitize_identifier(preferred_task_id or project.project_id)
         return Path(project.workspace_root) / fallback_task_id / "outputs" / "param_advisor"
+
+
+def run_logs_dir(
+    *,
+    workspace_root: str | Path,
+    task_id: str,
+    run_id: str | None = None,
+) -> Path:
+    """Logs directory for a run: <workspace>/<task_id>/outputs/<run_id>/logs.
+
+    Thin convenience over RunLayout — the single place to get a run's log dir.
+    """
+    return RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id).logs_dir
