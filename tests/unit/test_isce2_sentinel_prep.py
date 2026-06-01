@@ -835,7 +835,6 @@ def test_prepare_sentinel_data_normalizes_real_family_name(tmp_path):
 
 
 def test_insar_download_dem_supports_isce2_backend(tmp_path, monkeypatch):
-    (tmp_path / ".insar_logs").mkdir()
     calls = {}
 
     def fake_run(command, capture_output, text, timeout, env=None):
@@ -864,7 +863,7 @@ def test_insar_download_dem_supports_isce2_backend(tmp_path, monkeypatch):
     assert result["backend"] == "isce2"
     assert result["output_path"].endswith("isce2.dem.wgs84")
     assert "dem.py" in " ".join(calls["command"])
-    assert Path(result["log_path"]).parent == tmp_path / ".insar_logs"
+    assert Path(result["log_path"]).parent == tmp_path / "dem" / "logs"
 
 
 def test_insar_download_dem_retries_isce2_backend_failures(tmp_path, monkeypatch):
@@ -904,7 +903,6 @@ def test_insar_download_dem_retries_isce2_backend_failures(tmp_path, monkeypatch
 
 
 def test_insar_download_scene_writes_plugin_log_to_workspace_root(tmp_path):
-    (tmp_path / ".insar_logs").mkdir()
     source = _write_text(tmp_path / "src" / "S1A_IW_SLC__1SDV_20260112T152729_20260112T152756_062736_07DDEC_F05B.zip", "fake")
 
     result = insar_download_scene(
@@ -915,7 +913,7 @@ def test_insar_download_scene_writes_plugin_log_to_workspace_root(tmp_path):
 
     assert "error" not in result
     assert result["failed"] == []
-    assert Path(result["log_path"]).parent == tmp_path / ".insar_logs"
+    assert Path(result["log_path"]).parent == tmp_path / "logs"
     assert Path(result["log_path"]).exists()
     assert Path(result["params_path"]).exists()
 

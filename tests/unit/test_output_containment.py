@@ -167,12 +167,10 @@ def test_materialize_dem_stays_under_run_root(workspace):
 # ---------------------------------------------------------------------------
 
 def test_project_logs_dir_under_run_tree_not_dot_insar_logs(workspace):
-    """RED anchor: logs_dir() must NOT return .insar_logs once the refactor lands.
+    """Guard: logs_dir() must NOT return .insar_logs.
 
-    Today (pre-refactor) Project.logs_dir() calls plugin_logs_dir(workspace_root)
-    which returns <workspace>/.insar_logs.  After the refactor it must return a path
-    under the run tree.  This test is deliberately red now and will go green when
-    Project.logs_dir() is fixed in a later task.
+    Project.logs_dir() must return a path under the run tree (<workspace>/<task_id>/
+    outputs/<run_id>/logs), never a legacy <workspace>/.insar_logs directory.
     """
     from insar_agent.core.project import Project
 

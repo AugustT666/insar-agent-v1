@@ -271,7 +271,7 @@ def test_prepare_sentinel_task_root_dem_output_is_normalized_to_run_root(tmp_pat
             "dem_path": kwargs["dem_output_path"],
             "orbit_dir": kwargs["orbit_dir"],
             "scene_count": 0,
-            "prep_log_path": str(Path(kwargs["project_root"]) / ".insar_logs" / "prep.log"),
+            "prep_log_path": str(Path(kwargs["project_root"]) / "logs" / "prep.log"),
         }
 
     with patch("insar_agent.mcp.server.prepare_sentinel_data", side_effect=fake_prepare_sentinel_data) as mock_prepare:
@@ -306,7 +306,7 @@ def test_prepare_sentinel_reports_task_root_pollution(tmp_path):
             "dem_path": kwargs["dem_output_path"],
             "orbit_dir": kwargs["orbit_dir"],
             "scene_count": 0,
-            "prep_log_path": str(Path(kwargs["project_root"]) / ".insar_logs" / "prep.log"),
+            "prep_log_path": str(Path(kwargs["project_root"]) / "logs" / "prep.log"),
         }
 
     with patch("insar_agent.mcp.server.prepare_sentinel_data", side_effect=fake_prepare_sentinel_data):
@@ -324,11 +324,11 @@ def test_prepare_sentinel_reports_task_root_pollution(tmp_path):
     assert str(pollution_dir) in result["polluting_paths"]
 
 
-def test_prepare_sentinel_allows_task_root_insar_logs_management_dir(tmp_path):
+def test_prepare_sentinel_allows_task_root_management_dir(tmp_path):
     workspace = tmp_path / "workspace"
     task_id = "stack-insar-isce2"
     task_root = workspace / task_id
-    (task_root / ".insar_logs").mkdir(parents=True)
+    (task_root / ".insar_agent").mkdir(parents=True)
 
     def fake_prepare_sentinel_data(**kwargs):
         return {

@@ -718,7 +718,6 @@ def _make_batch_dir(tmp_path: Path, n_pairs: int = 2) -> Path:
 def test_insar_run_batch_background_returns_job_id(tmp_path):
     """run_batch returns job_id, pid, log_path, and poll in background mode."""
     import unittest.mock as mock
-    (tmp_path / ".insar_logs").mkdir()
     batch_dir = _make_batch_dir(tmp_path)
     mock_proc = mock.MagicMock()
     mock_proc.pid = 99999
@@ -739,7 +738,7 @@ def test_insar_run_batch_background_returns_job_id(tmp_path):
     assert "command" in result
     assert "progress_hint" in result
     assert "batch_dir" in result["poll"]
-    assert Path(result["log_path"]).parent == tmp_path / ".insar_logs"
+    assert Path(result["log_path"]).parent == batch_dir / "logs"
     # Job JSON persisted
     jobs_dir = batch_dir / ".insar_agent" / "jobs"
     assert any(jobs_dir.glob("*.json"))

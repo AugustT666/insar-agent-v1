@@ -32,7 +32,7 @@ from mcp.server.fastmcp import FastMCP
 from insar_agent.core.config import get_path, set_path, unset_path
 from insar_agent.core.jobs import BatchJob, DownloadJob, Job
 from insar_agent.core.layout import RunLayout, infer_run_root
-from insar_agent.core.project import Project, new_project, resolve_plugin_logs_dir
+from insar_agent.core.project import Project, new_project
 from insar_agent.mcp.layout_helpers import (
     apply_run_layout_to_runconfig as _apply_run_layout_to_runconfig,
     check_output_dir_depth as _check_output_dir_depth,
@@ -118,7 +118,7 @@ _WORKFLOW_GUIDE_SKILL_PATH = Path(__file__).resolve().parents[3] / "skills" / "i
 
 _SENSITIVE_PARAM_KEYS = {"orbit_password", "password", "token", "access_token", "refresh_token", "proxy"}
 
-_TASK_ROOT_MANAGEMENT_DIRS = {".insar_agent", ".insar_logs", "sessions", "outputs"}
+_TASK_ROOT_MANAGEMENT_DIRS = {".insar_agent", "sessions", "outputs"}
 
 WORKFLOW_LOG_TAIL_LINES = 80
 
@@ -159,7 +159,7 @@ __all__ = [
     "get_path", "set_path", "unset_path",
     "BatchJob", "DownloadJob", "Job",
     "RunLayout", "infer_run_root",
-    "Project", "new_project", "resolve_plugin_logs_dir",
+    "Project", "new_project",
     # layout helpers
     "_apply_run_layout_to_runconfig", "_check_output_dir_depth",
     "_param_advice_output_dir", "_render_param_advice_markdown",

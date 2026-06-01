@@ -83,7 +83,7 @@ def _save_job(
     exit_code_path: str | None = None,
     log_text: str = "",
 ) -> Job:
-    log_path = Path(project.workspace_root) / ".insar_logs" / "existing.log"
+    log_path = project.logs_dir() / "existing.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(log_text, encoding="utf-8")
     job = Job(

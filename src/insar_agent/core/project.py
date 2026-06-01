@@ -7,10 +7,6 @@ from datetime import datetime, UTC
 from pathlib import Path
 from uuid import uuid4
 
-from insar_agent.core.layout import infer_run_root
-
-_WORKSPACE_MARKERS = (".insar_agent", ".insar_logs")
-
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -32,56 +28,6 @@ def _save_registry(registry: dict[str, str]) -> None:
     p = _registry_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"projects": registry}, indent=2))
-
-
-def plugin_logs_dir(workspace_root: str | Path) -> Path:
-    return Path(workspace_root) / ".insar_logs"
-
-
-def discover_workspace_root(*paths: str | Path | None) -> Path | None:
-    for raw in paths:
-        if raw in (None, ""):
-            continue
-        candidate = Path(raw).expanduser()
-        start = candidate
-        if candidate.exists() and candidate.is_file():
-            start = candidate.parent
-        elif candidate.suffix and not candidate.exists():
-            start = candidate.parent
-        for current in [start, *start.parents]:
-            if any((current / marker).exists() for marker in _WORKSPACE_MARKERS):
-                return current.resolve()
-    return None
-
-
-def resolve_plugin_logs_dir(
-    *paths: str | Path | None,
-    workspace_root: str | Path | None = None,
-    fallback_root: str | Path | None = None,
-) -> Path:
-    if workspace_root not in (None, ""):
-        return plugin_logs_dir(Path(workspace_root).expanduser().resolve())
-    for raw in paths:
-        if raw in (None, ""):
-            continue
-        run_root = infer_run_root(raw)
-        if run_root is not None:
-            return run_root / "logs"
-    discovered = discover_workspace_root(*paths)
-    if discovered is not None:
-        return plugin_logs_dir(discovered)
-    if fallback_root not in (None, ""):
-        return plugin_logs_dir(Path(fallback_root).expanduser().resolve())
-    for raw in paths:
-        if raw in (None, ""):
-            continue
-        candidate = Path(raw).expanduser()
-        if candidate.exists() and candidate.is_file():
-            return plugin_logs_dir(candidate.parent.resolve())
-        if candidate.suffix:
-            return plugin_logs_dir(candidate.parent.resolve())
-        return plugin_logs_dir(candidate.resolve())
-    return plugin_logs_dir(Path.cwd())
 
 
 @dataclass(slots=True)

@@ -906,7 +906,7 @@ def insar_download_rslc(
         job_type="rslc_download",
     )
     job_id = dl_job.job_id
-    logs_dir = _run_root_logs_dir(output_dir_path) or resolve_plugin_logs_dir(output_dir_path, fallback_root=output_dir_path)
+    logs_dir = _run_root_logs_dir(output_dir_path) or (output_dir_path / "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path_obj = logs_dir / f"nisar_download_{job_id}.log"
     params_path = logs_dir / f"nisar_download_{job_id}_params.json"

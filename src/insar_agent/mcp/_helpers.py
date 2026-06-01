@@ -54,20 +54,21 @@ def _launch_detached_shell_job(
     return int(pid_text)
 
 
-def _ensure_logging_group(runconfig: dict, workspace_root: str) -> None:
+def _ensure_logging_group(runconfig: dict, logs_dir: Path) -> None:
     """Backfill the ISCE3 logging block required by official workflows."""
     groups = runconfig.setdefault("runconfig", {}).setdefault("groups", {})
     logging_cfg = groups.setdefault("logging", {})
     if not logging_cfg.get("path"):
-        logging_cfg["path"] = str(resolve_plugin_logs_dir(workspace_root, workspace_root=workspace_root) / "insar_workflow.log")
+        logging_cfg["path"] = str(logs_dir / "insar_workflow.log")
     logging_cfg.setdefault("write_mode", "w")
 
 
 def _ensure_project_logging(project: Project) -> None:
     """Ensure both live and template runconfigs carry a writable logging path."""
-    _ensure_logging_group(project.runconfig, project.workspace_root)
+    logs_dir = project.logs_dir()
+    _ensure_logging_group(project.runconfig, logs_dir)
     if project.runconfig_template:
-        _ensure_logging_group(project.runconfig_template, project.workspace_root)
+        _ensure_logging_group(project.runconfig_template, logs_dir)
 
 
 def _normalize_isce3_output_paths(project: Project) -> None:
@@ -269,7 +270,7 @@ def _prepare_tool_log(
     fallback_root: str | Path | None = None,
 ) -> tuple[str, Path, Path]:
     job_id = uuid.uuid4().hex[:12]
-    logs_dir = _run_root_logs_dir(*paths) or resolve_plugin_logs_dir(*paths, fallback_root=fallback_root)
+    logs_dir = _run_root_logs_dir(*paths) or ((Path(fallback_root) / "logs") if fallback_root else Path.cwd() / "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / f"{prefix}_{job_id}.log"
     params_path = logs_dir / f"{prefix}_{job_id}_params.json"
@@ -801,7 +802,7 @@ def _launch_dem_download_background(params: dict) -> dict:
             "error": "missing_task_context",
             "message": "Background DEM downloads must be associated with <workspace>/<task_id>; provide workspace_root and task_id or an output_path under outputs/<run_id>.",
         }
-    logs_dir = _run_root_logs_dir(output_path) or resolve_plugin_logs_dir(output_path, fallback_root=output_path.parent)
+    logs_dir = output_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     job = DownloadJob(
         output_dir=str(output_dir),
@@ -894,7 +895,7 @@ def _launch_sentinel_prepare_background(params: dict) -> dict:
             "error": "missing_task_context",
             "message": "Background Sentinel preparation must be associated with <workspace>/<task_id>; provide workspace_root and task_id or a project_root under outputs/<run_id>.",
         }
-    logs_dir = _run_root_logs_dir(root) or resolve_plugin_logs_dir(root, fallback_root=root)
+    logs_dir = (infer_run_root(root) or root) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     job = DownloadJob(
         output_dir=str(root),

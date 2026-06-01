@@ -280,7 +280,7 @@ def insar_run_batch(
     else:
         command = inner
 
-    logs_dir = resolve_plugin_logs_dir(batch_dir, fallback_root=batch_dir)
+    logs_dir = Path(batch_dir) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     batch_job = BatchJob(

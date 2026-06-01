@@ -181,7 +181,8 @@ def test_create_project_loads_runconfig_template(insar_project):
 def test_create_project_backfills_logging_config(insar_project, workspace):
     result = insar_get_runconfig(insar_project["project_id"])
     logging_cfg = result["runconfig"]["runconfig"]["groups"]["logging"]
-    assert logging_cfg["path"] == str(Path(workspace) / ".insar_logs" / "insar_workflow.log")
+    assert logging_cfg["path"].endswith("/logs/insar_workflow.log")
+    assert ".insar_logs" not in logging_cfg["path"]
     assert logging_cfg["write_mode"] == "w"
 
 
@@ -431,11 +432,10 @@ def test_run_workflow_dry_run(insar_project, tmp_path):
     assert "nisar.workflows.insar" in " ".join(result["command"])
 
 
-def test_run_workflow_writes_plugin_log_under_dot_insar_logs(insar_project):
+def test_run_workflow_writes_plugin_log_under_run_dir(insar_project):
     from unittest.mock import MagicMock, patch
 
     pid = insar_project["project_id"]
-    workspace = Path(insar_project["workspace_root"])
     for key, val in [
         ("runconfig.groups.input_file_group.reference_rslc_file", "/data/ref.h5"),
         ("runconfig.groups.input_file_group.secondary_rslc_file", "/data/sec.h5"),
@@ -453,9 +453,9 @@ def test_run_workflow_writes_plugin_log_under_dot_insar_logs(insar_project):
 
     assert "error" not in result
     log_parent = Path(result["log_path"]).parent
-        # New layout: log goes into <workspace>/<task_id>/outputs/<run_id>/logs/
-    # Legacy fallback: <workspace>/.insar_logs
-    assert log_parent == workspace / ".insar_logs" or "logs" in log_parent.parts
+    # Run layout: log goes into <workspace>/<task_id>/outputs/<run_id>/logs/
+    assert "logs" in log_parent.parts
+    assert ".insar_logs" not in log_parent.parts
 
 
 def test_run_workflow_invalid_runconfig_fails(insar_project):
