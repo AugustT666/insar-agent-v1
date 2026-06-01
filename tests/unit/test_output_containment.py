@@ -186,6 +186,27 @@ def test_project_logs_dir_under_run_tree_not_dot_insar_logs(workspace):
     assert "outputs" in logs.parts, f"logs not under run tree: {logs}"
 
 
+def test_override_outside_run_root_is_blocked(workspace, tmp_path):
+    """Hard-block: an explicit product output_dir outside the run root must error,
+    not silently proceed. (prepare is a PRODUCT tool -> strict containment.)"""
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    _make_rslc(data_dir, "20251122")
+    _make_rslc(data_dir, "20251204")
+    dem = tmp_path / "dem.tif"
+    dem.write_bytes(b"")
+    outside = tmp_path / "totally_outside"
+    result = insar_prepare_stack(
+        data_dir=str(data_dir),
+        base_runconfig=str(_fixture_runconfig(tmp_path)),
+        dem=str(dem),
+        output_dir=str(outside),
+        workspace_root=str(workspace),
+        interaction_mode="auto",
+    )
+    assert result.get("error") in ("output_escape", "task_root_pollution"), result
+
+
 def test_no_insar_logs_dir_after_prepare(workspace, tmp_path):
     """Regression lock: insar_prepare_stack must not create <ws>/.insar_logs on disk.
 

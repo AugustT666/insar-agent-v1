@@ -376,6 +376,43 @@ def test_prepare_sentinel_custom_output_keeps_task_root_clean(tmp_path):
     assert not (task_root / ".insar_logs").exists()
 
 
+def test_task_root_pollution_downgraded_to_warning_when_not_strict(tmp_path, monkeypatch):
+    """When INSAR_STRICT_OUTPUT=0, task_root_pollution is downgraded to a warning
+    and the tool result is returned (no 'error' key)."""
+    monkeypatch.setenv("INSAR_STRICT_OUTPUT", "0")
+    workspace = tmp_path / "workspace"
+    task_id = "stack-insar-isce2"
+    task_root = workspace / task_id
+    pollution_dir = task_root / "dem"
+
+    def fake_prepare_sentinel_data(**kwargs):
+        pollution_dir.mkdir(parents=True)
+        (pollution_dir / "copernicus_30.tif").write_text("dem", encoding="utf-8")
+        return {
+            "project_root": kwargs["project_root"],
+            "safe_root": str(Path(kwargs["project_root"]) / "safe"),
+            "grouped_safe_paths": {},
+            "dem_path": kwargs["dem_output_path"],
+            "orbit_dir": kwargs["orbit_dir"],
+            "scene_count": 0,
+            "prep_log_path": str(Path(kwargs["project_root"]) / "logs" / "prep.log"),
+        }
+
+    with patch("insar_agent.mcp.server.prepare_sentinel_data", side_effect=fake_prepare_sentinel_data):
+        result = insar_prepare_sentinel_data(
+            workspace_root=str(workspace),
+            task_id=task_id,
+            run_id="prep-run",
+            source_paths=[],
+            download_dem=True,
+            dem_output_path=str(task_root / "outputs" / "prep-run" / "dem" / "copernicus_30.tif"),
+        )
+
+    assert "error" not in result, f"Expected no error key, got: {result}"
+    assert result.get("warning") == "task_root_pollution"
+    assert str(pollution_dir) in result["polluting_paths"]
+
+
 def test_background_sentinel_prepare_does_not_persist_orbit_password(tmp_path):
     mock_proc = MagicMock()
     mock_proc.pid = 42424

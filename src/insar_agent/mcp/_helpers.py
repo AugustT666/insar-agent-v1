@@ -235,6 +235,12 @@ def _with_task_root_guard(result: dict, workspace_root: str = "", task_id: str =
     pollution = _task_root_pollution(workspace_root, task_id)
     if pollution is None:
         return result
+    from insar_agent.core.output_resolver import _strict_output
+    if not _strict_output():
+        guarded = dict(result)
+        guarded["warning"] = pollution["error"]
+        guarded["polluting_paths"] = pollution["polluting_paths"]
+        return guarded
     guarded = dict(pollution)
     guarded["tool_result"] = result
     return guarded
