@@ -259,7 +259,7 @@ def test_prepare_stack_runconfig_contains_paths(tmp_path):
     assert str(dem) in rendered
 
 
-def test_prepare_stack_runconfig_uses_workspace_dot_insar_logs(tmp_path):
+def test_prepare_stack_runconfig_uses_run_root_logs(tmp_path):
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
     make_rslc(data_dir, "20251122")
