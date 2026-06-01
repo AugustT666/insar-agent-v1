@@ -183,6 +183,15 @@ def _task_job_poll(job_id: str, job_context: dict, *, include_logs: bool = False
     return poll + ")"
 
 
+def _resolve_task_run_id(workspace_root: str, task_id: str, run_id: str = "") -> str:
+    """Run id to use for an input tool: explicit run_id, else the project's pinned
+    run_id (so DEM/RSLC/prep join the same run as the workflow), else '' (mint fresh)."""
+    if run_id.strip():
+        return run_id.strip()
+    proj = Project.load_for_task(workspace_root, task_id)
+    return proj.run_id if (proj and proj.run_id) else ""
+
+
 def _honor_output_path(
     output_path: str,
     workspace_root: str = "",
@@ -969,6 +978,7 @@ __all__ = [
     '_task_job_context_from_path',
     '_task_job_context',
     '_task_job_poll',
+    '_resolve_task_run_id',
     '_honor_output_path',
     '_task_root_pollution',
     '_with_task_root_guard',

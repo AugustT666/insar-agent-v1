@@ -113,6 +113,22 @@ def test_project_recovers_existing_run_root(workspace):
     assert res.target == run_root / "mintpy"
 
 
+def test_resolve_run_layout_prefers_pinned_run_id(workspace):
+    from insar_agent.core.project import Project
+    from insar_agent.core.output_resolver import resolve_run_layout
+
+    proj = Project(
+        name="t",
+        engine="isce3",
+        workflow="insar",
+        workspace_root=str(workspace),
+        task_id="d-insar-isce3",
+        run_id="d-insar-isce3_PINNED",
+    )
+    layout = resolve_run_layout(proj)
+    assert layout is not None and layout.run_id == "d-insar-isce3_PINNED"
+
+
 def test_enforce_inside_run_returns_path_when_contained(workspace):
     layout = RunLayout(workspace_root=str(workspace), task_id="t", run_id="r1")
     child = layout.run_root / "products" / "x.h5"

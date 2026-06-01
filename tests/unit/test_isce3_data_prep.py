@@ -283,6 +283,51 @@ class TestInsarDownloadDemTool:
         assert result["isce_xml_path"] == str(tmp_path / "dem.tif.xml")
 
 
+class TestInputToolReusesPinnedRun:
+    def test_download_dem_reuses_project_pinned_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """insar_download_dem (no run_id passed) joins the project's pinned run."""
+        from insar_agent.mcp.server import insar_create_project
+        from insar_agent.core.project import Project
+
+        # Isolate the project registry so this test doesn't touch the real one.
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        monkeypatch.setenv("XDG_DATA_HOME", str(registry_dir))
+
+        ws = tmp_path / "workspace"
+        created = insar_create_project(engine="isce3", workflow="insar", workspace_root=str(ws))
+        assert "error" not in created, created
+
+        task_id = "d-insar-isce3"
+        proj = Project.load_for_task(str(ws), task_id)
+        assert proj is not None
+        assert proj.run_id, "project should pin a run_id at creation"
+
+        captured: dict[str, str] = {}
+
+        def fake_download_dem(**kwargs):
+            captured["output_path"] = kwargs["output_path"]
+            Path(kwargs["output_path"]).parent.mkdir(parents=True, exist_ok=True)
+            Path(kwargs["output_path"]).write_bytes(b"dem")
+            return {"output_path": kwargs["output_path"], "source": "copernicus_30", "bbox": list(kwargs["bbox"])}
+
+        with (
+            patch("insar_agent.mcp.server.download_dem", side_effect=fake_download_dem),
+            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+        ):
+            result = insar_download_dem(
+                bbox=[40.5, 13.4, 40.8, 13.7],
+                workspace_root=str(ws),
+                task_id=task_id,
+            )
+
+        assert "error" not in result, result
+        expected_dem_dir = ws.resolve() / task_id / "outputs" / proj.run_id / "dem"
+        # The resolved output_path must live under the pinned run, NOT a fresh one.
+        assert Path(result["output_path"]).parent == expected_dem_dir
+        assert Path(captured["output_path"]).parent == expected_dem_dir
+
+
 class TestDownloadRslcProxyBehavior:
     def test_preserves_system_proxy_when_proxy_not_provided(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         from insar_agent.engines.isce3 import download as download_mod

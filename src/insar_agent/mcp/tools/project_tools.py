@@ -155,6 +155,9 @@ def insar_create_project(
         )
         project.runconfig = default_params
         project.runconfig_template = default_params
+        if project.task_id:
+            from insar_agent.core.layout import make_run_id
+            project.run_id = make_run_id(project.task_id)
 
         try:
             project.save()
@@ -170,6 +173,7 @@ def insar_create_project(
             "workspace_root": project.workspace_root,
             "conda_env": project.conda_env,
             "created_at": project.created_at,
+            "run_id": project.run_id,
             "required_fields": required,
             "guidance": (
                 "Set required path fields with insar_set_processing_param. "
@@ -199,6 +203,9 @@ def insar_create_project(
     )
     project.runconfig = default_runconfig
     project.runconfig_template = default_runconfig
+    if project.task_id:
+        from insar_agent.core.layout import make_run_id
+        project.run_id = make_run_id(project.task_id)
     _ensure_project_logging(project)
 
     try:
@@ -215,6 +222,7 @@ def insar_create_project(
         "workspace_root": project.workspace_root,
         "conda_env": project.conda_env,
         "created_at": project.created_at,
+        "run_id": project.run_id,
         "required_fields": required,
         "guidance": (
             "Set required path fields with insar_set_runconfig_value. "

@@ -45,6 +45,8 @@ class Project:
     updated_at: str = field(default_factory=_utc_now)
     # Explicit task_id for run-root layout; falls back to name if absent (legacy)
     task_id: str | None = None
+    # Pinned run_id so all of a task's outputs share one run
+    run_id: str | None = None
 
     # ── directories ────────────────────────────────────────────────────────────
 
@@ -111,6 +113,15 @@ class Project:
         data = {k: v for k, v in data.items() if k in known}
         return cls(**data)
 
+    @classmethod
+    def load_for_task(cls, workspace_root: str | Path, task_id: str) -> "Project | None":
+        pf = Path(workspace_root) / task_id / ".insar_agent" / "project.json"
+        if not pf.exists():
+            return None
+        data = json.loads(pf.read_text())
+        known = {f.name for f in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+        return cls(**{k: v for k, v in data.items() if k in known})
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -122,6 +133,7 @@ def new_project(
     workspace_root: str,
     conda_env: str | None = None,
     task_id: str | None = None,
+    run_id: str | None = None,
 ) -> Project:
     return Project(
         name=name,
@@ -130,4 +142,5 @@ def new_project(
         workspace_root=workspace_root,
         conda_env=conda_env,
         task_id=task_id,
+        run_id=run_id,
     )

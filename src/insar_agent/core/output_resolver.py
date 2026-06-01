@@ -202,6 +202,17 @@ def resolve_run_layout(project: "Project") -> RunLayout | None:
     except ValueError:
         return None
 
+    pinned = getattr(project, "run_id", None)
+    if pinned:
+        try:
+            return RunLayout(
+                workspace_root=workspace_root,
+                task_id=project.task_id or project.name or project.project_id,
+                run_id=pinned,
+            )
+        except ValueError:
+            return None
+
     for key in (
         "runconfig.groups.product_path_group.product_path",
         "runconfig.groups.product_path_group.scratch_path",

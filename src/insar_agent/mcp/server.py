@@ -870,7 +870,8 @@ def insar_download_rslc(
 
     if not output_dir.strip():
         if workspace_root.strip() and task_id.strip():
-            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id.strip() or None)
+            _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
+            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=_rid or None)
             output_dir = str(layout.run_root / "rslc")
         else:
             return {
@@ -1044,7 +1045,8 @@ def insar_download_dem(
     """
     if not output_path.strip():
         if workspace_root.strip() and task_id.strip():
-            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id.strip() or None)
+            _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
+            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=_rid or None)
             output_path = str(layout.dem_dir / f"{source}_dem.tif")
             workspace_root = str(layout.workspace_root)
             task_id = layout.task_id
@@ -1317,7 +1319,8 @@ def insar_prepare_sentinel_data(
     """
     if not project_root.strip():
         if workspace_root.strip() and task_id.strip():
-            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id.strip() or None)
+            _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
+            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=_rid or None)
             project_root = str(layout.run_root / "prep")
             workspace_root = str(layout.workspace_root)
             task_id = layout.task_id

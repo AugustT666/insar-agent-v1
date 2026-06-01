@@ -332,14 +332,17 @@ def test_export_runconfig_rejects_workspace_root_sibling_for_task_project(insar_
 
 def test_export_runconfig_accepts_current_run_root_param_tuned_dir(insar_project, workspace):
     pid = insar_project["project_id"]
-    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / "current-run"
+    # The project pins a run_id at creation; that pinned run is the project's
+    # current run. Anchor the test to it so output_dir under the pinned run root
+    # is accepted (the run_id is now authoritative over runconfig product_path).
     project = Project.load(pid)
+    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / project.run_id
     set_path(project.runconfig, "runconfig.groups.product_path_group.product_path", str(run_root / "products"))
     set_path(project.runconfig, "runconfig.groups.product_path_group.scratch_path", str(run_root / "scratch"))
     set_path(
         project.runconfig,
         "runconfig.groups.product_path_group.sas_output_file",
-        str(run_root / "products" / "current-run_GUNW.h5"),
+        str(run_root / "products" / f"{project.run_id}_GUNW.h5"),
     )
     project.save()
 
@@ -352,8 +355,10 @@ def test_export_runconfig_accepts_current_run_root_param_tuned_dir(insar_project
 
 def test_export_runconfig_default_dir_reuses_current_run_root(insar_project, workspace):
     pid = insar_project["project_id"]
-    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / "current-run"
+    # Default export (no output_dir) lands in the project's current run-root
+    # configs dir. The current run is the run_id pinned at project creation.
     project = Project.load(pid)
+    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / project.run_id
     set_path(project.runconfig, "runconfig.groups.product_path_group.product_path", str(run_root / "products"))
     project.save()
 
