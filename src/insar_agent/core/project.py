@@ -113,7 +113,17 @@ class Project:
         return Path(self.workspace_root) / "configs"
 
     def logs_dir(self) -> Path:
-        return plugin_logs_dir(self.workspace_root)
+        # A single task's logs live under its run dir; reuse the run anchored by the
+        # runconfig if present, else derive the default run layout.
+        from insar_agent.core.output_resolver import resolve_run_layout
+        from insar_agent.core.layout import RunLayout
+        layout = resolve_run_layout(self)
+        if layout is not None:
+            return layout.logs_dir
+        return RunLayout(
+            workspace_root=self.workspace_root,
+            task_id=self.task_id or self.name or self.project_id,
+        ).logs_dir
 
     def outputs_dir(self) -> Path:
         if self.task_id:

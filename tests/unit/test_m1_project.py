@@ -185,9 +185,13 @@ def test_create_project_backfills_logging_config(insar_project, workspace):
     assert logging_cfg["write_mode"] == "w"
 
 
-def test_project_logs_dir_points_to_dot_insar_logs(workspace):
+def test_project_logs_dir_points_to_run_dir(workspace):
     project = new_project(name="test", engine="isce3", workflow="insar", workspace_root=workspace)
-    assert project.logs_dir() == Path(workspace) / ".insar_logs"
+    logs = project.logs_dir()
+    assert ".insar_logs" not in logs.parts, f"logs still leak to .insar_logs: {logs}"
+    assert logs.name == "logs"
+    assert "outputs" in logs.parts
+    assert logs.is_relative_to(Path(workspace).resolve())
 
 
 # ── get_runconfig ─────────────────────────────────────────────────────────────
