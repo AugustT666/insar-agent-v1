@@ -160,3 +160,70 @@ def test_materialize_dem_stays_under_run_root(workspace):
     escapes = [p for p in escapes if src not in p.parents]
     assert escapes == [], f"materialize_dem_for_tops leaked: {escapes}"
     assert all(run_root in p.parents for p in produced if src not in p.parents)
+
+
+# ---------------------------------------------------------------------------
+# A0 safety-net: log relocation guard (red anchor for Project.logs_dir refactor)
+# ---------------------------------------------------------------------------
+
+def test_project_logs_dir_under_run_tree_not_dot_insar_logs(workspace):
+    """RED anchor: logs_dir() must NOT return .insar_logs once the refactor lands.
+
+    Today (pre-refactor) Project.logs_dir() calls plugin_logs_dir(workspace_root)
+    which returns <workspace>/.insar_logs.  After the refactor it must return a path
+    under the run tree.  This test is deliberately red now and will go green when
+    Project.logs_dir() is fixed in a later task.
+    """
+    from insar_agent.core.project import Project
+
+    proj = Project(
+        name="t",
+        engine="isce3",
+        workflow="stack-insar",
+        workspace_root=str(workspace),
+        task_id="stack-insar-isce3",
+    )
+    logs = proj.logs_dir()
+    assert ".insar_logs" not in logs.parts, f"logs still leak to .insar_logs: {logs}"
+    assert "outputs" in logs.parts, f"logs not under run tree: {logs}"
+
+
+def test_no_insar_logs_dir_after_prepare(workspace, tmp_path):
+    """Regression lock: insar_prepare_stack must not create <ws>/.insar_logs on disk.
+
+    This test drives the real MCP tool and asserts that the .insar_logs directory
+    is never materialised at the workspace root.  It also asserts run_root (when
+    returned) is a descendant of workspace, and that no artifacts escape the
+    run-dir contract.
+
+    NOTE: This test is expected to be GREEN now (the tool does not create .insar_logs
+    on disk); it is kept as a regression lock to catch future regressions.
+    """
+    data_dir = tmp_path / "rslc"
+    data_dir.mkdir()
+    _make_rslc(data_dir, "20251122")
+    _make_rslc(data_dir, "20251204")
+    dem = tmp_path / "dem.tif"
+    dem.write_bytes(b"")
+
+    result = insar_prepare_stack(
+        data_dir=str(data_dir),
+        base_runconfig=str(_fixture_runconfig(tmp_path)),
+        dem=str(dem),
+        output_dir="",
+        workspace_root=str(workspace),
+        interaction_mode="auto",
+    )
+
+    assert "error" not in result, f"insar_prepare_stack returned error: {result}"
+    assert not (workspace / ".insar_logs").exists(), (
+        f".insar_logs was created at workspace root: {workspace / '.insar_logs'}"
+    )
+    # run_root is present when workspace_root drives the output layout
+    if "run_root" in result:
+        assert Path(result["run_root"]).is_relative_to(workspace), (
+            f"run_root {result['run_root']!r} is not under workspace {workspace}"
+        )
+    # Belt-and-suspenders: full containment walker must also report clean
+    escapes = escaped_artifacts(workspace, "stack-insar-isce3")
+    assert escapes == [], f"insar_prepare_stack leaked artifacts: {escapes}"
