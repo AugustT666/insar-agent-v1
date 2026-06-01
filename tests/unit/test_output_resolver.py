@@ -165,3 +165,20 @@ def test_param_advice_output_dir_prefers_pinned_run(workspace):
     )
     p = param_advice_output_dir(proj, output_dir="", task_id="d-insar-isce2")
     assert p == workspace / "d-insar-isce2" / "outputs" / "d-insar-isce2_PINNED" / "param_advisor"
+
+
+def test_resolve_output_reuses_project_pinned_run(workspace):
+    """A product prepare tool (no run_id, no override) must reuse the project's
+    pinned run via resolve_output, so prepare_stack/network join the one run."""
+    import json
+    task = "stack-insar-isce2"
+    pdir = workspace / task / ".insar_agent"
+    pdir.mkdir(parents=True)
+    (pdir / "project.json").write_text(json.dumps({
+        "name": "t", "engine": "isce2", "workflow": "stack",
+        "workspace_root": str(workspace), "task_id": task,
+        "run_id": "stack-insar-isce2_PINNED",
+    }), encoding="utf-8")
+    res = resolve_output(workspace_root=str(workspace), task_id=task, subdir="stack")
+    assert res.layout.run_id == "stack-insar-isce2_PINNED"
+    assert res.target == workspace / task / "outputs" / "stack-insar-isce2_PINNED" / "stack"

@@ -171,6 +171,22 @@ def resolve_output(
             layout = _layout_from_run_root(run_root)
 
     if layout is None:
+        # With no explicit run_id/override/project, reuse the project's pinned run
+        # so every step of a task (prepare/download/run) shares one run.
+        if (
+            not override
+            and project is None
+            and not (run_id and str(run_id).strip())
+            and workspace_root
+            and task_id
+        ):
+            try:
+                from insar_agent.core.project import Project as _Project
+                _proj = _Project.load_for_task(workspace_root, task_id)
+                if _proj is not None and _proj.run_id:
+                    run_id = _proj.run_id
+            except Exception:
+                pass
         layout = _default_layout(workspace_root, task_id, run_id, project)
 
     if override:
