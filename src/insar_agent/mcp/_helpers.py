@@ -200,35 +200,30 @@ def _infer_task_context_from_path(path: Path, workspace_root: str = "", task_id:
     return None
 
 
-def _normalize_task_root_output(
-    output_root: str,
+def _honor_output_path(
+    output_path: str,
     workspace_root: str = "",
     task_id: str = "",
     run_id: str = "",
-    leaf: str = "",
 ) -> tuple[str, str, str, str]:
-    resolved = Path(output_root).expanduser().resolve()
-    context = _infer_task_context_from_path(resolved, workspace_root=workspace_root, task_id=task_id)
-    if context is None:
-        return str(resolved), workspace_root.strip(), task_id.strip(), run_id
+    """Honor a user-provided output path for a flexible-input/download tool.
 
-    task_root, resolved_workspace, resolved_task_id = context
-    if not (resolved == task_root or resolved.is_relative_to(task_root)):
-        return str(resolved), resolved_workspace, resolved_task_id, run_id
-
-    relative = resolved.relative_to(task_root)
-    if relative.parts and relative.parts[0] == "outputs":
-        return str(resolved), resolved_workspace, resolved_task_id, run_id
-
-    layout = RunLayout(
-        workspace_root=resolved_workspace,
-        task_id=resolved_task_id,
-        run_id=run_id.strip() or None,
-    )
-    normalized = layout.run_root / relative if relative.parts else layout.run_root
-    if leaf and not relative.parts:
-        normalized = normalized / leaf
-    return str(normalized), str(layout.workspace_root), layout.task_id, layout.run_id
+    The path is honored exactly as given (expanded + resolved, never moved).
+    When it genuinely lands inside a run dir
+    (``<workspace>/<task_id>/outputs/<run_id>``) the run context is derived from
+    it so background jobs still associate with the task; otherwise the supplied
+    ``workspace_root``/``task_id``/``run_id`` are preserved unchanged.
+    """
+    resolved = Path(output_path).expanduser().resolve()
+    run_root = infer_run_root(resolved)
+    if run_root is not None:
+        return (
+            str(resolved),
+            str(run_root.parent.parent.parent),
+            run_root.parent.parent.name,
+            run_root.name,
+        )
+    return str(resolved), workspace_root, task_id, run_id
 
 
 def _task_root_pollution(workspace_root: str = "", task_id: str = "") -> dict | None:
@@ -986,7 +981,7 @@ __all__ = [
     '_task_job_context',
     '_task_job_poll',
     '_infer_task_context_from_path',
-    '_normalize_task_root_output',
+    '_honor_output_path',
     '_task_root_pollution',
     '_with_task_root_guard',
     '_prepare_tool_log',

@@ -37,7 +37,9 @@ def test_download_dem_default_path_stays_under_outputs(tmp_path):
     assert not (workspace / "d-insar-isce3" / ".insar_logs").exists()
 
 
-def test_download_dem_task_root_output_path_is_normalized_to_outputs(tmp_path):
+def test_download_dem_task_root_output_path_is_honored(tmp_path):
+    # Flexible-input policy: an explicit user output path is honored as-given,
+    # even when it points at a task root and no workspace context is supplied.
     workspace = tmp_path / "workspace"
     task_root = workspace / "stack-insar-isce2"
     requested_path = task_root / "dem" / "copernicus_30.tif"
@@ -61,11 +63,9 @@ def test_download_dem_task_root_output_path_is_normalized_to_outputs(tmp_path):
 
     output_path = Path(result["output_path"])
     log_path = Path(result["log_path"])
-    run_root = task_root / "outputs" / "dem-run"
-    assert output_path == run_root / "dem" / "copernicus_30.tif"
-    assert log_path.is_relative_to(run_root)
-    assert not (task_root / "dem").exists()
-    assert set(path.name for path in task_root.iterdir()) <= {".insar_agent", "sessions", "outputs"}
+    assert output_path == requested_path.resolve()
+    # Log sits beside the honored output (no run root to host it).
+    assert log_path.is_relative_to(requested_path.parent.resolve())
 
 
 def test_download_dem_reports_task_root_pollution(tmp_path):
@@ -238,7 +238,9 @@ def test_prepare_sentinel_run_root_logs_win_over_task_markers(tmp_path):
     assert not (task_root / ".insar_logs").exists()
 
 
-def test_prepare_sentinel_task_root_output_is_normalized_to_outputs(tmp_path):
+def test_prepare_sentinel_task_root_output_is_honored(tmp_path):
+    # Flexible-input policy: an explicit project_root is honored as-given.
+    # No workspace context is supplied, so the task-root guard does not fire.
     workspace = tmp_path / "workspace"
     task_root = workspace / "d-insar-isce2"
 
@@ -249,16 +251,16 @@ def test_prepare_sentinel_task_root_output_is_normalized_to_outputs(tmp_path):
 
     output_dir = Path(result["project_root"])
     log_path = Path(result["prep_log_path"])
-    assert output_dir.is_relative_to(task_root / "outputs")
-    assert output_dir.name == "prep"
-    assert log_path.is_relative_to(task_root / "outputs")
-    assert set(path.name for path in task_root.iterdir()) <= {".insar_agent", "sessions", "outputs"}
-    assert not (task_root / "safe").exists()
-    assert not (task_root / "dem").exists()
-    assert not (task_root / ".insar_logs").exists()
+    assert "error" not in result
+    assert output_dir == task_root.resolve()
+    assert log_path.parent == (task_root / "logs").resolve()
+    # The prep workspace is built under the honored root, not relocated.
+    assert (task_root / "safe").exists()
 
 
-def test_prepare_sentinel_task_root_dem_output_is_normalized_to_run_root(tmp_path):
+def test_prepare_sentinel_task_root_dem_output_is_honored(tmp_path):
+    # Flexible-input policy: an explicit dem_output_path is honored as-given and
+    # passed through to prepare_sentinel_data unchanged (no relocation).
     workspace = tmp_path / "workspace"
     task_root = workspace / "stack-insar-isce2"
     requested_dem = task_root / "dem" / "copernicus_30.tif"
@@ -282,12 +284,10 @@ def test_prepare_sentinel_task_root_dem_output_is_normalized_to_run_root(tmp_pat
             dem_output_path=str(requested_dem),
         )
 
-    run_root = Path(result["project_root"]).parent
-    normalized_dem = Path(mock_prepare.call_args.kwargs["dem_output_path"])
-    assert normalized_dem == run_root / "dem" / "copernicus_30.tif"
-    assert Path(result["dem_path"]) == normalized_dem
-    assert not (task_root / "dem").exists()
-    assert not task_root.exists() or set(path.name for path in task_root.iterdir()) <= {".insar_agent", "sessions", "outputs"}
+    honored_dem = Path(mock_prepare.call_args.kwargs["dem_output_path"])
+    assert honored_dem == requested_dem.resolve()
+    assert Path(result["dem_path"]) == honored_dem
+    assert Path(mock_prepare.call_args.kwargs["project_root"]) == task_root.resolve()
 
 
 def test_prepare_sentinel_reports_task_root_pollution(tmp_path):

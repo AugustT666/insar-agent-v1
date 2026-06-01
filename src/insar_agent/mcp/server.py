@@ -1055,7 +1055,7 @@ def insar_download_dem(
                 "message": "Either output_path or both workspace_root and task_id must be provided.",
             }
     else:
-        output_path, workspace_root, task_id, run_id = _normalize_task_root_output(
+        output_path, workspace_root, task_id, run_id = _honor_output_path(
             output_path,
             workspace_root=workspace_root,
             task_id=task_id,
@@ -1328,16 +1328,15 @@ def insar_prepare_sentinel_data(
                 "message": "Either project_root or both workspace_root and task_id must be provided.",
             }
     else:
-        project_root, workspace_root, task_id, run_id = _normalize_task_root_output(
+        project_root, workspace_root, task_id, run_id = _honor_output_path(
             project_root,
             workspace_root=workspace_root,
             task_id=task_id,
             run_id=run_id,
-            leaf="prep",
         )
 
     if dem_output_path is not None and dem_output_path.strip():
-        dem_output_path, workspace_root, task_id, run_id = _normalize_task_root_output(
+        dem_output_path, workspace_root, task_id, run_id = _honor_output_path(
             dem_output_path,
             workspace_root=workspace_root,
             task_id=task_id,
