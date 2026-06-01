@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from insar_agent.mcp._app import *  # noqa: F403  (foundation: imports + constants + mcp)
 from insar_agent.mcp._helpers import *  # noqa: F403  (shared helpers)
+from insar_agent.core.output_resolver import OutputEscapeError, resolve_output
 
 
 @mcp.tool()
@@ -42,13 +43,14 @@ def insar_prepare_stack(
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
-        resolved_output_dir, run_layout = _resolve_prepare_output_dir(
-            output_dir=output_dir,
-            workspace_root=workspace_root,
-            task_id=task_id,
-            run_id=run_id,
+        _res = resolve_output(
+            output_dir=output_dir or None,
+            workspace_root=workspace_root or None,
+            task_id=task_id or "stack-insar-isce3",
+            run_id=run_id or None,
             subdir="stack",
         )
+        resolved_output_dir, run_layout = str(_res.target), _res.layout
         result = prepare_stack(
             data_dir=data_dir,
             base_runconfig=base_runconfig or None,
@@ -56,24 +58,16 @@ def insar_prepare_stack(
             output_dir=resolved_output_dir,
             reference=reference,
         )
-        if run_layout is not None:
-            result.update({
-                "task_id": run_layout.task_id,
-                "run_id": run_layout.run_id,
-                "run_root": str(run_layout.run_root),
-                "stack_dir": str(run_layout.stack_dir),
-            })
+        result.update({
+            "task_id": run_layout.task_id,
+            "run_id": run_layout.run_id,
+            "run_root": str(run_layout.run_root),
+            "stack_dir": str(run_layout.stack_dir),
+        })
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
         result["param_tuned_found"] = _param_tuned.exists()
         result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
-        if run_layout is None:
-            _workspace_guess = Path(data_dir).parents[0]
-            _depth_warn = _check_output_dir_depth(resolved_output_dir, _workspace_guess, "stack")
-            if _depth_warn:
-                result["layout_warning"] = (
-                    _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/stack"
-                )
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -93,6 +87,8 @@ def insar_prepare_stack(
             )
         )
         return result
+    except OutputEscapeError as exc:
+        return {"error": "output_escape", "message": str(exc)}
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
     except ValueError as exc:
@@ -144,13 +140,14 @@ def insar_prepare_network(
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
-        resolved_output_dir, run_layout = _resolve_prepare_output_dir(
-            output_dir=output_dir,
-            workspace_root=workspace_root,
-            task_id=task_id,
-            run_id=run_id,
+        _res = resolve_output(
+            output_dir=output_dir or None,
+            workspace_root=workspace_root or None,
+            task_id=task_id or "stack-insar-isce3",
+            run_id=run_id or None,
             subdir="network",
         )
+        resolved_output_dir, run_layout = str(_res.target), _res.layout
         result = prepare_network(
             data_dir=data_dir,
             base_runconfig=base_runconfig or None,
@@ -161,25 +158,17 @@ def insar_prepare_network(
             connection_span=connection_span,
             pair_list=pair_list or None,
         )
-        if run_layout is not None:
-            result.update({
-                "task_id": run_layout.task_id,
-                "run_id": run_layout.run_id,
-                "run_root": str(run_layout.run_root),
-                "network_dir": str(run_layout.network_dir),
-            })
+        result.update({
+            "task_id": run_layout.task_id,
+            "run_id": run_layout.run_id,
+            "run_root": str(run_layout.run_root),
+            "network_dir": str(run_layout.network_dir),
+        })
         result["run_command"] = f"bash {result['run_parallel_sh']} {result['output_dir']} <num_jobs>"
         result["gunw_pattern"] = f"{result['output_dir']}/runs/*/products/*.h5"
         _param_tuned = Path(data_dir) / "base_runconfig_param_tuned.yaml"
         result["param_tuned_found"] = _param_tuned.exists()
         result["param_tuned_base_runconfig"] = str(_param_tuned) if _param_tuned.exists() else None
-        if run_layout is None:
-            _workspace_guess = Path(data_dir).parents[0]
-            _depth_warn = _check_output_dir_depth(resolved_output_dir, _workspace_guess, "network")
-            if _depth_warn:
-                result["layout_warning"] = (
-                    _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/network"
-                )
         result.update(
             _prepare_handoff(
                 interaction_mode=interaction_mode,
@@ -199,6 +188,8 @@ def insar_prepare_network(
             )
         )
         return result
+    except OutputEscapeError as exc:
+        return {"error": "output_escape", "message": str(exc)}
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
     except ValueError as exc:

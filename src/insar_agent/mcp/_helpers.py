@@ -732,30 +732,6 @@ def insar_get_job_logs(job_id: str, project_id: str, tail: int = 0) -> dict:
     }
 
 
-def _resolve_prepare_output_dir(
-    *,
-    output_dir: str,
-    workspace_root: str,
-    task_id: str,
-    run_id: str,
-    subdir: str,
-) -> tuple[str, RunLayout | None]:
-    if output_dir.strip():
-        return output_dir, None
-    if not workspace_root.strip():
-        raise ValueError("output_dir is required unless workspace_root is provided")
-    layout = RunLayout(
-        workspace_root=workspace_root,
-        task_id=task_id.strip() or "stack-insar-isce3",
-        run_id=run_id.strip() or None,
-    )
-    if subdir == "stack":
-        return str(layout.stack_dir), layout
-    if subdir == "network":
-        return str(layout.network_dir), layout
-    raise ValueError(f"unknown prepare subdir: {subdir!r}")
-
-
 def insar_extract_bbox(rslc_paths: list[str]) -> dict:
     """
     Extract the union bounding box from one or more NISAR RSLC HDF5 files.
@@ -1043,7 +1019,6 @@ __all__ = [
     '_validate_isce2_safe_annotation_geolocation',
     'insar_get_job_status',
     'insar_get_job_logs',
-    '_resolve_prepare_output_dir',
     'insar_extract_bbox',
     '_launch_dem_download_background',
     '_launch_sentinel_prepare_background',

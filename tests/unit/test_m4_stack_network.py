@@ -510,7 +510,8 @@ def test_mcp_insar_prepare_stack_success(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem=str(dem),
-        output_dir=str(tmp_path / "stack"),
+        output_dir="",
+        workspace_root=str(tmp_path),
     )
     assert "error" not in result
     assert result["num_pairs"] == 1
@@ -535,7 +536,8 @@ def test_mcp_insar_prepare_stack_bad_dem(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem="/nonexistent/dem.tif",
-        output_dir=str(tmp_path / "stack"),
+        output_dir="",
+        workspace_root=str(tmp_path),
     )
     assert result["error"] == "path_not_found"
 
@@ -552,7 +554,8 @@ def test_mcp_insar_prepare_network_success(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem=str(dem),
-        output_dir=str(tmp_path / "network"),
+        output_dir="",
+        workspace_root=str(tmp_path),
     )
     assert "error" not in result
     assert result["num_pairs"] == 1
@@ -577,7 +580,8 @@ def test_mcp_insar_prepare_stack_auto_mode_skips_handoff(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem=str(dem),
-        output_dir=str(tmp_path / "stack"),
+        output_dir="",
+        workspace_root=str(tmp_path),
         interaction_mode="auto",
     )
 
@@ -595,7 +599,8 @@ def test_mcp_insar_prepare_stack_uses_default_template_when_omitted(tmp_path):
     result = insar_prepare_stack(
         data_dir=str(data_dir),
         dem=str(dem),
-        output_dir=str(tmp_path / "stack"),
+        output_dir="",
+        workspace_root=str(tmp_path),
     )
 
     assert "error" not in result
@@ -615,7 +620,8 @@ def test_mcp_insar_prepare_network_auto_mode_skips_handoff(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem=str(dem),
-        output_dir=str(tmp_path / "network"),
+        output_dir="",
+        workspace_root=str(tmp_path),
         interaction_mode="auto",
     )
 
@@ -633,7 +639,8 @@ def test_mcp_insar_prepare_network_uses_default_template_when_omitted(tmp_path):
     result = insar_prepare_network(
         data_dir=str(data_dir),
         dem=str(dem),
-        output_dir=str(tmp_path / "network"),
+        output_dir="",
+        workspace_root=str(tmp_path),
     )
 
     assert "error" not in result
@@ -654,7 +661,8 @@ def test_mcp_insar_prepare_network_conn_mode(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem=str(dem),
-        output_dir=str(tmp_path / "network"),
+        output_dir="",
+        workspace_root=str(tmp_path),
         network_mode="conn",
         connection_span=1,
     )
@@ -674,7 +682,8 @@ def test_mcp_insar_prepare_network_invalid_mode(tmp_path):
         data_dir=str(data_dir),
         base_runconfig=str(runconfig),
         dem=str(dem),
-        output_dir=str(tmp_path / "network"),
+        output_dir="",
+        workspace_root=str(tmp_path),
         network_mode="bogus",
     )
     assert result["error"] == "invalid_input"

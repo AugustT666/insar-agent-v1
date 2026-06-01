@@ -247,7 +247,7 @@ def test_prepare_stack_returns_run_command(tmp_path):
 
     result = insar_prepare_stack(
         data_dir=str(data_dir), base_runconfig=str(rc),
-        dem=str(dem), output_dir=str(tmp_path / "stack"),
+        dem=str(dem), output_dir="", workspace_root=str(tmp_path),
     )
     assert "run_command" in result
     assert "run_parallel.sh" in result["run_command"]
@@ -269,7 +269,7 @@ def test_prepare_network_returns_run_command_and_pattern(tmp_path):
 
     result = insar_prepare_network(
         data_dir=str(data_dir), base_runconfig=str(rc),
-        dem=str(dem), output_dir=str(tmp_path / "network"),
+        dem=str(dem), output_dir="", workspace_root=str(tmp_path),
     )
     assert "run_command" in result
     assert "run_parallel.sh" in result["run_command"]
