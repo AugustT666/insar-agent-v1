@@ -151,3 +151,17 @@ def test_run_logs_dir_under_run_root(workspace):
     from insar_agent.core.output_resolver import run_logs_dir
     p = run_logs_dir(workspace_root=str(workspace), task_id="d-insar-isce2", run_id="r1")
     assert p == workspace / "d-insar-isce2" / "outputs" / "r1" / "logs"
+
+
+def test_param_advice_output_dir_prefers_pinned_run(workspace):
+    """param-advisor output must join the project's pinned run (one run per task),
+    even for ISCE2 which has no product_path_group to recover the run from."""
+    from insar_agent.core.project import Project
+    from insar_agent.core.output_resolver import param_advice_output_dir
+    proj = Project(
+        name="t", engine="isce2", workflow="topsapp",
+        workspace_root=str(workspace), task_id="d-insar-isce2",
+        run_id="d-insar-isce2_PINNED",
+    )
+    p = param_advice_output_dir(proj, output_dir="", task_id="d-insar-isce2")
+    assert p == workspace / "d-insar-isce2" / "outputs" / "d-insar-isce2_PINNED" / "param_advisor"

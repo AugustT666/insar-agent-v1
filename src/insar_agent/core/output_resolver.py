@@ -299,6 +299,18 @@ def param_advice_output_dir(project: "Project", output_dir: str, task_id: str) -
 
     requested_task_id = sanitize_identifier(task_id) if task_id.strip() else ""
     preferred_task_id = project.task_id or requested_task_id or project.name or project.project_id
+    # Prefer the project's pinned run so the param-advisor output joins the one run
+    # (works for ISCE2 too, which has no product_path_group to recover the run from).
+    pinned = getattr(project, "run_id", None)
+    if pinned:
+        try:
+            return RunLayout(
+                workspace_root=project.workspace_root,
+                task_id=preferred_task_id,
+                run_id=pinned,
+            ).param_advisor_dir
+        except ValueError:
+            pass
     try:
         layout = RunLayout(
             workspace_root=project.workspace_root,
