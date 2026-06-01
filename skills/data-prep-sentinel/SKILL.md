@@ -44,7 +44,7 @@ version: 0.1.0
 - Use `insar_prepare_sentinel_data` as the main preparation tool.
 - Use `insar_download_dem` only through `insar_prepare_sentinel_data` for Sentinel-1 prep.
 - Return `safe_root`, `grouped_safe_paths`, `dem_path`, and `orbit_dir`.
-- Plugin-controlled logs must land under the selected workspace root `.insar_logs/`.
+- Plugin-controlled logs land under the run's `logs/` directory (`<run_root>/logs/`).
 - Write prepared inputs under the project root:
   - `safe/`
   - `dem/`
@@ -52,7 +52,7 @@ version: 0.1.0
 - For IntegrationTest workspace tasks, pass existing burst scene directories via
   `source_paths` directly. Do not create helper files such as
   `burst_manifest.txt` in `workspace/<task_id>/`; task-root children other than
-  `.insar_agent`, `.insar_logs`, `outputs`, and `sessions` are treated as
+  `.insar_agent`, `outputs`, and `sessions` are treated as
   artifact pollution.
 
 ## Standard workflow
@@ -155,7 +155,7 @@ Use the same AOI / bbox that will be passed to the ISCE2 workflow.
 
 - For `d-insar-isce2`, pick two SAFE paths from the same grouped directory and reuse `dem_path` and `orbit_dir`.
 - For `stack-insar-isce2`, use one grouped directory as `slc_dir` and reuse `dem_path` and `orbit_dir`.
-- For plugin-controlled logs, inspect the workspace root `.insar_logs/` directory first.
+- For plugin-controlled logs, inspect the run's `logs/` directory (`<run_root>/logs/`).
 
 ## Sentinel-2
 

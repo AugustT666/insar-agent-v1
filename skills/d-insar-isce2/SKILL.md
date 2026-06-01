@@ -289,7 +289,7 @@ Key output files (located under `<run_root>/` returned by `insar_run_workflow`):
 1. **Check Job Status**: Run `insar_get_job(job_id=...)` to see if job is `failed`, `timeout`, or still `running`.
 2. **Inspect Raw Logs**: View full topsApp output at the log path from Step 6:
    ```bash
-   tail -200 /path/to/workspace_root/.insar_logs/isce2_*.log
+   tail -200 <run_root>/logs/isce2_*.log
    ```
 3. **Validate Inputs**: Verify both SAFE/ZIP paths exist and contain valid manifest files:
    ```bash
@@ -325,7 +325,7 @@ For reference (Intel i7 with 32 GB RAM, NVMe storage):
 
 ## Log Inspection
 
-All processing logs are saved under `<workspace_root>/.insar_logs/`:
+All processing logs are saved under `<run_root>/logs/` (run_root is returned by `insar_run_workflow`):
 
 - `isce2_<job_id>.log` — Main ISCE2 process output (text format)
 - `sentinel_prep_<job_id>.log` — Data preparation log (if data-prep was used)
@@ -333,10 +333,10 @@ All processing logs are saved under `<workspace_root>/.insar_logs/`:
 
 To stream logs in real time during processing:
 ```bash
-tail -f /path/to/workspace_root/.insar_logs/isce2_*.log
+tail -f <run_root>/logs/isce2_*.log
 ```
 
 To search for error patterns:
 ```bash
-grep -i "error\|failed\|exception" /path/to/workspace_root/.insar_logs/*.log
+grep -i "error\|failed\|exception" <run_root>/logs/*.log
 ```
