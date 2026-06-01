@@ -59,7 +59,8 @@ class TestPrepareStackRealRSLC:
         result = insar_prepare_stack(
             data_dir=str(_RSLC_DIR),
             dem=str(_DEM),
-            output_dir=str(tmp_path / "stack"),
+            output_dir="",
+            workspace_root=str(tmp_path),
             interaction_mode="auto",
         )
 
@@ -78,7 +79,8 @@ class TestPrepareStackRealRSLC:
         result = insar_prepare_stack(
             data_dir=str(_RSLC_DIR),
             dem=str(_DEM),
-            output_dir=str(tmp_path / "stack"),
+            output_dir="",
+            workspace_root=str(tmp_path),
             reference="auto",
             interaction_mode="auto",
         )
@@ -94,7 +96,8 @@ class TestPrepareStackRealRSLC:
         result = insar_prepare_stack(
             data_dir=str(_RSLC_DIR),
             dem=str(_DEM),
-            output_dir=str(tmp_path / "stack"),
+            output_dir="",
+            workspace_root=str(tmp_path),
             interaction_mode="auto",
         )
         assert "error" not in result, result
@@ -130,7 +133,8 @@ class TestPrepareNetworkRealRSLC:
         result = insar_prepare_network(
             data_dir=str(_RSLC_DIR),
             dem=str(_DEM),
-            output_dir=str(tmp_path / "network"),
+            output_dir="",
+            workspace_root=str(tmp_path),
             network_mode="tbase",
             max_temporal_baseline_days=36,
             interaction_mode="auto",
@@ -150,7 +154,8 @@ class TestPrepareNetworkRealRSLC:
         result = insar_prepare_network(
             data_dir=str(_RSLC_DIR),
             dem=str(_DEM),
-            output_dir=str(tmp_path / "network"),
+            output_dir="",
+            workspace_root=str(tmp_path),
             network_mode="tbase",
             max_temporal_baseline_days=36,
             interaction_mode="auto",
@@ -166,7 +171,9 @@ class TestPrepareNetworkRealRSLC:
         self, tmp_path: Path
     ) -> None:
         _require(_RSLC_DIR, _DEM)
-        out = str(tmp_path / "network")
+        # Explicit override must resolve inside a run root under the unified
+        # output contract; gunw_pattern is then expected to point into it.
+        out = str(tmp_path / "stack-insar-isce3" / "outputs" / "run1" / "network")
         result = insar_prepare_network(
             data_dir=str(_RSLC_DIR),
             dem=str(_DEM),
