@@ -11,7 +11,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from insar_agent.core.project import resolve_plugin_logs_dir
 from insar_agent.engines.isce3.defaults import get_default_runconfig_template_path
 
 
@@ -122,7 +121,7 @@ def render_runconfig(
     product_file = product_dir / f"{pair_name}.h5"
     scratch_dir = pair_dir / "scratch"
     qa_dir = pair_dir / "qa"
-    log_root = logs_dir or resolve_plugin_logs_dir(pair_dir, fallback_root=pair_dir.parent.parent)
+    log_root = logs_dir or (pair_dir.parent.parent / "logs")
     log_path = log_root / f"{pair_dir.parent.parent.name}_{pair_name}.log"
 
     rendered = ensure_logging_group(template_text)
@@ -275,7 +274,7 @@ def prepare_stack(
     output_dir.mkdir(parents=True, exist_ok=True)
     runconfig_dir = output_dir / "runconfigs"
     runconfig_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir = resolve_plugin_logs_dir(output_dir, fallback_root=output_dir)
+    logs_dir = output_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_rows: list[list[str]] = []

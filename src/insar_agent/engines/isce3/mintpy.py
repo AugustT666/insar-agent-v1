@@ -16,8 +16,6 @@ from datetime import datetime, UTC
 from pathlib import Path
 from uuid import uuid4
 
-from insar_agent.core.project import resolve_plugin_logs_dir
-
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_nisar_stack.sh"
 
 
@@ -90,7 +88,7 @@ def run_mintpy(
     work_dir.mkdir(parents=True, exist_ok=True)
     jobs_dir = work_dir / ".jobs"
     jobs_dir.mkdir(exist_ok=True)
-    logs_dir = resolve_plugin_logs_dir(work_dir, fallback_root=work_dir)
+    logs_dir = work_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = str(uuid4())

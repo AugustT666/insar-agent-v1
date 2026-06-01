@@ -1345,7 +1345,7 @@ def test_prepare_sentinel_data_can_prepare_dem_and_orbits(tmp_path, monkeypatch)
     assert result["orbit_downloaded_count"] == 1
     assert result["orbit_failed"] == []
     assert (project_root / "orbits").exists()
-    assert Path(result["prep_log_path"]).parent == project_root / ".insar_logs"
+    assert Path(result["prep_log_path"]).parent == project_root / "logs"
     assert Path(result["prep_log_path"]).exists()
     assert Path(result["orbit_log_path"]).exists()
     orbit_log_text = Path(result["orbit_log_path"]).read_text(encoding="utf-8")

@@ -260,7 +260,6 @@ def test_prepare_stack_runconfig_contains_paths(tmp_path):
 
 
 def test_prepare_stack_runconfig_uses_workspace_dot_insar_logs(tmp_path):
-    (tmp_path / ".insar_logs").mkdir()
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
     make_rslc(data_dir, "20251122")
@@ -271,7 +270,7 @@ def test_prepare_stack_runconfig_uses_workspace_dot_insar_logs(tmp_path):
 
     result = prepare_stack(data_dir=data_dir, base_runconfig=runconfig, dem=dem, output_dir=output_dir)
     rendered = Path(result["runconfigs"][0]).read_text()
-    assert str(tmp_path / ".insar_logs" / "stack_20251122_20251204.log") in rendered
+    assert str(tmp_path / "stack" / "logs" / "stack_20251122_20251204.log") in rendered
 
 
 def test_prepare_stack_manifest_csv(tmp_path):

@@ -10,8 +10,6 @@ from uuid import uuid4
 
 import numpy as np
 
-from insar_agent.core.project import resolve_plugin_logs_dir
-
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_isce2_stack.sh"
 
 
@@ -136,7 +134,7 @@ def run_mintpy_isce2_stack(
     work_dir.mkdir(parents=True, exist_ok=True)
     jobs_dir = work_dir / ".jobs"
     jobs_dir.mkdir(exist_ok=True)
-    logs_dir = resolve_plugin_logs_dir(work_dir, fallback_root=work_dir)
+    logs_dir = work_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = Path(mintpy_config) if mintpy_config else _write_default_template(work_dir, stack_dir, baseline_dir)

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
-from insar_agent.core.project import resolve_plugin_logs_dir
+from insar_agent.core.layout import infer_run_root
 from insar_agent.engines.isce2.sentinel import orbit as orbit
 from insar_agent.engines.isce2.sentinel._common import (
     _append_log,
@@ -240,7 +240,7 @@ def prepare_sentinel_data(
 ) -> dict:
     _ = (mode, include_pair, include_stack)
     root = Path(project_root).expanduser().resolve()
-    logs_dir = _ensure_dir(resolve_plugin_logs_dir(root, fallback_root=root))
+    logs_dir = _ensure_dir((infer_run_root(root) or root) / "logs")
     job_id = uuid4().hex[:12]
     prep_log_path = logs_dir / f"sentinel_prep_{job_id}.log"
     prep_params_path = logs_dir / f"sentinel_prep_{job_id}_params.json"
