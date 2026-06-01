@@ -53,6 +53,23 @@ Defer these questions when the user only wants documentation, architecture revie
 or workflow consultation. Do not force environment prompts that the selected
 workflow skill can resolve through a valid default.
 
+## Preconditions Before Any Processing (开工前门检)
+
+Before routing to any processing workflow, confirm two inputs exist; if either is
+missing, STOP and ask the user — do not invent paths:
+
+1. **Workspace root** — the top-level workspace directory. All outputs land under it.
+2. **Input data paths** — whatever the user has (RSLC / SAFE / burst / zip / DEM).
+   Inputs may be incomplete: if a required input (DEM, precise orbits) is missing,
+   auto-complete it by calling the matching tool (e.g. `insar_download_dem`) rather
+   than asking the user to fetch it.
+
+Output location is OPTIONAL: if the user gives one, the product tools validate it
+stays inside the workspace run root; if not, tools derive the default run directory.
+After this gate the user is not asked about paths again — every product for the task
+lands under `outputs/<run_id>/` (use the `run_root` returned by the tools), and
+project metadata lands under `.insar_agent/`.
+
 ## Workflow Routing
 
 Invoke the matching same-plugin skill via the Skill tool. In Claude Code plugin
