@@ -183,23 +183,6 @@ def _task_job_poll(job_id: str, job_context: dict, *, include_logs: bool = False
     return poll + ")"
 
 
-def _infer_task_context_from_path(path: Path, workspace_root: str = "", task_id: str = "") -> tuple[Path, str, str] | None:
-    resolved_task_id = task_id.strip()
-    resolved_workspace = workspace_root.strip()
-
-    if resolved_workspace and resolved_task_id:
-        task_root = Path(resolved_workspace).expanduser().resolve() / resolved_task_id
-        if path == task_root or path.is_relative_to(task_root):
-            return task_root, str(task_root.parent), task_root.name
-
-    for index, part in enumerate(path.parts):
-        if part in _WORKFLOW_TO_TASK_ID.values() and index > 0 and path.parts[index - 1] == "workspace":
-            task_root = Path(*path.parts[: index + 1])
-            return task_root, str(task_root.parent), task_root.name
-
-    return None
-
-
 def _honor_output_path(
     output_path: str,
     workspace_root: str = "",
@@ -980,7 +963,6 @@ __all__ = [
     '_task_job_context_from_path',
     '_task_job_context',
     '_task_job_poll',
-    '_infer_task_context_from_path',
     '_honor_output_path',
     '_task_root_pollution',
     '_with_task_root_guard',
