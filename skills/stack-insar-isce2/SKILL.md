@@ -26,9 +26,9 @@ version: 0.1.0
 
 - Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
 - Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
-- **interactive**: At Step 5.5, pause and ask the user whether to run param-advisor (engine=isce2).
+- **interactive**: At Step 4.5, pause and ask the user whether to run param-advisor (engine=isce2).
   Wait for confirmation before proceeding.
-- **auto**: At Step 5.5, automatically enter param-advisor (engine=isce2) without asking.
+- **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking.
   Skip only if the user has explicitly said to use default parameters.
 
 ## Prerequisites
@@ -46,48 +46,13 @@ If any prerequisite is missing, ask the user or invoke the appropriate preparati
 
 ## Workflow
 
-### Step 1 — Ensure Sentinel data is prepared
+> **Create the project FIRST, then prepare data.** `insar_create_project` is cheap —
+> it just writes `project.json` and pins the run_id. Doing it first means every later
+> step (data-prep, DEM, param-advice, stack, MintPy) passes `workspace_root`+`task_id`
+> and joins that one pinned run. If you prepare data before the project exists, the
+> prep mints its own run and the task ends up split across two run directories.
 
-If the user only has raw SAFE ZIP / SAFE / burst inputs, stop and invoke:
-
-```
-data-prep
-```
-
-Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_dir` as the handoff for this skill. For burst-derived SAFE inputs, require `data-prep` to return `isce2_import_validation.status == "passed"`; if it fails, stop and report the failed scene messages/logs instead of running stackSentinel.
-
----
-
-### Step 2 — Inspect a representative scene
-
-First discover available scenes using the MCP tool:
-
-```python
-insar_discover(slc_dir="/mnt/.../safe/s1a_asc_rel014/")
-```
-
-Then call describe on the first returned scene path:
-
-```python
-insar_describe_s1(zip_path="<first SAFE path from insar_discover result>")
-```
-
-Note: relative orbit, polarization, pass direction, bbox.
-
----
-
-### Step 3 — Reuse prepared DEM and orbits
-
-Prefer the `dem_path` and `orbit_dir` returned by `data-prep`.
-Only ask the user for replacements if they explicitly want to override them.
-The user still needs to provide:
-
-- `workspace_root`
-- `conda_env` (defaults to `isce2` for ISCE2 stack processing)
-
----
-
-### Step 4 — Create stack project
+### Step 1 — Create stack project (FIRST — pins the run)
 
 ```
 insar_create_project(
@@ -101,9 +66,9 @@ insar_create_project(
 ```
 
 **One project, one run — do NOT re-create the project to fix a recoverable error.**
-`insar_create_project` pins the run_id once; every later step (DEM, prep, param-advice,
-workflow) joins that same run. Re-creating the project mints a NEW run_id and splits the
-task across two run directories.
+`insar_create_project` pins the run_id once; every later step (data-prep, DEM,
+param-advice, workflow) joins that same run when given `workspace_root`+`task_id`.
+Re-creating the project mints a NEW run_id and splits the task across two run directories.
 
 - **Always pass `conda_env="isce2"` at creation.** If you forgot it (or the workflow fails
   with a conda/env-resolution error), do NOT rebuild the project. Correct it in place:
@@ -117,7 +82,41 @@ task across two run directories.
 
 ---
 
-### Step 5 — Set stack parameters
+### Step 2 — Ensure Sentinel data is prepared (joins the pinned run)
+
+If the user only has raw SAFE ZIP / SAFE / burst inputs, invoke `data-prep`, passing the
+same `workspace_root` and `task_id` from Step 1 so the prepared inputs land under this
+project's run (`outputs/<run_id>/prep/`):
+
+```
+data-prep   # with workspace_root=<workspace_root>, task_id=<task_id>
+```
+
+Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_dir` as the handoff for this skill. For burst-derived SAFE inputs, require `data-prep` to return `isce2_import_validation.status == "passed"`; if it fails, stop and report the failed scene messages/logs instead of running stackSentinel.
+
+---
+
+### Step 3 — Inspect a representative scene
+
+First discover available scenes using the MCP tool:
+
+```python
+insar_discover(slc_dir="/mnt/.../safe/s1a_asc_rel014/")
+```
+
+Then call describe on the first returned scene path:
+
+```python
+insar_describe_s1(zip_path="<first SAFE path from insar_discover result>")
+```
+
+Note: relative orbit, polarization, pass direction, bbox. Prefer the `dem_path` and
+`orbit_dir` returned by `data-prep`; only ask the user for replacements if they explicitly
+want to override them.
+
+---
+
+### Step 4 — Set stack parameters
 
 Mandatory fields:
 
@@ -147,7 +146,7 @@ Key optional parameters:
 
 ---
 
-### Step 5.5 — Optional parameter tuning
+### Step 4.5 — Optional parameter tuning
 
 If the user wants help choosing looks, network density, coregistration mode,
 filtering, or swath/bbox tradeoffs, enter:
@@ -171,7 +170,7 @@ and applies accepted changes via `insar_set_processing_param` only.
 
 ---
 
-### Step 6 — Run stackSentinel (prepare + execute)
+### Step 5 — Run stackSentinel (prepare + execute)
 
 ```
 insar_run_workflow(project_id=project_id)
@@ -204,7 +203,7 @@ Do not execute generated run scripts manually; the MCP workflow owns stack execu
 
 ---
 
-### Step 7 — MintPy time-series analysis
+### Step 6 — MintPy time-series analysis
 
 After stack processing completes, delegate to the unified **mintpy** skill with `engine=isce2`:
 
@@ -234,7 +233,7 @@ For advanced tuning of MintPy parameters, the user can edit the MintPy config fi
 
 ---
 
-### Step 8 — Optional baseline inspection
+### Step 7 — Optional baseline inspection
 
 For ISCE2 stacks, baseline products are typically prepared by topsStack itself under
 `<stack_work_dir>/merged/baselines/` and `baselines_txt/`. Do **not** call the
@@ -246,7 +245,7 @@ baseline text products inside the stack work directory or continue through the u
 
 ---
 
-### Step 9 — Export results
+### Step 8 — Export results
 
 ```
 insar_list_outputs(project_id=project_id)
