@@ -139,6 +139,46 @@ def test_create_project_with_conda_env(workspace):
     assert result["conda_env"] == "isce3"
 
 
+def test_run_workflow_conda_env_override_updates_project_in_place(workspace):
+    """An env mistake is self-healed by passing conda_env to insar_run_workflow.
+
+    Reproduces the run-proliferation cause: previously the only way to correct a
+    missing conda_env was to re-create the project, which minted a NEW pinned
+    run_id (a second outputs/<run_id>/ dir). The override must update the existing
+    project in place — same project_id, same run_id — so no second run is created.
+    """
+    created = insar_create_project(
+        engine="isce2",
+        workflow="tops",
+        workspace_root=workspace,
+        conda_env="",  # the original mistake: no env resolved
+    )
+    pid = created["project_id"]
+    pinned_run_id = created["run_id"]
+
+    # Sanity: the project really has no conda_env yet.
+    assert (Project.load(pid).conda_env or "") == ""
+
+    # Self-heal the env via the run call (dry_run may error on missing inputs;
+    # we assert the SIDE EFFECT, not workflow success).
+    result = insar_run_workflow(pid, dry_run=True, conda_env="isce2")
+
+    # The override must NOT fail on a conda/env-resolution problem.
+    assert result.get("error") not in {"conda_env_unresolved", "env_not_found"}, result
+
+    # SIDE EFFECT 1: conda_env is persisted (a later poll/re-entry sees it).
+    reloaded = Project.load(pid)
+    assert reloaded.conda_env == "isce2"
+
+    # SIDE EFFECT 2: no new project / no new run was minted.
+    assert reloaded.project_id == pid
+    assert reloaded.run_id == pinned_run_id  # same pinned run, no second outputs/<run_id>/
+
+    # Guard: exactly one project.json exists under the workspace task tree.
+    project_jsons = list(Path(workspace).rglob("project.json"))
+    assert len(project_jsons) == 1, project_jsons
+
+
 def test_create_project_unknown_workflow(workspace):
     result = insar_create_project(engine="isce3", workflow="bogus", workspace_root=workspace)
     assert result["error"] == "workflow_not_found"

@@ -317,7 +317,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
 
 
 @mcp.tool()
-def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
+def insar_run_workflow(project_id: str, dry_run: bool = False, conda_env: str = "") -> dict:
     """
     Validate, export, and launch the ISCE3 NISAR workflow.
 
@@ -328,11 +328,19 @@ def insar_run_workflow(project_id: str, dry_run: bool = False) -> dict:
     Args:
         project_id: Project UUID
         dry_run: If true, validate and export but do not launch the process
+        conda_env: Optional conda env override; when provided, updates the project's conda_env in place (avoids re-creating the project just to fix the env).
     """
     try:
         project = Project.load(project_id)
     except (KeyError, FileNotFoundError):
         return _project_error(project_id)
+
+    if conda_env.strip() and conda_env.strip() != (project.conda_env or ""):
+        project.conda_env = conda_env.strip()
+        try:
+            project.save()
+        except Exception:
+            pass  # in-memory override still applies to this run
 
     # Dispatch to engine-specific run logic
     if project.engine == "isce2":
