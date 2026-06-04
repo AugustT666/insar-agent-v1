@@ -86,10 +86,16 @@ insar_create_project(
     workflow="tops",
     workspace_root=<workspace_root>,
     name="s1-dinsar-<region>-<date>",
-    conda_env="isce2",
+    conda_env="isce2",       # ALWAYS pass — do not re-create the project to fix it later
     task_id=<task_id>        # auto-derived; drives the run-root layout
 )
 ```
+
+**One project, one run.** The run_id is pinned at creation; all later steps join it. Do NOT
+re-create the project to fix a recoverable error (that mints a new run). If the workflow
+fails on a conda/env problem, correct it in place: `insar_run_workflow(project_id,
+conda_env="isce2")`. On any failure, retry within the same `project_id`; create a new project
+only when abandoning the run entirely.
 
 Returns `project_id` and `required_fields` list.
 

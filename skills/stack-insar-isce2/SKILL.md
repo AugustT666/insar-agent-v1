@@ -95,10 +95,25 @@ insar_create_project(
     workflow="stack",
     workspace_root=<workspace_root>,
     name="s1-stack-<region>",
-    conda_env=<task/user specified ISCE2 env or "isce2">,
+    conda_env=<task/user specified ISCE2 env or "isce2">,   # ALWAYS pass this — see below
     task_id=<task_id>        # auto-derived; drives the run-root layout
 )
 ```
+
+**One project, one run — do NOT re-create the project to fix a recoverable error.**
+`insar_create_project` pins the run_id once; every later step (DEM, prep, param-advice,
+workflow) joins that same run. Re-creating the project mints a NEW run_id and splits the
+task across two run directories.
+
+- **Always pass `conda_env="isce2"` at creation.** If you forgot it (or the workflow fails
+  with a conda/env-resolution error), do NOT rebuild the project. Correct it in place:
+  `insar_run_workflow(project_id, conda_env="isce2")` updates the project's env and re-uses
+  the same run.
+- **On any tool failure, take over / retry within the SAME `project_id`** so follow-up
+  products stay in the original run. Only create a new project if you are abandoning the run
+  entirely (so the failed run can be deleted wholesale).
+- Whether the task is "done" is your judgement, based on whether the terminal product exists
+  (`mintpy/velocity.h5` for a completed time-series). The plugin does not close runs.
 
 ---
 
