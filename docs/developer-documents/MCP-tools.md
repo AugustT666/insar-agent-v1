@@ -13,7 +13,7 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 
 ### `insar://workflow-guide`
 
-指向 `insar-agent-plugin:insar-agent` skill 的入口引导，告知 agent 通过 skill 获取完整工作流约束和路由逻辑。**实现：内联于 `mcp/server.py::_WORKFLOW_GUIDE`**，不读取文件系统。
+指向 `insar-agent-plugin:insar-agent` skill 的入口引导，告知 agent 通过 skill 获取完整工作流约束和路由逻辑。**实现：`mcp/resources.py::get_workflow_guide` 读取 `skills/insar-agent/SKILL.md`**，由主路由 skill 单点维护。
 
 ---
 
@@ -25,7 +25,7 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 
 **返回：** 包含 Required 和 Optional 两部分的纯文本。若工作流未知则返回错误消息。
 
-**实现位置：** `mcp/server.py::get_allowed_fields`
+**实现位置：** `mcp/resources.py::get_allowed_fields`
 
 ---
 
@@ -51,7 +51,7 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 
 ---
 
-## 工具总览（25 个注册工具）
+## 工具总览（26 个注册工具）
 
 | 分组 | 工具 | 作用 |
 |---|---|---|
@@ -78,7 +78,8 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 | Sentinel/ISCE2 | `insar_download_scene` | 下载 Sentinel-1 场景文件 |
 | Sentinel/ISCE2 | `insar_describe_s1` | 读取 Sentinel SAFE/ZIP 元数据摘要 |
 | Sentinel/ISCE2 | `insar_prepare_sentinel_data` | 组织 SAFE/ZIP、orbit、DEM 等 ISCE2 输入 |
-| 分析 | `insar_export_geotiff` | HDF5 GUNW → GeoTIFF + PNG |
+| 分析 | `insar_export_geotiff` | 通用栅格 → 带 CRS GeoTIFF（GUNW/MintPy/ISCE2 .geo；文件或目录） |
+| 分析 | `insar_geocode_runw` | 当 GUNW geocode 退化时，从 radar-geometry RUNW + rdr2geo 栅格恢复 GeoTIFF |
 | 环境 | `insar_check_env` | 检查 conda env、MCP 注册与 skill 插件安装状态 |
 
 ---
@@ -686,20 +687,29 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 
 ### `insar_export_geotiff`
 
-将 NISAR GUNW HDF5 产品中所有空间数据集导出为 GeoTIFF + PNG。输出写入 `<output_dir>/browse/`。
+通用栅格导出为 QGIS 可用的带 CRS（EPSG:4326）GeoTIFF。按**栅格格式**分派，不绑定单一工作流；
+接受文件或目录：
+
+- **NISAR GUNW `.h5`** → 逐数据集 GeoTIFF + 彩色 PNG，写入 `<output_dir>/browse/`（现已带 CRS）。
+- **MintPy `.h5` / mintpy 目录** → velocity、temporalCoherence、avgSpatialCoh、maskTempCoh
+  （+ 自动 `velocity_masked`）；ISCE2 雷达坐标产物先经 `geocode.py` 地理编码再导。
+- **ISCE2 `.geo` / `.geo.vrt`** → 已地理编码图层直接转出（`.unw` 取相位 band 2）。
+- 不支持的格式（如 GAMMA `.rmg`+`.par`）记入 `notes`，不导出、不中断其他文件。
 
 **参数：**
 
 | 名称 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `h5_path` | string | 是 | GUNW `.h5` 文件绝对路径 |
-| `output_dir` | string | 是 | 将在其下创建 `browse/` 子目录 |
+| `h5_path` | string | 是 | 栅格**文件或目录**绝对路径（名仍叫 `h5_path` 为向后兼容） |
+| `output_dir` | string | 否 | 缺省落到该 run 的 `qgis_export/`（经 `infer_run_root` 推断） |
+| `tag` | string | 否 | 通用导出分支的文件名前缀（如 `E3_NISAR` → `E3_NISAR_velocity.tif`），默认 `E`；不影响 GUNW browse 命名 |
 
-**返回：** `output_dir`、`n_files`、`files`（路径列表）、`skipped`。
+**返回：** `output_dir`、`n_files`、`files`（路径列表）、`skipped`；通用分支另含 `geocoded`、`notes`。
 
 **错误：** `path_not_found`、`dependency_missing`（需 h5py/numpy/GDAL）、`export_failed`
 
-**实现位置：** `engines/isce3/geotiff.py::export_geotiff`
+**实现位置：** GUNW 分支 `engines/isce3/geotiff.py::export_geotiff`；通用分派
+`engines/raster_export.py::export_path`
 
 ---
 
