@@ -539,7 +539,7 @@ def _resolve_bbox_input(
 
 
 @mcp.tool()
-def insar_export_geotiff(h5_path: str, output_dir: str = "") -> dict:
+def insar_export_geotiff(h5_path: str, output_dir: str = "", tag: str = "E") -> dict:
     """
     Export InSAR rasters to QGIS-ready (CRS-bearing) GeoTIFF.
 
@@ -552,6 +552,11 @@ def insar_export_geotiff(h5_path: str, output_dir: str = "") -> dict:
 
     output_dir: where outputs are written. When omitted, defaults to the run's
     qgis_export/ directory derived from the path.
+
+    tag: filename prefix for the general exporter outputs (e.g. "E3_NISAR" ->
+    E3_NISAR_velocity.tif), so layers from different experiments stay
+    distinguishable when collected together. Does not affect the GUNW browse/
+    path, whose filenames are derived from the HDF5 dataset paths.
 
     Requires GDAL + h5py — run inside the isce2/isce3 conda environment.
     """
@@ -594,7 +599,7 @@ def insar_export_geotiff(h5_path: str, output_dir: str = "") -> dict:
     # Everything else (MintPy dir/.h5, ISCE2 .geo, single rasters) -> general exporter.
     from insar_agent.engines import raster_export
     try:
-        return raster_export.export_path(src, out, tag="E")
+        return raster_export.export_path(src, out, tag=tag or "E")
     except RuntimeError as exc:
         return {"error": "dependency_missing", "message": str(exc)}
     except Exception as exc:  # noqa: BLE001

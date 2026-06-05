@@ -232,3 +232,14 @@ def test_insar_export_geotiff_mintpy_dir(tmp_path):
     assert "error" not in res
     assert res["n_files"] >= 1
     assert any("velocity" in f for f in res["files"])
+
+
+def test_insar_export_geotiff_tag_prefixes_filenames(tmp_path):
+    from insar_agent.mcp.server import insar_export_geotiff
+    mp = tmp_path / "stack-insar-isce3" / "outputs" / "stack-insar-isce3_r1" / "mintpy"
+    mp.mkdir(parents=True)
+    _make_geo_h5(mp / "velocity.h5", "velocity", [[0.1, 0.2], [0.3, 0.4]])
+    out = mp.parent / "qgis_export"
+    res = insar_export_geotiff(h5_path=str(mp), output_dir=str(out), tag="E3_NISAR")
+    assert "error" not in res
+    assert "E3_NISAR_velocity.tif" in res["files"]
