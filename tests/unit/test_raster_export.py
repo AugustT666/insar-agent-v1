@@ -220,3 +220,15 @@ def test_export_path_not_found(tmp_path):
     from insar_agent.engines.raster_export import export_path
     res = export_path(tmp_path / "nope", tmp_path / "out", tag="X")
     assert res["error"] == "path_not_found"
+
+
+def test_insar_export_geotiff_mintpy_dir(tmp_path):
+    from insar_agent.mcp.server import insar_export_geotiff
+    mp = tmp_path / "stack-insar-isce3" / "outputs" / "stack-insar-isce3_r1" / "mintpy"
+    mp.mkdir(parents=True)
+    _make_geo_h5(mp / "velocity.h5", "velocity", [[0.1, 0.2], [0.3, 0.4]])
+    out = mp.parent / "qgis_export"
+    res = insar_export_geotiff(h5_path=str(mp), output_dir=str(out))
+    assert "error" not in res
+    assert res["n_files"] >= 1
+    assert any("velocity" in f for f in res["files"])

@@ -16,6 +16,34 @@ from pathlib import Path
 _log = logging.getLogger(__name__)
 
 
+def _grid_geotransform(obj):
+    """Return (geotransform, epsg) from the nearest ancestor grid group, or (None, 4326)."""
+    try:
+        node = obj.parent
+        while node is not None and node.name not in ("", "/"):
+            if "xCoordinates" in node and "yCoordinates" in node:
+                x = node["xCoordinates"][:]
+                y = node["yCoordinates"][:]
+                if "xCoordinateSpacing" in node:
+                    dx = float(node["xCoordinateSpacing"][()])
+                else:
+                    dx = float(x[1] - x[0])
+                if "yCoordinateSpacing" in node:
+                    dy = float(node["yCoordinateSpacing"][()])
+                else:
+                    dy = float(y[1] - y[0])
+                epsg = int(node["projection"][()]) if "projection" in node else 4326
+                geotransform = (
+                    float(x[0]) - dx / 2.0, dx, 0.0,
+                    float(y[0]) - dy / 2.0, 0.0, dy,
+                )
+                return geotransform, epsg
+            node = node.parent
+    except Exception:
+        pass
+    return None, 4326
+
+
 def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, object]:
     """Convert all spatial datasets in a NISAR GUNW HDF5 file to GeoTIFF + PNG.
 
@@ -34,7 +62,7 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
     try:
         import h5py
         import numpy as np
-        from osgeo import gdal
+        from osgeo import gdal, osr
     except ImportError as exc:
         raise RuntimeError(
             f"GeoTIFF export requires h5py, numpy, and GDAL (osgeo): {exc}. "
@@ -139,6 +167,12 @@ def export_geotiff(h5_path: str | Path, output_dir: str | Path) -> dict[str, obj
             driver = gdal.GetDriverByName("GTiff")
             ds = driver.Create(tif_path, cols, rows, 1, gdal.GDT_Float32)
             ds.GetRasterBand(1).WriteArray(data)
+            geotransform, epsg = _grid_geotransform(obj)
+            if geotransform is not None:
+                ds.SetGeoTransform(geotransform)
+                srs = osr.SpatialReference()
+                srs.ImportFromEPSG(epsg)
+                ds.SetProjection(srs.ExportToWkt())
             ds.FlushCache()
             ds = None
             created_files.append(tif_path)

@@ -158,3 +158,24 @@ class TestInsarExportGeotiff:
         assert not runtime_warnings
         assert any(path.endswith(".tif") for path in result["files"])
         assert any(path.endswith(".png") for path in result["files"])
+
+    def test_export_geotiff_sets_crs_on_tif(self, tmp_path):
+        h5py = pytest.importorskip("h5py")
+        np = pytest.importorskip("numpy")
+        gdal = pytest.importorskip("osgeo.gdal")
+        h5 = tmp_path / "product.h5"
+        with h5py.File(h5, "w") as hf:
+            g = hf.create_group("science/LSAR/GUNW/grids/frequencyA/unwrappedInterferogram")
+            g.create_dataset("xCoordinates", data=np.array([40.0, 40.001, 40.002]))
+            g.create_dataset("yCoordinates", data=np.array([14.0, 13.999]))
+            g.create_dataset("xCoordinateSpacing", data=0.001)
+            g.create_dataset("yCoordinateSpacing", data=-0.001)
+            g.create_dataset("projection", data=4326)
+            hh = g.create_group("HH")
+            hh.create_dataset("unwrappedPhase", data=np.ones((2, 3), dtype=np.float32))
+        from insar_agent.engines.isce3.geotiff import export_geotiff
+        result = export_geotiff(h5_path=h5, output_dir=tmp_path / "out")
+        tif = [p for p in result["files"] if p.endswith("unwrappedPhase.tif")][0]
+        ds = gdal.Open(tif)
+        assert "4326" in ds.GetProjection()
+        assert ds.GetGeoTransform()[1] != 1.0  # not the default identity transform

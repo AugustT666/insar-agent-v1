@@ -539,35 +539,66 @@ def _resolve_bbox_input(
 
 
 @mcp.tool()
-def insar_export_geotiff(h5_path: str, output_dir: str) -> dict:
+def insar_export_geotiff(h5_path: str, output_dir: str = "") -> dict:
     """
-    Convert a NISAR GUNW HDF5 product to GeoTIFF + PNG browse images.
+    Export InSAR rasters to QGIS-ready (CRS-bearing) GeoTIFF.
 
-    Iterates all spatial datasets in the HDF5 file and writes one GeoTIFF and
-    one colour-mapped PNG per dataset under <output_dir>/browse/.
+    Accepts a file OR a directory:
+      - NISAR GUNW .h5            -> per-dataset GeoTIFF + colour PNG under browse/ (now georeferenced)
+      - MintPy .h5 / mintpy dir   -> velocity, temporalCoherence, masks (+ masked velocity);
+                                     ISCE2 radar-coordinate products are auto-geocoded first
+      - ISCE2 .geo / .geo.vrt     -> already-geocoded layers
+    Unsupported formats (e.g. GAMMA) are reported in `notes`, not exported.
 
-    Requires h5py, numpy, and GDAL — must be run inside the isce3 conda environment.
+    output_dir: where outputs are written. When omitted, defaults to the run's
+    qgis_export/ directory derived from the path.
 
-    Args:
-        h5_path: Absolute path to a NISAR GUNW .h5 output file.
-        output_dir: Directory where browse/ subdirectory will be created.
+    Requires GDAL + h5py — run inside the isce2/isce3 conda environment.
     """
-    if not Path(h5_path).exists():
+    src = Path(h5_path)
+    if not src.exists():
         return {"error": "path_not_found", "message": f"File not found: {h5_path!r}"}
 
+    # Default output: the run's qgis_export/ when omitted.
+    out = output_dir.strip()
+    if not out:
+        rr = infer_run_root(src)
+        out = str((rr / "qgis_export") if rr is not None else (src.parent / "qgis_export"))
+
+    # GUNW .h5 keeps its browse/+PNG behavior via export_geotiff (now georeferenced).
+    # An .h5 file routes here unless it is positively a MintPy/geocoded geo_h5
+    # (which the general exporter handles); files h5py cannot open default to GUNW
+    # so the export_geotiff path (and its tests) still apply.
+    if src.is_file() and src.suffix.lower() in (".h5", ".hdf5", ".he5"):
+        is_geo_h5 = False
+        try:
+            import h5py
+            with h5py.File(src, "r") as f:
+                is_geo_h5 = "X_FIRST" in f.attrs
+        except Exception:
+            is_geo_h5 = False
+        if not is_geo_h5:
+            try:
+                result = export_geotiff(h5_path=str(src), output_dir=out)
+            except RuntimeError as exc:
+                return {"error": "dependency_missing", "message": str(exc)}
+            except Exception as exc:  # noqa: BLE001
+                return {"error": "export_failed", "message": str(exc)}
+            return {
+                "output_dir": result["output_dir"],
+                "n_files": len(result["files"]),
+                "files": result["files"],
+                "skipped": result["skipped"],
+            }
+
+    # Everything else (MintPy dir/.h5, ISCE2 .geo, single rasters) -> general exporter.
+    from insar_agent.engines import raster_export
     try:
-        result = export_geotiff(h5_path=h5_path, output_dir=output_dir)
+        return raster_export.export_path(src, out, tag="E")
     except RuntimeError as exc:
         return {"error": "dependency_missing", "message": str(exc)}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return {"error": "export_failed", "message": str(exc)}
-
-    return {
-        "output_dir": result["output_dir"],
-        "n_files": len(result["files"]),
-        "files": result["files"],
-        "skipped": result["skipped"],
-    }
 
 
 @mcp.tool()
