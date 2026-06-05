@@ -194,3 +194,29 @@ def test_geocode_radar_h5_invokes_geocode(tmp_path, monkeypatch):
     geo = raster_export._geocode_radar_h5(vel, conda_env="isce2")
     assert geo == mp / "geo"
     assert "geocode.py" in " ".join(calls["cmd"])
+
+
+def test_export_path_single_geo_h5(tmp_path):
+    from insar_agent.engines.raster_export import export_path
+    _make_geo_h5(tmp_path / "velocity.h5", "velocity", [[0.1, 0.2], [0.3, 0.4]])
+    out = tmp_path / "qgis_export"
+    res = export_path(tmp_path / "velocity.h5", out, tag="E3_NISAR")
+    assert res["n_files"] >= 1
+    assert (out / "E3_NISAR_velocity.tif").exists()
+
+
+def test_export_path_dir_skips_unsupported(tmp_path):
+    from insar_agent.engines.raster_export import export_path
+    _make_geo_h5(tmp_path / "velocity.h5", "velocity", [[1.0, 2.0]])
+    (tmp_path / "scene.unw").write_bytes(b"\x00")
+    (tmp_path / "scene.unw.par").write_text("range_samples: 10")  # GAMMA-like
+    out = tmp_path / "qgis_export"
+    res = export_path(tmp_path, out, tag="X")
+    assert res["n_files"] >= 1
+    assert any("unsupported" in n for n in res["notes"])
+
+
+def test_export_path_not_found(tmp_path):
+    from insar_agent.engines.raster_export import export_path
+    res = export_path(tmp_path / "nope", tmp_path / "out", tag="X")
+    assert res["error"] == "path_not_found"

@@ -247,3 +247,77 @@ def _geocode_radar_h5(h5_path, *, conda_env: str = "isce2") -> Path:
             f"geocode.py failed: {proc.stderr[-500:] or proc.stdout[-500:]}"
         )
     return geo_dir
+
+
+# Files to attempt when scanning a directory (avoid exporting every stray file).
+_DIR_GLOBS = ("*.h5", "*.geo.vrt", "*.tif", "*.tiff", "*.unw", "*.rmg")
+
+
+def export_path(src, out_dir, *, tag: str = "export", conda_env: str = "isce2") -> dict:
+    """Export a file or directory of rasters to CRS-bearing GeoTIFFs.
+
+    File  -> export that one raster (by detected format).
+    Dir   -> export every recognised raster found (curated MintPy set if a mintpy dir).
+    Returns {output_dir, n_files, files, skipped, geocoded, notes[, error]}.
+    """
+    src = Path(src)
+    out_dir = Path(out_dir)
+    files: list[str] = []
+    notes: list[str] = []
+    skipped = 0
+    geocoded = False
+
+    if not src.exists():
+        return {"error": "path_not_found", "message": f"not found: {src}"}
+
+    def _do_one(path) -> None:
+        nonlocal skipped, geocoded
+        fmt = _detect_format(path)
+        try:
+            if fmt == "gdal":
+                files.extend(_export_gdal(path, out_dir, tag=tag))
+            elif fmt == "gunw":
+                files.extend(_export_gunw(path, out_dir, tag=tag))
+            elif fmt == "geo_h5":
+                files.extend(_export_geo_h5(path, out_dir, tag=tag))
+            elif fmt == "radar_h5":
+                geo_dir = _geocode_radar_h5(path, conda_env=conda_env)
+                geocoded = True
+                files.extend(
+                    _export_geo_h5(
+                        geo_dir / f"geo_{Path(path).stem}.h5", out_dir, tag=tag
+                    )
+                )
+            else:
+                notes.append(f"unsupported: {path.name}")
+                skipped += 1
+        except GeocodeInputMissing as exc:
+            notes.append(f"skip (needs geocode): {path.name} — {exc}")
+            skipped += 1
+        except Exception as exc:  # noqa: BLE001 — report, don't abort the batch
+            notes.append(f"error: {path.name} — {exc}")
+            skipped += 1
+
+    if src.is_file():
+        _do_one(src)
+    else:
+        # Scan curated globs; _detect_format routes each file (geo_h5 pulls its
+        # siblings once; GAMMA .unw/.par -> unsupported note). De-dup by name.
+        seen: set = set()
+        for pat in _DIR_GLOBS:
+            for p in sorted(src.glob(pat)):
+                if p.name in seen:
+                    continue
+                seen.add(p.name)
+                _do_one(p)
+
+    # de-dup written files preserving order
+    uniq = list(dict.fromkeys(files))
+    return {
+        "output_dir": str(out_dir),
+        "n_files": len(uniq),
+        "files": uniq,
+        "skipped": skipped,
+        "geocoded": geocoded,
+        "notes": notes,
+    }
