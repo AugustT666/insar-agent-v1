@@ -23,3 +23,53 @@ def test_write_gtiff_sets_crs_and_geotransform(tmp_path):
     wkt = ds.GetProjection()
     assert "4326" in wkt
     assert ds.RasterXSize == 4 and ds.RasterYSize == 3
+
+
+def test_detect_format_isce2_geo_vrt(tmp_path):
+    from insar_agent.engines.raster_export import _detect_format
+    p = tmp_path / "filt_topophase.unw.geo.vrt"
+    p.write_text("<VRTDataset/>")
+    assert _detect_format(p) == "gdal"
+
+
+def test_detect_format_gamma_par_unsupported(tmp_path):
+    from insar_agent.engines.raster_export import _detect_format
+    p = tmp_path / "unwrap.unw"
+    p.write_bytes(b"\x00\x01")
+    (tmp_path / "unwrap.unw.par").write_text("range_samples: 100")
+    assert _detect_format(p) == "unsupported"
+
+
+def test_detect_format_geo_h5(tmp_path):
+    import h5py
+    from insar_agent.engines.raster_export import _detect_format
+    p = tmp_path / "velocity.h5"
+    with h5py.File(p, "w") as f:
+        f.create_dataset("velocity", data=[[1.0, 2.0], [3.0, 4.0]])
+        f.attrs["X_FIRST"] = 40.0
+        f.attrs["Y_FIRST"] = 14.0
+        f.attrs["X_STEP"] = 0.001
+        f.attrs["Y_STEP"] = -0.001
+    assert _detect_format(p) == "geo_h5"
+
+
+def test_detect_format_radar_h5(tmp_path):
+    import h5py
+    from insar_agent.engines.raster_export import _detect_format
+    p = tmp_path / "velocity.h5"
+    with h5py.File(p, "w") as f:
+        f.create_dataset("velocity", data=[[1.0, 2.0], [3.0, 4.0]])
+        # no X_FIRST -> radar geometry
+    assert _detect_format(p) == "radar_h5"
+
+
+def test_detect_format_gunw(tmp_path):
+    import h5py
+    from insar_agent.engines.raster_export import _detect_format
+    p = tmp_path / "x_GUNW.h5"
+    with h5py.File(p, "w") as f:
+        g = f.create_group("/science/LSAR/GUNW/grids/frequencyA/unwrappedInterferogram")
+        g.create_dataset("xCoordinates", data=[40.0, 40.001])
+        g.create_dataset("yCoordinates", data=[14.0, 13.999])
+        g.create_dataset("projection", data=4326)
+    assert _detect_format(p) == "gunw"
