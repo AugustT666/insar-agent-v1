@@ -146,3 +146,66 @@ def _export_geo_h5(h5_path, out_dir, *, tag: str) -> list[str]:
                 )
                 written.append(f"{tag}_velocity_masked.tif")
     return written
+
+
+# Layers to keep from an ISCE2 merged dir, with output tags and band selection.
+_ISCE2_GEO_LAYERS = {
+    "filt_topophase.unw.geo": ("unwrappedPhase", 2),   # band 2 = phase
+    "phsig.cor.geo": ("phsig_coherence", 1),
+    "topophase.cor.geo": ("coherence", 1),
+    "los.rdr.geo": ("los", 1),
+}
+
+
+def _export_gdal(path, out_dir, *, tag: str) -> list[str]:
+    """Export a GDAL-native raster (ISCE2 .geo/.vrt, GeoTIFF) to GeoTIFF."""
+    from osgeo import gdal
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    p = Path(path)
+    base = p.name[:-4] if p.suffix.lower() == ".vrt" else p.name  # strip .vrt
+    layer_tag, band = None, 1
+    for key, (lt, bd) in _ISCE2_GEO_LAYERS.items():
+        if base.startswith(key):
+            layer_tag, band = lt, bd
+            break
+    if layer_tag:
+        out_name = f"{tag}_{layer_tag}.tif"
+    else:
+        out_name = f"{tag}_{base.replace('.', '_')}.tif"
+    dst = out_dir / out_name
+    kw = {"format": "GTiff", "creationOptions": ["COMPRESS=DEFLATE", "TILED=YES"]}
+    if band != 1:
+        gdal.Translate(str(dst), str(p), bandList=[band], **kw)
+    else:
+        gdal.Translate(str(dst), str(p), **kw)
+    return [dst.name]
+
+
+def _export_gunw(h5_path, out_dir, *, tag: str) -> list[str]:
+    """Export NISAR GUNW geocoded grids (unwrappedPhase, coherence, conncomp)."""
+    import h5py
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    with h5py.File(h5_path, "r") as f:
+        grp = f["/science/LSAR/GUNW/grids/frequencyA/unwrappedInterferogram"]
+        x = grp["xCoordinates"][:]
+        dx = float(grp["xCoordinateSpacing"][()])
+        y = grp["yCoordinates"][:]
+        dy = float(grp["yCoordinateSpacing"][()])
+        gt = (float(x[0]) - dx / 2.0, dx, 0.0, float(y[0]) - dy / 2.0, 0.0, dy)
+        hh = grp["HH"]
+        for name in ("unwrappedPhase", "coherenceMagnitude", "connectedComponents"):
+            if name not in hh:
+                continue
+            _write_gtiff(
+                out_dir / f"{tag}_{name}.tif",
+                hh[name][:],
+                gt,
+                nodata=0 if name == "connectedComponents" else None,
+            )
+            written.append(f"{tag}_{name}.tif")
+    return written

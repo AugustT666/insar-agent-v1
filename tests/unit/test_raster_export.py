@@ -100,3 +100,51 @@ def test_export_geo_h5_velocity_and_mask(tmp_path):
     assert "4326" in ds.GetProjection()
     # masked velocity auto-produced when maskTempCoh.h5 is a sibling
     assert "E3_NISAR_velocity_masked.tif" in written
+
+
+def test_export_gdal_geo_vrt(tmp_path):
+    from insar_agent.engines.raster_export import _export_gdal
+    gdal = _gdal()
+    import numpy as np
+    from osgeo import osr
+    # build a tiny georeferenced GTiff, then a .vrt over it named like an ISCE2 .geo
+    src_tif = tmp_path / "topophase.cor.geo.tif"
+    drv = gdal.GetDriverByName("GTiff")
+    ds = drv.Create(str(src_tif), 4, 3, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((40.0, 0.001, 0, 14.0, 0, -0.001))
+    s = osr.SpatialReference()
+    s.ImportFromEPSG(4326)
+    ds.SetProjection(s.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(np.ones((3, 4), "float32"))
+    ds = None
+    vrt_path = tmp_path / "topophase.cor.geo.vrt"
+    gdal.Translate(str(vrt_path), str(src_tif), format="VRT")
+
+    out = tmp_path / "qgis_export"
+    written = _export_gdal(vrt_path, out, tag="E2_S1")
+    assert any(w.endswith(".tif") for w in written)
+    assert "4326" in gdal.Open(str(out / written[0])).GetProjection()
+
+
+def test_export_gunw_unwrapped(tmp_path):
+    from insar_agent.engines.raster_export import _export_gunw
+    import h5py
+    import numpy as np
+    gdal = _gdal()
+    p = tmp_path / "x_GUNW.h5"
+    with h5py.File(p, "w") as f:
+        g = f.create_group("/science/LSAR/GUNW/grids/frequencyA/unwrappedInterferogram")
+        g.create_dataset("xCoordinates", data=np.array([40.0, 40.001, 40.002]))
+        g.create_dataset("yCoordinates", data=np.array([14.0, 13.999]))
+        g.create_dataset("xCoordinateSpacing", data=0.001)
+        g.create_dataset("yCoordinateSpacing", data=-0.001)
+        g.create_dataset("projection", data=4326)
+        hh = g.create_group("HH")
+        hh.create_dataset("unwrappedPhase", data=np.ones((2, 3), "float32"))
+        hh.create_dataset("coherenceMagnitude", data=np.full((2, 3), 0.8, "float32"))
+    out = tmp_path / "qgis_export"
+    written = _export_gunw(p, out, tag="E1_NISAR")
+    assert "E1_NISAR_unwrappedPhase.tif" in written
+    ds = gdal.Open(str(out / "E1_NISAR_unwrappedPhase.tif"))
+    assert "4326" in ds.GetProjection()
+    assert ds.GetGeoTransform()[1] == pytest.approx(0.001)
