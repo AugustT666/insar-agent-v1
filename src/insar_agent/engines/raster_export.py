@@ -72,3 +72,77 @@ def _detect_format(path) -> str:
                 return "geo_h5"
             return "radar_h5"
     return "unsupported"
+
+
+def _geo_h5_geotransform(attrs) -> tuple:
+    x0 = float(attrs["X_FIRST"])
+    y0 = float(attrs["Y_FIRST"])
+    dx = float(attrs["X_STEP"])
+    dy = float(attrs["Y_STEP"])
+    return (x0, dx, 0.0, y0, 0.0, dy)
+
+
+def _first_2d_dataset(f):
+    found = {}
+
+    def visit(name, obj):
+        if getattr(obj, "ndim", 0) == 2 and name not in found:
+            found[name] = obj
+
+    f.visititems(visit)
+    return found
+
+
+def _export_geo_h5(h5_path, out_dir, *, tag: str) -> list[str]:
+    """Export a geocoded MintPy .h5 (and its curated sibling layers) to GeoTIFF."""
+    import h5py
+    import numpy as np
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    mintpy_dir = Path(h5_path).parent
+
+    # Curated layer files in the same dir (velocity.h5, temporalCoherence.h5, ...).
+    for layer in _MINTPY_LAYERS:
+        for cand in (mintpy_dir / f"{layer}.h5", mintpy_dir / f"geo_{layer}.h5"):
+            if not cand.exists():
+                continue
+            with h5py.File(cand, "r") as f:
+                if "X_FIRST" not in f.attrs:
+                    continue
+                gt = _geo_h5_geotransform(f.attrs)
+                epsg = int(f.attrs.get("EPSG") or 4326)
+                dset = layer if layer in f else next(iter(_first_2d_dataset(f)), None)
+                if dset is None:
+                    continue
+                arr = f[dset][:]
+            dst = out_dir / f"{tag}_{layer}.tif"
+            _write_gtiff(dst, arr, gt, epsg=epsg)
+            written.append(dst.name)
+            break
+
+    # Auto masked velocity = velocity * maskTempCoh (low-coherence -> NaN).
+    vel = mintpy_dir / "velocity.h5"
+    if not vel.exists():
+        vel = mintpy_dir / "geo_velocity.h5"
+    msk = mintpy_dir / "maskTempCoh.h5"
+    if not msk.exists():
+        msk = mintpy_dir / "geo_maskTempCoh.h5"
+    if vel.exists() and msk.exists():
+        with h5py.File(vel, "r") as fv, h5py.File(msk, "r") as fm:
+            if "X_FIRST" in fv.attrs:
+                a = fv.attrs
+                v = fv["velocity"][:] if "velocity" in fv else fv[next(iter(_first_2d_dataset(fv)))][:]
+                mk_name = "mask" if "mask" in fm else next(iter(_first_2d_dataset(fm)))
+                mk = fm[mk_name][:]
+                vm = np.where(mk.astype(bool), v, np.nan)
+                _write_gtiff(
+                    out_dir / f"{tag}_velocity_masked.tif",
+                    vm,
+                    _geo_h5_geotransform(a),
+                    epsg=int(a.get("EPSG") or 4326),
+                    nodata=float("nan"),
+                )
+                written.append(f"{tag}_velocity_masked.tif")
+    return written

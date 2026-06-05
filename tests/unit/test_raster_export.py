@@ -73,3 +73,30 @@ def test_detect_format_gunw(tmp_path):
         g.create_dataset("yCoordinates", data=[14.0, 13.999])
         g.create_dataset("projection", data=4326)
     assert _detect_format(p) == "gunw"
+
+
+def _make_geo_h5(path, dset, value, *, x0=40.0, y0=14.0, step=0.001):
+    import h5py
+    import numpy as np
+    with h5py.File(path, "w") as f:
+        f.create_dataset(dset, data=np.array(value, dtype="float32"))
+        f.attrs["X_FIRST"] = x0
+        f.attrs["Y_FIRST"] = y0
+        f.attrs["X_STEP"] = step
+        f.attrs["Y_STEP"] = -step
+        f.attrs["EPSG"] = 4326
+
+
+def test_export_geo_h5_velocity_and_mask(tmp_path):
+    from insar_agent.engines.raster_export import _export_geo_h5
+    gdal = _gdal()
+    _make_geo_h5(tmp_path / "velocity.h5", "velocity", [[0.1, -0.2], [0.3, 0.4]])
+    _make_geo_h5(tmp_path / "maskTempCoh.h5", "mask", [[1, 0], [1, 1]])
+    out = tmp_path / "qgis_export"
+    written = _export_geo_h5(tmp_path / "velocity.h5", out, tag="E3_NISAR")
+    vel = out / "E3_NISAR_velocity.tif"
+    assert vel.name in written
+    ds = gdal.Open(str(vel))
+    assert "4326" in ds.GetProjection()
+    # masked velocity auto-produced when maskTempCoh.h5 is a sibling
+    assert "E3_NISAR_velocity_masked.tif" in written
