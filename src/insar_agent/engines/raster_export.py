@@ -11,6 +11,7 @@ engines all flow through one tool:
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -209,3 +210,40 @@ def _export_gunw(h5_path, out_dir, *, tag: str) -> list[str]:
             )
             written.append(f"{tag}_{name}.tif")
     return written
+
+
+class GeocodeInputMissing(RuntimeError):
+    """Radar-coordinate MintPy product cannot be geocoded (no geometryRadar.h5)."""
+
+
+def _geocode_radar_h5(h5_path, *, conda_env: str = "isce2") -> Path:
+    """Geocode a radar-coordinate MintPy dir via mintpy geocode.py.
+
+    Runs geocode.py on the curated layers using inputs/geometryRadar.h5, writing
+    geo_*.h5 into <mintpy_dir>/geo. Returns the geo dir. Raises GeocodeInputMissing
+    if the lookup geometry is absent.
+    """
+    mintpy_dir = Path(h5_path).parent
+    geom = mintpy_dir / "inputs" / "geometryRadar.h5"
+    if not geom.exists():
+        raise GeocodeInputMissing(
+            f"radar-coordinate product {h5_path} needs {geom} to geocode; not found"
+        )
+    geo_dir = mintpy_dir / "geo"
+    layers = [
+        f"{layer}.h5"
+        for layer in _MINTPY_LAYERS
+        if (mintpy_dir / f"{layer}.h5").exists()
+    ]
+    cmd = [
+        "conda", "run", "-n", conda_env, "geocode.py",
+        *layers,
+        "-l", str(geom),
+        "--outdir", str(geo_dir),
+    ]
+    proc = subprocess.run(cmd, cwd=str(mintpy_dir), capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"geocode.py failed: {proc.stderr[-500:] or proc.stdout[-500:]}"
+        )
+    return geo_dir

@@ -148,3 +148,49 @@ def test_export_gunw_unwrapped(tmp_path):
     ds = gdal.Open(str(out / "E1_NISAR_unwrappedPhase.tif"))
     assert "4326" in ds.GetProjection()
     assert ds.GetGeoTransform()[1] == pytest.approx(0.001)
+
+
+def test_geocode_radar_h5_missing_geometry_raises(tmp_path):
+    from insar_agent.engines.raster_export import _geocode_radar_h5, GeocodeInputMissing
+    import h5py
+    p = tmp_path / "velocity.h5"
+    with h5py.File(p, "w") as f:
+        f.create_dataset("velocity", data=[[1.0]])
+    # no inputs/geometryRadar.h5 -> must raise GeocodeInputMissing
+    with pytest.raises(GeocodeInputMissing):
+        _geocode_radar_h5(p)
+
+
+def test_geocode_radar_h5_invokes_geocode(tmp_path, monkeypatch):
+    from insar_agent.engines import raster_export
+    import h5py
+    mp = tmp_path / "mintpy"
+    (mp / "inputs").mkdir(parents=True)
+    vel = mp / "velocity.h5"
+    with h5py.File(vel, "w") as f:
+        f.create_dataset("velocity", data=[[1.0]])
+    (mp / "inputs" / "geometryRadar.h5").write_bytes(b"")
+    calls = {}
+
+    def fake_run(cmd, **kw):
+        calls["cmd"] = cmd
+        # simulate geocode.py writing geo/geo_velocity.h5
+        (mp / "geo").mkdir(exist_ok=True)
+        with h5py.File(mp / "geo" / "geo_velocity.h5", "w") as f:
+            f.create_dataset("velocity", data=[[1.0]])
+            f.attrs["X_FIRST"] = 40.0
+            f.attrs["Y_FIRST"] = 14.0
+            f.attrs["X_STEP"] = 0.001
+            f.attrs["Y_STEP"] = -0.001
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(raster_export.subprocess, "run", fake_run)
+    geo = raster_export._geocode_radar_h5(vel, conda_env="isce2")
+    assert geo == mp / "geo"
+    assert "geocode.py" in " ".join(calls["cmd"])
