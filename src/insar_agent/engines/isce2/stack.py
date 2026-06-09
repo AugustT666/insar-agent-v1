@@ -111,6 +111,7 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         'for f in $(ls -v run_files/run_* 2>/dev/null); do '
         '  echo "[insar-agent] Step: $f"; '
         '  . "$f" || exit 1; '
+        '  sync; '  # flush parallel writes (e.g. fullBurst_resample IW2.xml) before the next step reads them
         'done && '
         'echo "[insar-agent] All stack steps completed."'
     )

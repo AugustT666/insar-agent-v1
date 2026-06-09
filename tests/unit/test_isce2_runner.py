@@ -173,5 +173,9 @@ def test_build_stack_command_sources_run_files_to_preserve_wait_barriers(tmp_pat
     inner = command[-1]
 
     assert '. "$f" || exit 1' in inner
+    # flush filesystem buffers after each run_file so the next step never reads a
+    # not-yet-flushed parallel write (e.g. fullBurst_resample's IW2.xml) -> avoids
+    # the intermittent FileNotFoundError race between run_10 and run_11.
+    assert 'sync' in inner
     assert 'while IFS= read -r line' not in inner
     assert 'bash -c "$line"' not in inner
