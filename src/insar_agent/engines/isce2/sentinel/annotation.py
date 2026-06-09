@@ -197,14 +197,23 @@ def _build_combined_annotation(
         if burst_list is None:
             continue
         all_bursts = list(burst_list)
+        # ASF HyP3 burst files carry a 0-based absolute burst index in their
+        # filename (``0.xml`` is the first burst -> ``all_bursts[0]``).  Use it
+        # directly to pick the matching burst element so it stays aligned with the
+        # measurement TIFF, which is concatenated in the same 0-based order.  The
+        # source_filename image number is only a 1-based fallback when the file is
+        # not named by its burst index.
         path_index = _path_burst_index(xml_path)
         source_index = _source_burst_index(source_filename)
-        index = path_index if path_index is not None else source_index
-        if index is not None and all_bursts:
-            idx = index - 1
-            if 0 <= idx < len(all_bursts):
-                burst_elements.append(all_bursts[idx])
-                continue
+        if path_index is not None:
+            idx = path_index
+        elif source_index is not None:
+            idx = source_index - 1
+        else:
+            idx = None
+        if idx is not None and all_bursts and 0 <= idx < len(all_bursts):
+            burst_elements.append(all_bursts[idx])
+            continue
         if len(all_bursts) == 1:
             burst_elements.append(all_bursts[0])
 

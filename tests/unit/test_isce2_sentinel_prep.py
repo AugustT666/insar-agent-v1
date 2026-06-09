@@ -1741,16 +1741,47 @@ def test_combined_burst_annotation_prefers_path_index_over_repeated_source_filen
     assert burst_list is not None
     bursts = list(burst_list)
     assert name == "s1a-iw1-slc-vv-20260112t152731-20260112t152756-062736-07ddec.xml"
+    # 0-based burst indices: 4.xml -> all_bursts[4] (azimuthTime 05), 5.xml -> all_bursts[5] (06)
     assert [burst.findtext("azimuthTime") for burst in bursts] == [
-        "2026-01-12T00:00:04.000000",
         "2026-01-12T00:00:05.000000",
+        "2026-01-12T00:00:06.000000",
     ]
     assert root.findtext("imageAnnotation/imageInformation/numberOfLines") == "4"
     assert (
         root.findtext("imageAnnotation/imageInformation/productFirstLineUtcTime")
-        == "2026-01-12T00:00:04.000000"
+        == "2026-01-12T00:00:05.000000"
     )
     assert (
         root.findtext("imageAnnotation/imageInformation/productLastLineUtcTime")
-        == "2026-01-12T00:00:06.000000"
+        == "2026-01-12T00:00:07.000000"
     )
+
+
+def test_combined_burst_annotation_keeps_all_zero_based_bursts(tmp_path):
+    # ASF HyP3 burst files are 0-based: ``0.xml`` is the first burst (all_bursts[0]).
+    # Regression for a bug where ``idx = index - 1`` mapped burst 0 to all_bursts[-1],
+    # failed the bounds check, and silently dropped it -- turning a 3-burst request
+    # into a 2-burst SAFE and clipping the southern edge of the study area.
+    source_filename = "s1a-iw1-slc-vv-20251025t030820-20251025t030845-061576-07b0d7-005.xml"
+    xml0 = tmp_path / "0.xml"
+    xml1 = tmp_path / "1.xml"
+    xml2 = tmp_path / "2.xml"
+    for path in (xml0, xml1, xml2):
+        _write_burst_wrapper(path, source_filename=source_filename)
+
+    _name, text = _build_combined_annotation(
+        [xml2, xml0, xml1],  # deliberately unsorted; the builder sorts by burst index
+        "IW1",
+        "VV",
+        "S1A_IW_SLC__1SDV_20251025T030820_20251025T030845_061576_07B0D7_F2BC",
+    )
+
+    burst_list = ET.fromstring(text).find("swathTiming/burstList")
+    assert burst_list is not None
+    # all three requested bursts are kept, in azimuth order; none dropped
+    assert [burst.findtext("azimuthTime") for burst in burst_list] == [
+        "2026-01-12T00:00:01.000000",
+        "2026-01-12T00:00:02.000000",
+        "2026-01-12T00:00:03.000000",
+    ]
+    assert burst_list.get("count") == "3"
