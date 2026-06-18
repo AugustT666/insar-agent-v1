@@ -70,6 +70,39 @@ insar_download_scene(
 )
 ```
 
+When the user has no URLs, discover them first with `insar_search` (turns an
+AOI + time window into a downloadable list; removes the manual ASF Vertex step):
+
+```python
+insar_search(
+    platform="sentinel1",
+    aoi_path="/path/to/study_area.shp",        # or bbox=[W, S, E, N]
+    start="2025-10-01", end="2026-01-06",
+    flight_direction="ASCENDING",               # match the target stack geometry
+    relative_orbit=14,                          # relative orbit (path) to stack
+    polarizations=["VV", "VH"],
+    existing_root="/path/to/sentinel/bursts",   # flags on-disk scenes -> fill only the gap
+)
+# -> {acquisitions, by_rel_dir, urls, missing_by_rel_dir, missing_urls, ...}
+```
+
+Feed `missing_by_rel_dir` to `insar_download_scene` once per rel-dir
+(`output_dir=<bursts>/<rel_dir>`); each burst URL path reproduces the
+`<scene>/IW*/{VV,VH}/<idx>.{tiff,xml}` layout automatically.
+
+**Download reliability (ASF burst host):**
+- One satellite on one relative orbit is one stack. Do not merge S1A and S1C
+  bursts into the same InSAR stack — each satellite's AOI-intersecting bursts
+  already fully cover the AOI on their own (verify with the burst footprints).
+- Each burst download runs a full Earthdata URS OAuth; high concurrency gets
+  throttled and returns an HTML login page (HTTP 200). Keep `n_workers` low
+  (≈2) for `sentinel1-burst.asf.alaska.edu`. `insar_download_scene` now detects
+  a login page / truncated file and retries with backoff, but low concurrency
+  avoids the throttle up front.
+- If a proxy resets TLS to the burst host (`SSL_ERROR_SYSCALL`) or corrupts
+  payloads, pass `proxy="direct"` to bypass it, or `proxy="http://host:port"`
+  to route through a clean/faster proxy.
+
 ### Step 1.5 — Environment check when needed
 
 If environment status is missing, unclear, or blocking Sentinel preparation, use the MCP environment report:

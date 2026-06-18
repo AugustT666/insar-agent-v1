@@ -384,25 +384,119 @@ def insar_describe_rslc(
     return result
 
 
+_LOGIN_PAGE_ERROR = (
+    "download returned an HTML login page instead of data "
+    "(Earthdata auth/proxy issue — retryable)"
+)
+
+
+def _downloaded_content_error(path: Path) -> str | None:
+    """Return an error string if a downloaded file looks invalid, else None.
+
+    Detects the ASF-URS HTML login page (served with HTTP 200 when concurrent
+    OAuth is throttled) and obviously corrupt/truncated TIFF/XML payloads.
+    """
+    data = path.read_bytes()[:512]
+    stripped = data.lstrip().lower()
+    if stripped.startswith((b"<html", b"<!doctype html")) or b"asf-urs" in stripped:
+        return _LOGIN_PAGE_ERROR
+    suffix = path.suffix.lower()
+    if suffix in {".tif", ".tiff"} and not (
+        data.startswith(b"II*\x00") or data.startswith(b"MM\x00*")
+    ):
+        return "downloaded TIFF does not have a TIFF header"
+    if suffix == ".xml" and not (
+        stripped.startswith(b"<burst") or stripped.startswith(b"<?xml")
+    ):
+        return "downloaded XML does not have an XML/burst header"
+    if suffix == ".xml":
+        try:
+            # Prefer defusedxml (guards against XXE / billion-laughs); fall back
+            # to stdlib only if it is not installed. Any parse failure on this
+            # externally-fetched file is treated as a corrupt/unsafe download.
+            try:
+                from defusedxml.ElementTree import parse as _xml_parse
+            except ImportError:
+                from xml.etree.ElementTree import parse as _xml_parse
+            _xml_parse(str(path))
+        except Exception as exc:
+            return f"downloaded XML is not well-formed: {exc}"
+    return None
+
+
+_EXTRACTION_PENDING_ERROR = (
+    "ASF burst still extracting (HTTP 202 Accepted) — retryable after a short delay"
+)
+# Dedicated poll budget for ASF's asynchronous on-demand burst extraction. The
+# generic transport/content retry budget is intentionally short (URS throttling
+# settles in seconds); burst extraction instead takes up to a few minutes, so it
+# gets its own, longer budget rather than being starved by the small retry cap.
+_MAX_DOWNLOAD_ATTEMPTS = 5
+_MAX_EXTRACTION_POLLS = 40
+_EXTRACTION_POLL_SECONDS = 15
+
+
+def _is_extraction_pending_payload(path: Path) -> bool:
+    """True if the file is ASF's "burst still extracting" stub.
+
+    The on-demand burst extractor answers the first request for a not-yet-cached
+    burst with HTTP 202 and a tiny JSON body ``{"message": "Accepted"}``. That is
+    not data: the same URL must be polled until the real TIFF/XML payload lands.
+    """
+    try:
+        head = path.read_bytes()[:256]
+    except OSError:
+        return False
+    stripped = head.lstrip()
+    if not stripped.startswith(b"{"):
+        return False
+    lowered = stripped.lower()
+    return b'"message"' in lowered and b"accepted" in lowered
+
+
+def _is_retryable_download_error(message: str | None) -> bool:
+    """True for content errors worth re-downloading (login page, truncation)."""
+    if not message:
+        return False
+    retryable_markers = (
+        _LOGIN_PAGE_ERROR,
+        "does not have a TIFF header",
+        "does not have an XML/burst header",
+        "not well-formed",
+    )
+    return any(marker in message for marker in retryable_markers)
+
+
 @mcp.tool()
 def insar_download_scene(
     urls: list[str],
     output_dir: str,
-    n_workers: int = 4,
+    n_workers: int = 2,
     proxy: str | None = None,
     overwrite: bool = False,
 ) -> dict:
     """
-    Download Sentinel-1 or Sentinel-2 scene files (ZIP/SAFE) from provided URLs.
+    Download Sentinel-1 / Sentinel-2 scene or burst files from provided URLs.
 
-    Downloads files in parallel. Authentication uses ~/.netrc when needed.
-    By default the download inherits the current system proxy settings.
-    Pass proxy to temporarily override for this download only.
+    Downloads in parallel with ~/.netrc auth. ASF's on-demand burst extractor
+    serves a not-yet-cached burst with HTTP 202 + a tiny ``{"message":
+    "Accepted"}`` stub while it extracts; this tool detects that and polls the
+    same URL until the real payload lands (the stub is never accepted as data).
+
+    Keep ``n_workers`` LOW (2 is the default and a good choice): ASF/Earthdata
+    (URS) throttles concurrent OAuth and starts returning HTML login pages under
+    high concurrency, which only slows the job down (each throttled response is
+    retried). A fast proxy at 2 workers is typically both reliable and quick;
+    raising it past ~4 tends to trigger throttling rather than go faster.
+
+    By default the download inherits the current system proxy settings; pass
+    ``proxy`` to override for this download only.
 
     Args:
-        urls:       List of direct download URLs for S1/S2 ZIP or SAFE files.
+        urls:       Direct download URLs (S1/S2 ZIP/SAFE, or ASF burst tiff/xml).
         output_dir: Local directory to write downloaded files.
-        n_workers:  Number of parallel download threads (default 4).
+        n_workers:  Parallel download threads (default 2; keep low — high
+                    concurrency triggers ASF/URS throttling, not more speed).
         proxy:      Optional HTTP proxy URL, e.g. "http://10.0.0.1:7890".
                     If omitted, inherits current system proxy settings.
                     Use "direct" or "none" to bypass environment proxies.
@@ -423,24 +517,6 @@ def insar_download_scene(
 
     direct_proxy_values = {"direct", "none", "off", "false", "no_proxy", "no-proxy"}
     proxy_mode = proxy.strip().lower() if proxy else None
-    def _downloaded_file_error(path: Path) -> str | None:
-        data = path.read_bytes()[:512]
-        stripped = data.lstrip().lower()
-        if stripped.startswith((b"<html", b"<!doctype html")) or b"asf-urs" in stripped:
-            return "download returned an HTML login page instead of data"
-        suffix = path.suffix.lower()
-        if suffix in {".tif", ".tiff"} and not (data.startswith(b"II*\x00") or data.startswith(b"MM\x00*")):
-            return "downloaded TIFF does not have a TIFF header"
-        if suffix == ".xml" and not (stripped.startswith(b"<burst") or stripped.startswith(b"<?xml")):
-            return "downloaded XML does not have an XML/burst header"
-        if suffix == ".xml":
-            from xml.etree import ElementTree as ET
-
-            try:
-                ET.parse(path)
-            except ET.ParseError as exc:
-                return f"downloaded XML is not well-formed: {exc}"
-        return None
 
     def _download_with_curl(url: str, dest: Path) -> dict:
         if shutil.which("curl") is None:
@@ -468,7 +544,10 @@ def insar_download_scene(
                 chunk_path.replace(tmp_path)
 
         last_error = "curl download failed"
-        for attempt in range(1, 6):
+        transport_fails = 0
+        content_retries = 0
+        extraction_polls = 0
+        while True:
             cookie_path = Path(tempfile.gettempdir()) / f"insar_asf_cookies_{uuid.uuid4().hex}.txt"
             header_path = Path(tempfile.gettempdir()) / f"insar_asf_headers_{uuid.uuid4().hex}.txt"
             chunk_path = tmp_path.with_name(f"{tmp_path.name}.{uuid.uuid4().hex}.chunk")
@@ -506,6 +585,9 @@ def insar_download_scene(
                 if result.returncode != 0:
                     last_error = result.stderr.strip() or result.stdout.strip() or "curl download failed"
                     _keep_chunk_progress(chunk_path, existing_size, status)
+                    transport_fails += 1
+                    if transport_fails > _MAX_DOWNLOAD_ATTEMPTS:
+                        break
                     continue
                 if existing_size and status == 206:
                     _keep_chunk_progress(chunk_path, existing_size, status)
@@ -513,38 +595,73 @@ def insar_download_scene(
                     _keep_chunk_progress(chunk_path, existing_size, status)
                 elif existing_size:
                     last_error = f"curl resume returned HTTP status {status or 'unknown'}"
+                    transport_fails += 1
+                    if transport_fails > _MAX_DOWNLOAD_ATTEMPTS:
+                        break
                     continue
                 else:
                     chunk_path.replace(tmp_path)
-                break
+                # ASF serves bursts on demand: a not-yet-cached burst answers with
+                # HTTP 202 + a tiny {"message": "Accepted"} stub while it extracts.
+                # That is not data — poll the same URL on a dedicated, longer budget
+                # (extraction takes minutes) instead of accepting the stub or burning
+                # the short transport/content retry budget on it.
+                if status == 202 or (
+                    tmp_path.exists() and _is_extraction_pending_payload(tmp_path)
+                ):
+                    tmp_path.unlink(missing_ok=True)
+                    last_error = _EXTRACTION_PENDING_ERROR
+                    extraction_polls += 1
+                    if extraction_polls > _MAX_EXTRACTION_POLLS:
+                        break
+                    time.sleep(_EXTRACTION_POLL_SECONDS)
+                    continue
+                # Validate the assembled payload: an ASF-URS login page or a
+                # truncated file also arrives with HTTP 200, so it must be caught
+                # and retried rather than accepted as data.
+                content_error = (
+                    _downloaded_content_error(tmp_path)
+                    if tmp_path.exists()
+                    else "no data was downloaded"
+                )
+                if content_error is None:
+                    try:
+                        tmp_path.replace(dest)
+                        return {
+                            "url": url,
+                            "path": str(dest),
+                            "size_mb": round(dest.stat().st_size / 1024 / 1024, 2),
+                        }
+                    except Exception as exc:
+                        return {"url": url, "error": str(exc)}
+                last_error = content_error
+                if _is_retryable_download_error(content_error):
+                    tmp_path.unlink(missing_ok=True)  # discard so the retry restarts fresh
+                    content_retries += 1
+                    if content_retries > _MAX_DOWNLOAD_ATTEMPTS:
+                        break
+                    time.sleep(min(3 * content_retries, 15))  # back off; let URS throttling settle
+                    continue
+                return {"url": url, "error": content_error}
             except Exception as exc:
                 last_error = str(exc)
+                transport_fails += 1
+                if transport_fails > _MAX_DOWNLOAD_ATTEMPTS:
+                    break
                 continue
             finally:
                 cookie_path.unlink(missing_ok=True)
                 header_path.unlink(missing_ok=True)
                 chunk_path.unlink(missing_ok=True)
-            if attempt < 5:
-                time.sleep(2)
-        else:
-            return {"url": url, "error": last_error}
 
-        try:
-            tmp_path.replace(dest)
-            file_error = _downloaded_file_error(dest)
-            if file_error:
-                dest.unlink(missing_ok=True)
-                return {"url": url, "error": file_error}
-            return {"url": url, "path": str(dest), "size_mb": round(dest.stat().st_size / 1024 / 1024, 2)}
-        except Exception as exc:
-            return {"url": url, "error": str(exc)}
+        return {"url": url, "error": last_error}
 
     def _download_one(url: str) -> dict:
         rel_path = urlparse(url).path.lstrip("/").split("?")[0] or f"scene_{uuid.uuid4().hex[:8]}"
         dest = out_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
-            existing_error = None if overwrite else _downloaded_file_error(dest)
+            existing_error = None if overwrite else _downloaded_content_error(dest)
             if not overwrite and existing_error is None:
                 size_mb = round(dest.stat().st_size / 1024 / 1024, 2)
                 return {"url": url, "path": str(dest), "size_mb": size_mb, "skipped": True}
