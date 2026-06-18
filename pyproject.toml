@@ -36,6 +36,11 @@ markers = [
   "timeout: maximum runtime hint for long-running integration tests",
 ]
 
+[tool.ruff]
+# Archived knowledge-base scripts are preserved as external reference material.
+# Some files are not UTF-8 and are not part of the package lint surface.
+extend-exclude = ["docs/archive/knowledge-base/"]
+
 [tool.ruff.lint.per-file-ignores]
 # The mcp package is split into focused modules that share one FastMCP instance
 # and a common foundation (imports/constants) re-exported from ``_app``/``_helpers``
