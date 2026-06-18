@@ -8,14 +8,14 @@ It is built as a dual-engine orchestrator, supporting both **NISAR/ISCE3** and *
 
 The system exposes a rich MCP and plugin surface tailored for automated workflows:
 
-- **24 MCP Tools**: Covering discovery, project management, config tuning, execution, batch processing, data preparation, and export.
-- **2 MCP Resources**: Serving hard workflow constraints (`insar://workflow-guide`) and schema rules (`insar://allowed-fields/{workflow}`).
+- **28 MCP Tools**: Covering catalog discovery, project management, config tuning, execution, batch processing, data preparation, product export, recovery geocoding, and ISCE2 troposphere correction.
+- **1 MCP Resource + 1 Resource Template**: Serving hard workflow constraints (`insar://workflow-guide`) and schema rules (`insar://allowed-fields/{workflow}`).
 - **2 MCP Prompts**: Pre-built instructions for single-pair and batch processing.
 - **11 Plugin Skills**: Providing the main `insar-agent` entry router plus domain guidance for data preparation, parameter advisory, environment setup, and path execution.
 - **Dual-Engine Execution**: Native support for both `isce3` (NISAR) and `isce2` (Sentinel-1) processing graphs.
 - **Runtime Support Layer**: Abstracted workspace layout, logging, and Conda environment orchestration.
 
-Note: the source FastMCP registration surface and the `--describe` CLI summary both currently report 24 tools, including `insar_export_runconfig` and `insar_run_mintpy_isce2`.
+Note: the source FastMCP registration surface and the `--describe` CLI summary currently report 28 tools.
 
 ## Who It Is For
 

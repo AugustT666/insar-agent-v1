@@ -8,28 +8,37 @@
 
 insar-agent 是一个 Python 包，通过 MCP stdio 服务器向 AI agent 客户端（Claude Code、Codex 等）暴露 NISAR/Sentinel-1 InSAR 处理能力。agent 只通过 MCP 工具与系统交互，不直接执行 conda/Python 命令。
 
+论文方法章节的三层架构图稿维护在 papers 仓库：`InSAR-Agent小论文/latex/figures/insar-agent-three-layer-architecture.svg`。该图按当前 `refactor/output-layout-and-modularization` 分支的真实模块边界绘制：交互层负责 agent-facing 路由，MCP 编排层负责工具契约、项目状态与输出约束，引擎执行层负责 ISCE3/ISCE2/MintPy 处理与产物落盘。
+
 ## 层次结构
 
 ```
-Agent Client (Claude Code / Codex / etc.)
-  ↓  MCP stdio 协议  ↓
-insar_agent.mcp           # FastMCP stdio 服务器 — 仅负责工具/资源/prompt 注册
-insar_agent.core          # 协议无关层：Project, Job, BatchJob, config, session
-insar_agent.engines.isce3 # NISAR/ISCE3 适配器：adapter, validator, runner, stack,
-                          #   network, dem, bbox, geotiff, rslc_metadata, mintpy,
-                          #   param_advisor, baseline, aoi, download
-insar_agent.engines.isce2 # Sentinel-1/ISCE2 适配器：adapter, runner, sentinel_prep,
-                          #   stack, stack_runtime, mintpy, param_advisor, validator,
-                          #   defaults
-insar_agent.runtime       # 工作区布局、conda 环境检测、日志
-  ↓  conda run  ↓
-本地 conda 环境           # isce3, isce3gpu, isce2, mintpy, …
+Layer 1: Agent interaction
+  Agent Client (Claude Code / Codex / etc.)
+  Plugin command + skills + param-advisor subagent
+  ↓ MCP stdio / skill routing
+
+Layer 2: MCP orchestration and contracts
+  insar_agent.mcp       # FastMCP registration, tools, resources, prompts
+  insar_agent.core      # Project, Job, BatchJob, config, session, output_resolver
+  insar_agent.runtime   # workspace layout, environment checks, logging
+  ↓ validated project state + run layout
+
+Layer 3: Engine execution and products
+  insar_agent.engines.base  # EngineAdapter Protocol and registry contract
+  insar_agent.engines.isce3 # NISAR/ISCE3: runner, stack, network, DEM, bbox,
+                            # GeoTIFF, metadata, MintPy, param advisor
+  insar_agent.engines.isce2 # Sentinel-1/ISCE2: runner, Sentinel prep, stack,
+                            # stack runtime, MintPy, param advisor, validator
+  ↓ conda run
+  local processing envs     # isce3, isce3gpu, isce2, mintpy, ...
 ```
 
 **关键分层原则：**
-- 协议无关逻辑属于 `core/` 和 `engines/`
-- MCP 绑定（`@mcp.tool()`、`@mcp.resource()`、`@mcp.prompt()`）仅在 `mcp/server.py` 中
-- 引擎函数只处理已验证输入；文件存在性、路径合法性等边界检查在 MCP 层完成
+- 交互层只表达任务意图、工作流路由和人工确认门控；不得绕过 MCP 直接执行处理命令。
+- MCP 编排层是稳定公共契约面：工具注册、资源约束、项目状态、job 跟踪、路径安全和统一输出落点都在这里闭合。
+- 引擎执行层只处理已验证输入；引擎差异被限制在 `engines/<engine>/` 与 `EngineAdapter` 插槽内。
+- 所有任务产物必须经 `core/output_resolver.py::resolve_output` 落到 `workspace/<task_id>/outputs/<run_id>/`；输入/下载路径按当前交互契约可由用户显式指定。
 
 ---
 
@@ -130,11 +139,14 @@ MCP server 通过 FastMCP 注册三类对象：
 
 | 类型 | 数量 | 说明 |
 |------|------|------|
-| **Tools** | 25 | AI 可调用的操作；全部 `@mcp.tool()` |
-| **Resources** | 2 | 只读文档，agent 在处理任务前加载 |
+| **Tools** | 28 | 源码实际注册的 AI 可调用操作；全部 `@mcp.tool()` |
+| **Resources** | 1 + 1 template | `insar://workflow-guide` 为静态 resource；`insar://allowed-fields/{workflow}` 为 resource template |
 | **Prompts** | 2 | 预填路径的引导式任务模板 |
 
 详细规范见 [developer-documents/MCP-tools.md](developer-documents/MCP-tools.md)。
+
+> 校准记录：当前 FastMCP 实际注册面与 `insar-mcp-server --describe` 均为
+> 28 tools、1 resource、1 resource template、2 prompts。
 
 ### Resources
 

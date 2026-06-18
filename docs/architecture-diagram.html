@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>insar-agent · 架构与引擎接入总览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* surfaces */
+    --bg:        #070a11;
+    --bg-2:      #0a0e18;
+    --panel:     #0e1521;
+    --panel-2:   #111a29;
+    --panel-3:   #142033;
+    --line:      #1e2a3e;
+    --line-2:    #2b3b56;
+    --line-3:    #3a4f72;
+    /* ink */
+    --ink:       #e9eff8;
+    --ink-dim:   #a3b3cc;
+    --ink-faint: #6b7e9c;
+    --ink-ghost: #51637e;
+    /* structural / system */
+    --cyan:      #2dd4e8;
+    --cyan-deep: #0c5a6b;
+    /* engine identity */
+    --isce2:     #2bd4b0;   /* Sentinel-1 teal */
+    --isce3:     #7c93ff;   /* NISAR indigo */
+    /* onboarding tiers (the signal system) */
+    --free:      #37d99a;   /* 白拿 — zero-code inheritance */
+    --free-deep: #0f5740;
+    --adapter:   #f6b23c;   /* 适配器插槽 — must write, no MCP edit */
+    --adapter-deep:#6b4710;
+    --new:       #5b9dff;   /* 新工具/skill — optional */
+    --new-deep:  #1d3c6b;
+
+    --radius: 13px;
+    --radius-sm: 8px;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Archivo", "Noto Sans SC", system-ui, sans-serif;
+    --cjk: "Noto Sans SC", "Archivo", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--cjk);
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: auto;
+  }
+
+  /* ───────────── atmosphere: grid paper + glows + grain ───────────── */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(1100px 720px at 12% -8%, rgba(45,212,232,0.10), transparent 60%),
+      radial-gradient(1000px 800px at 100% 108%, rgba(55,217,154,0.09), transparent 55%),
+      radial-gradient(900px 600px at 88% 0%, rgba(124,147,255,0.06), transparent 60%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 55%, var(--bg) 100%);
+  }
+  .backdrop::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(120,150,190,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,150,190,0.05) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(ellipse 120% 100% at 50% 30%, #000 55%, transparent 100%);
+  }
+  .backdrop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  /* one-time scan sweep on load */
+  .scan {
+    position: fixed; left: 0; right: 0; top: 0; height: 38vh; z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(180deg, transparent, rgba(45,212,232,0.10) 60%, rgba(45,212,232,0.22));
+    border-bottom: 1px solid rgba(45,212,232,0.35);
+    transform: translateY(-45vh);
+    animation: sweep 1.55s cubic-bezier(.4,0,.2,1) .15s 1 forwards;
+  }
+  @keyframes sweep { to { transform: translateY(150vh); opacity: 0; } }
+
+  .wrap {
+    position: relative;
+    z-index: 2;
+    max-width: 1560px;
+    min-width: 980px;
+    margin: 0 auto;
+    padding: 34px 34px 56px;
+  }
+
+  /* ───────────── masthead ───────────── */
+  .masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 32px;
+    padding-bottom: 22px;
+    margin-bottom: 26px;
+    border-bottom: 1px solid var(--line-2);
+    animation: rise .6s ease both;
+  }
+  .brand-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .brand-eyebrow::before {
+    content: ""; width: 26px; height: 1px; background: var(--cyan); display: inline-block;
+    box-shadow: 0 0 8px var(--cyan);
+  }
+  h1.brand {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: clamp(34px, 4vw, 52px);
+    line-height: 0.98;
+    letter-spacing: -0.015em;
+    margin: 0 0 12px;
+  }
+  h1.brand .mono { font-family: var(--mono); font-weight: 700; color: var(--ink); }
+  h1.brand .accent {
+    background: linear-gradient(92deg, var(--cyan), var(--free) 70%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .sub {
+    color: var(--ink-dim);
+    font-size: 15px;
+    max-width: 640px;
+  }
+  .meta-strip {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    border: 1px solid var(--line-2);
+    border-radius: 100px;
+    padding: 4px 11px;
+    background: rgba(255,255,255,0.015);
+  }
+  .tag b { color: var(--ink); font-weight: 600; }
+  .tag.branch { color: var(--cyan); border-color: var(--cyan-deep); }
+
+  /* legend */
+  .legend {
+    flex-shrink: 0;
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    padding: 15px 17px 13px;
+    min-width: 290px;
+  }
+  .legend h4 {
+    margin: 0 0 11px;
+    font-family: var(--mono);
+    font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600;
+  }
+  .legend-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px; border-radius: var(--radius-sm);
+    cursor: pointer; transition: background .15s;
+    border: 1px solid transparent;
+  }
+  .legend-row:hover { background: rgba(255,255,255,0.04); border-color: var(--line); }
+  .sw { width: 13px; height: 13px; border-radius: 4px; flex-shrink: 0; }
+  .sw.free    { background: var(--free);    box-shadow: 0 0 11px var(--free); }
+  .sw.adapter { background: var(--adapter); box-shadow: 0 0 11px var(--adapter); }
+  .sw.new     { background: var(--new);     box-shadow: 0 0 11px var(--new); }
+  .legend-row .lg-name { font-weight: 600; font-size: 13px; }
+  .legend-row .lg-en { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); margin-left: auto; }
+  .legend-hint {
+    margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-2);
+    font-size: 11px; color: var(--ink-faint); line-height: 1.6;
+  }
+  .legend-hint kbd {
+    font-family: var(--mono); font-size: 10px; background: var(--panel-3);
+    border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; color: var(--ink-dim);
+  }
+
+  /* ───────────── layers ───────────── */
+  .layer {
+    position: relative;
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    gap: 18px;
+    margin-bottom: 8px;
+    animation: rise .6s ease both;
+  }
+  .layer-tab {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    text-align: center;
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+    background: linear-gradient(0deg, var(--panel), var(--panel-2));
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--ink-dim);
+    display: flex; align-items: center; justify-content: center;
+    gap: 12px;
+    padding: 14px 0;
+  }
+  .layer-tab .lt-id {
+    color: var(--cyan); font-weight: 700; font-size: 13px; letter-spacing: 0.1em;
+  }
+  .layer-body {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(20,30,48,0.45), rgba(12,18,28,0.5));
+    padding: 18px;
+    position: relative;
+  }
+  .layer-body::before {
+    /* corner screw */
+    content: ""; position: absolute; top: 9px; right: 9px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--line-3); box-shadow: 0 0 0 2px rgba(0,0,0,0.25) inset;
+  }
+  .layer-title {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px;
+  }
+  .layer-title h2 {
+    font-family: var(--sans); font-weight: 700; font-size: 17px; margin: 0; letter-spacing: -0.01em;
+  }
+  .layer-title .en {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.1em;
+  }
+  .layer-title .role {
+    margin-left: auto; font-size: 12px; color: var(--ink-faint);
+  }
+
+  /* flow connector between layers */
+  .flow {
+    grid-column: 2;
+    display: flex; align-items: center; gap: 12px;
+    margin: 3px 0 3px 4px;
+    font-family: var(--mono); font-size: 11px; color: var(--cyan);
+    letter-spacing: 0.12em;
+  }
+  .flow::before {
+    content: "▼"; font-size: 9px; filter: drop-shadow(0 0 5px var(--cyan));
+  }
+  .flow .ln { flex: 1; height: 1px; background: linear-gradient(90deg, var(--cyan-deep), transparent); }
+
+  /* ───────────── generic node / chip ───────────── */
+  .node {
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    padding: 11px 14px;
+  }
+  .node .nm { font-weight: 600; font-size: 14px; }
+  .node .nm .mono { font-family: var(--mono); font-weight: 600; }
+  .node .desc { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-dim);
+    background: var(--panel-2);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    padding: 5px 10px;
+    transition: transform .14s, box-shadow .14s, border-color .14s, color .14s;
+    cursor: default;
+  }
+  .chip:hover {
+    transform: translateY(-2px);
+    color: var(--ink);
+    border-color: var(--line-3);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+  }
+  .chip .x { color: var(--ink-ghost); font-size: 10.5px; }
+
+  /* L1 interaction layer */
+  .l1-grid { display: grid; grid-template-columns: 1.1fr auto 1.5fr; gap: 16px; align-items: stretch; }
+  .l1-arrow {
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); color: var(--cyan); font-size: 12px;
+  }
+  .router {
+    border-color: var(--cyan-deep);
+    background: linear-gradient(180deg, rgba(45,212,232,0.07), var(--panel));
+  }
+  .router .nm .mono { color: var(--cyan); }
+  .skill-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-faint); margin: 12px 0 8px; }
+  .subagent-note {
+    margin-top: 12px; font-size: 11.5px; color: var(--ink-faint);
+    border-left: 2px solid var(--line-3); padding-left: 10px;
+  }
+  .subagent-note b { color: var(--ink-dim); }
+
+  /* L2 contract layer */
+  .free-wash { position: relative; }
+  .free-badge {
+    position: absolute; top: -10px; left: 14px;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em;
+    color: var(--free); background: var(--bg-2);
+    border: 1px solid var(--free-deep); border-radius: 100px;
+    padding: 3px 11px;
+  }
+  .free-badge::before { content: "◆ "; }
+  .panel-sec {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 15px 14px 13px;
+    background: rgba(55,217,154,0.025);
+  }
+  .panel-sec.tinted-free { border-color: rgba(55,217,154,0.22); }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 9px; margin-bottom: 11px;
+  }
+  .sec-head .h { font-weight: 600; font-size: 13.5px; }
+  .sec-head .ct {
+    font-family: var(--mono); font-size: 11px; color: var(--free);
+    border: 1px solid var(--free-deep); border-radius: 100px; padding: 1px 8px;
+  }
+  .sec-head .en { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); margin-left: auto; letter-spacing: 0.08em; }
+
+  .l2-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .mini { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 13px; background: var(--panel); }
+  .mini .mh { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 9px; }
+
+  .output-note {
+    margin-top: 12px; padding: 10px 13px; border-radius: var(--radius-sm);
+    border: 1px dashed var(--free-deep); background: rgba(55,217,154,0.04);
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim);
+  }
+  .output-note b { color: var(--free); font-weight: 600; }
+
+  /* adapter slot — the socket between L2 and L3 */
+  .adapter-slot {
+    margin-top: 14px;
+    border: 1px solid var(--adapter-deep);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, rgba(246,178,60,0.09), rgba(246,178,60,0.03));
+    padding: 13px 15px;
+    position: relative;
+  }
+  .adapter-slot .as-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 11px; flex-wrap: wrap;
+  }
+  .adapter-slot .as-title { font-weight: 700; font-size: 14px; color: var(--adapter); }
+  .adapter-slot .as-en { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .adapter-slot .as-note { margin-left: auto; font-size: 11.5px; color: var(--ink-faint); }
+  .adapter-slot .as-note .mono { font-family: var(--mono); color: var(--ink-dim); }
+  .method-chip {
+    font-family: var(--mono); font-size: 12px; color: var(--adapter);
+    background: rgba(246,178,60,0.07);
+    border: 1px solid var(--adapter-deep); border-radius: 6px; padding: 5px 11px;
+    transition: transform .14s, box-shadow .14s;
+  }
+  .method-chip:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(246,178,60,0.15); }
+  /* plug notches pointing into the 3 engine columns */
+  .plugs { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-top: 11px; }
+  .plug { text-align: center; font-family: var(--mono); font-size: 10px; color: var(--adapter); opacity: 0.8; }
+  .plug::after { content: ""; display: block; width: 1px; height: 14px; margin: 3px auto 0; background: linear-gradient(var(--adapter), transparent); }
+
+  /* ───────────── L3 engines ───────────── */
+  .engines { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .engine {
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: box-shadow .2s, border-color .2s, transform .2s;
+  }
+  .engine .top-accent { height: 3px; }
+  .engine.isce2 .top-accent { background: linear-gradient(90deg, var(--isce2), transparent); }
+  .engine.isce3 .top-accent { background: linear-gradient(90deg, var(--isce3), transparent); }
+  .engine.ghost { border-style: dashed; border-color: var(--line-3); background: repeating-linear-gradient(135deg, rgba(255,255,255,0.012) 0 10px, transparent 10px 20px), var(--panel); }
+  .engine.ghost .top-accent { background: repeating-linear-gradient(90deg, var(--ink-ghost) 0 8px, transparent 8px 16px); }
+
+  body.col-focus .engine:not(.focused) { opacity: 0.4; filter: saturate(0.6); }
+
+  .eng-head { padding: 15px 16px 14px; border-bottom: 1px solid var(--line); position: relative; }
+  .eng-head .badge {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 7px; display: flex; align-items: center; gap: 8px;
+  }
+  .eng-head .eng-name { font-family: var(--sans); font-weight: 800; font-size: 25px; letter-spacing: -0.01em; line-height: 1; }
+  .isce2 .eng-name { color: var(--isce2); }
+  .isce3 .eng-name { color: var(--isce3); }
+  .ghost .eng-name { color: var(--ink-dim); }
+  .eng-head .platform { font-size: 12.5px; color: var(--ink-dim); margin-top: 5px; }
+  .eng-runtime { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+  .rt {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim);
+    border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 8px; background: rgba(0,0,0,0.18);
+  }
+  .rt .k { color: var(--ink-ghost); }
+
+  .expand-btn {
+    position: absolute; top: 15px; right: 15px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--cyan);
+    background: rgba(45,212,232,0.06); border: 1px solid var(--cyan-deep);
+    border-radius: 100px; padding: 3px 10px; cursor: pointer; transition: background .15s;
+    user-select: none;
+  }
+  .expand-btn:hover { background: rgba(45,212,232,0.14); }
+
+  .eng-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 15px; flex: 1; }
+  .blk-head {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 9px; display: flex; align-items: center; gap: 8px;
+  }
+  .blk-head .cnt { color: var(--new); border: 1px solid var(--new-deep); border-radius: 100px; padding: 0 7px; font-size: 10px; }
+  .blk-head .bar { flex: 1; height: 1px; background: var(--line); }
+
+  .mod-group { margin-bottom: 9px; }
+  .mod-group .gl {
+    font-size: 11px; color: var(--ink-faint); margin-bottom: 5px;
+    display: inline-block; border-left: 2px solid var(--line-3); padding-left: 7px;
+  }
+  .chip.adapter-mod { color: var(--adapter); border-color: var(--adapter-deep); background: rgba(246,178,60,0.06); }
+  .chip.tool-own { color: var(--new); border-color: var(--new-deep); background: rgba(91,157,255,0.06); }
+
+  .more { display: none; }
+  .engine.expanded .more { display: block; }
+  .engine.expanded .more.chips, .engine.expanded .chips .more { display: inline-flex; }
+  .more-chip { display: none; }
+  .engine.expanded .more-chip { display: inline-block; }
+
+  /* ghost / new-engine onboarding cells */
+  .tier-cell {
+    border-radius: var(--radius-sm); padding: 13px 14px; margin-bottom: 11px;
+    border: 1px solid var(--line-2); position: relative;
+  }
+  .tier-cell .tc-step {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .tier-cell .tc-step .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .tier-cell .tc-body { font-size: 12px; color: var(--ink-dim); line-height: 1.55; }
+  .tier-cell .tc-body .mono { font-family: var(--mono); color: var(--ink); font-size: 11.5px; }
+  .tier-cell.free    { border-color: var(--free-deep);    background: rgba(55,217,154,0.06); }
+  .tier-cell.free .tc-step    { color: var(--free); }    .tier-cell.free .dot    { background: var(--free); box-shadow: 0 0 9px var(--free); }
+  .tier-cell.adapter { border-color: var(--adapter-deep); background: rgba(246,178,60,0.06); }
+  .tier-cell.adapter .tc-step { color: var(--adapter); } .tier-cell.adapter .dot { background: var(--adapter); box-shadow: 0 0 9px var(--adapter); }
+  .tier-cell.new     { border-color: var(--new-deep);     background: rgba(91,157,255,0.05); }
+  .tier-cell.new .tc-step     { color: var(--new); }     .tier-cell.new .dot     { background: var(--new); box-shadow: 0 0 9px var(--new); }
+  .tc-tag { font-family: var(--mono); font-size: 9.5px; padding: 1px 7px; border-radius: 100px; margin-left: auto; }
+  .tier-cell.free .tc-tag { color: var(--free); border: 1px solid var(--free-deep); }
+  .tier-cell.adapter .tc-tag { color: var(--adapter); border: 1px solid var(--adapter-deep); }
+  .tier-cell.new .tc-tag { color: var(--new); border: 1px solid var(--new-deep); }
+
+  /* ───────────── tier highlight (legend hover) ───────────── */
+  body.focusing [data-tier] { opacity: 0.22; filter: saturate(0.4); transition: opacity .2s, filter .2s; }
+  body.focusing [data-tier].lit {
+    opacity: 1; filter: none;
+    box-shadow: 0 0 0 1px currentColor, 0 0 22px -4px var(--hl, var(--cyan));
+  }
+  [data-tier].lit.free-lit    { --hl: var(--free); }
+  [data-tier].lit.adapter-lit { --hl: var(--adapter); }
+  [data-tier].lit.new-lit     { --hl: var(--new); }
+
+  /* ───────────── footer / onboarding checklist ───────────── */
+  .footer {
+    margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line-2);
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 26px;
+    animation: rise .6s ease both;
+  }
+  .footer h3 {
+    font-family: var(--sans); font-weight: 700; font-size: 15px; margin: 0 0 13px;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .footer h3::before { content: ""; width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, var(--cyan), var(--free)); }
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding: 5px 0 5px 34px; font-size: 12.5px; color: var(--ink-dim);
+    border-bottom: 1px dashed var(--line);
+  }
+  ol.steps li:last-child { border-bottom: 0; }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 5px;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--cyan);
+    width: 22px; height: 22px; border: 1px solid var(--cyan-deep); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; background: rgba(45,212,232,0.05);
+  }
+  ol.steps li .mono { font-family: var(--mono); color: var(--ink); font-size: 11.5px; }
+  ol.steps li .tg { font-family: var(--mono); font-size: 9.5px; padding: 0 6px; border-radius: 100px; margin-left: 6px; vertical-align: 1px; }
+  .tg.free { color: var(--free); border: 1px solid var(--free-deep); }
+  .tg.adapter { color: var(--adapter); border: 1px solid var(--adapter-deep); }
+  .tg.new { color: var(--new); border: 1px solid var(--new-deep); }
+  .verify {
+    border: 1px solid var(--line-2); border-radius: var(--radius-sm); padding: 14px;
+    background: var(--panel); font-size: 12px; color: var(--ink-dim);
+  }
+  .verify .vh { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
+  .verify code { font-family: var(--mono); font-size: 11px; color: var(--free); display: block; margin: 6px 0; word-break: break-all; }
+  .verify .ref { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 11px; color: var(--ink-faint); }
+  .verify .ref .mono { font-family: var(--mono); color: var(--ink-dim); }
+
+  .credit {
+    margin-top: 24px; text-align: center; font-family: var(--mono);
+    font-size: 10.5px; color: var(--ink-ghost); letter-spacing: 0.1em;
+  }
+
+  /* animation */
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .layer:nth-of-type(1) { animation-delay: .05s; }
+  .delay-1 { animation-delay: .18s; }
+  .delay-2 { animation-delay: .32s; }
+  .delay-3 { animation-delay: .46s; }
+  .engine { animation: rise .6s ease both; }
+  .engine.isce2 { animation-delay: .5s; }
+  .engine.isce3 { animation-delay: .6s; }
+  .engine.ghost { animation-delay: .7s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, .scan { animation: none !important; }
+    .scan { display: none; }
+  }
+  @media (max-width: 1080px) {
+    .wrap { min-width: 0; }
+    .engines { grid-template-columns: 1fr; }
+    .l1-grid { grid-template-columns: 1fr; }
+    .l1-arrow { transform: rotate(90deg); }
+    .l2-cols { grid-template-columns: 1fr; }
+    .plugs { display: none; }
+    .footer { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+<div class="scan"></div>
+
+<div class="wrap">
+
+  <!-- ───────── masthead ───────── -->
+  <header class="masthead">
+    <div>
+      <div class="brand-eyebrow">InSAR Processing Plugin · Architecture Map</div>
+      <h1 class="brand"><span class="mono">insar-agent</span> <span class="accent">架构与引擎接入总览</span></h1>
+      <div class="sub">MCP 编排的 NISAR / Sentinel-1 InSAR 处理插件 — 三层架构 × 引擎纵列，并标出接入一个新引擎"哪层白送、哪层必写"。</div>
+      <div class="meta-strip">
+        <span class="tag branch">⎇ refactor/output-layout-and-modularization</span>
+        <span class="tag"><b>3</b> 层架构</span>
+        <span class="tag"><b>28</b> MCP 工具 <span style="color:var(--ink-ghost)">(@mcp.tool)</span></span>
+        <span class="tag"><b>2</b> 内置引擎 + 1 模板</span>
+        <span class="tag"><b>11</b> skills</span>
+      </div>
+    </div>
+
+    <div class="legend">
+      <h4>三层接入色码 · Onboarding Tiers</h4>
+      <div class="legend-row" data-hl="free">
+        <span class="sw free"></span>
+        <span class="lg-name">白拿 · 零代码继承</span>
+        <span class="lg-en">L1 free</span>
+      </div>
+      <div class="legend-row" data-hl="adapter">
+        <span class="sw adapter"></span>
+        <span class="lg-name">适配器插槽 · 必写不动 MCP</span>
+        <span class="lg-en">L2 adapter</span>
+      </div>
+      <div class="legend-row" data-hl="new">
+        <span class="sw new"></span>
+        <span class="lg-name">新工具 / skill · 仅必要时</span>
+        <span class="lg-en">L3 extend</span>
+      </div>
+      <div class="legend-hint">
+        悬停色块 → 跨全图高亮该层级 &nbsp;·&nbsp; 点引擎列 <kbd>+ 详尽</kbd> 下钻全部模块
+      </div>
+    </div>
+  </header>
+
+  <!-- ───────── Layer 1: interaction ───────── -->
+  <section class="layer">
+    <aside class="layer-tab"><span class="lt-id">L1</span> 交互层 · AGENT INTERACTION</aside>
+    <div class="layer-body delay-1">
+      <div class="layer-title">
+        <h2>交互层</h2>
+        <span class="en">agent-facing routing</span>
+        <span class="role">表达任务意图 · 工作流路由 · 人工确认门控（不绕过 MCP 执行）</span>
+      </div>
+      <div class="l1-grid">
+        <div class="node">
+          <div class="nm">Agent Client</div>
+          <div class="desc">Claude Code / Codex / 其它 MCP 客户端</div>
+        </div>
+        <div class="l1-arrow">──▶</div>
+        <div>
+          <div class="node router">
+            <div class="nm"><span class="mono">insar-agent</span> · 路由 skill</div>
+            <div class="desc">会话引导：读 <span style="font-family:var(--mono)">insar://workflow-guide</span> 硬约束 → 路由到工作流 skill</div>
+          </div>
+          <div class="skill-label">共享 / 跨引擎 skills</div>
+          <div class="chips">
+            <span class="chip">env-setup</span>
+            <span class="chip">data-prep <span class="x">/dispatch</span></span>
+            <span class="chip">mintpy <span class="x">/双引擎</span></span>
+            <span class="chip">param-advisor <span class="x">/双引擎</span></span>
+          </div>
+          <div class="subagent-note">
+            <b>param-advisor subagent</b> — 顾问角色：调 describe 工具收集证据、生成建议，<b>不直接改参数</b>；可用 gpt-5.3-codex 等模型。
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="flow"><span>MCP stdio · skill routing</span><span class="ln"></span></div>
+
+  <!-- ───────── Layer 2: MCP orchestration + contract ───────── -->
+  <section class="layer">
+    <aside class="layer-tab"><span class="lt-id">L2</span> 编排契约层 · MCP ORCHESTRATION</aside>
+    <div class="layer-body delay-2">
+      <div class="layer-title">
+        <h2>MCP 编排 + 契约层</h2>
+        <span class="en">stable public contract</span>
+        <span class="role">工具注册 · 项目/Job 状态 · 路径安全 · 统一输出落点</span>
+      </div>
+
+      <div class="free-wash">
+        <span class="free-badge">白拿区 · 新引擎零代码继承</span>
+        <div class="panel-sec tinted-free" data-tier="free">
+          <div class="sec-head">
+            <span class="h">共享 MCP 工具契约</span>
+            <span class="ct">×16 引擎无关</span>
+            <span class="en">FastMCP · @mcp.tool</span>
+          </div>
+          <div class="chips">
+            <span class="chip">insar_check_env</span>
+            <span class="chip">insar_discover</span>
+            <span class="chip">insar_create_project</span>
+            <span class="chip">insar_get_project</span>
+            <span class="chip">insar_get_runconfig</span>
+            <span class="chip">insar_set_runconfig_value</span>
+            <span class="chip">insar_set_processing_param</span>
+            <span class="chip">insar_record_param_advice</span>
+            <span class="chip">insar_export_runconfig</span>
+            <span class="chip">insar_run_workflow</span>
+            <span class="chip">insar_get_job</span>
+            <span class="chip">insar_list_outputs</span>
+            <span class="chip">insar_search</span>
+            <span class="chip">insar_download_scene</span>
+            <span class="chip">insar_download_dem</span>
+            <span class="chip">insar_export_geotiff</span>
+          </div>
+        </div>
+
+        <div class="l2-cols">
+          <div class="mini" data-tier="free">
+            <div class="mh">core · 协议无关</div>
+            <div class="chips">
+              <span class="chip">Project</span>
+              <span class="chip">Job</span>
+              <span class="chip">BatchJob</span>
+              <span class="chip">DownloadJob</span>
+              <span class="chip">output_resolver</span>
+              <span class="chip">session</span>
+              <span class="chip">config</span>
+              <span class="chip">layout</span>
+            </div>
+          </div>
+          <div class="mini" data-tier="free">
+            <div class="mh">runtime</div>
+            <div class="chips">
+              <span class="chip">workspace</span>
+              <span class="chip">env <span class="x">/conda 探测</span></span>
+              <span class="chip">logging</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="output-note" data-tier="free">
+          统一输出 · <b>resolve_output()</b> → <span style="color:var(--ink)">workspace/&lt;task_id&gt;/outputs/&lt;run_id&gt;/</span> { configs · products · scratch · logs · qa · param_tuned · metrics } — 产物永不泄漏树外
+        </div>
+      </div>
+
+      <!-- EngineAdapter slot: the L2↔L3 socket -->
+      <div class="adapter-slot" data-tier="adapter">
+        <div class="as-head">
+          <span class="as-title">EngineAdapter Protocol 插槽</span>
+          <span class="as-en">engines/base.py</span>
+          <span class="as-note">调用方 <span class="mono">get_adapter(engine).&lt;方法&gt;()</span> · 注册于 <span class="mono">engines/__init__</span></span>
+        </div>
+        <div class="chips">
+          <span class="method-chip">list_workflows()</span>
+          <span class="method-chip">task_id_for()</span>
+          <span class="method-chip">allowed_set_fields()</span>
+          <span class="method-chip">required_fields()</span>
+        </div>
+        <div class="plugs">
+          <div class="plug">▼ ISCE2 插入</div>
+          <div class="plug">▼ ISCE3 插入</div>
+          <div class="plug">▼ 新引擎 插入</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="flow"><span>conda run · validated input only</span><span class="ln"></span></div>
+
+  <!-- ───────── Layer 3: engine execution ───────── -->
+  <section class="layer">
+    <aside class="layer-tab"><span class="lt-id">L3</span> 引擎执行层 · ENGINE EXECUTION</aside>
+    <div class="layer-body">
+      <div class="layer-title">
+        <h2>引擎执行层</h2>
+        <span class="en">engines/&lt;engine&gt;/ · isolated per engine</span>
+        <span class="role">引擎差异被限制在各自包与 Adapter 插槽内 · 产物经 conda 落盘</span>
+      </div>
+
+      <div class="engines">
+
+        <!-- ───── ISCE2 ───── -->
+        <div class="engine isce2" data-engine="isce2">
+          <div class="top-accent"></div>
+          <div class="eng-head">
+            <div class="expand-btn" data-toggle>+ 详尽</div>
+            <div class="badge">◐ 内置引擎 01</div>
+            <div class="eng-name">ISCE2</div>
+            <div class="platform">Sentinel-1 · C-band · topsApp / stackSentinel</div>
+            <div class="eng-runtime">
+              <span class="rt"><span class="k">conda</span> isce2</span>
+              <span class="rt"><span class="k">tops</span> topsApp.py</span>
+              <span class="rt"><span class="k">stack</span> stackSentinel.py</span>
+            </div>
+          </div>
+          <div class="eng-body">
+            <div>
+              <div class="blk-head">工作流 · workflows <span class="bar"></span></div>
+              <div class="chips">
+                <span class="chip">d-insar-isce2 <span class="x">/tops</span></span>
+                <span class="chip">stack-insar-isce2 <span class="x">/stack</span></span>
+                <span class="chip">data-prep-sentinel</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="blk-head">引擎模块 · engines/isce2/ <span class="bar"></span></div>
+              <div class="mod-group">
+                <span class="gl">执行 / 命令</span>
+                <div class="chips"><span class="chip">runner</span><span class="chip">stack</span><span class="chip">stack_runtime</span></div>
+              </div>
+              <div class="mod-group">
+                <span class="gl">数据准备</span>
+                <div class="chips">
+                  <span class="chip">sentinel_prep</span>
+                  <span class="chip">sentinel/annotation</span>
+                  <span class="chip">sentinel/burst_assembly</span>
+                  <span class="chip">sentinel/orbit</span>
+                  <span class="chip more-chip">sentinel/geolocation</span>
+                  <span class="chip more-chip">sentinel/metadata</span>
+                  <span class="chip more-chip">sentinel/prepare</span>
+                  <span class="chip more-chip">sentinel/_common</span>
+                </div>
+              </div>
+              <div class="mod-group">
+                <span class="gl">产品 / 后处理</span>
+                <div class="chips"><span class="chip">mintpy</span><span class="chip">troposphere</span></div>
+              </div>
+              <div class="mod-group">
+                <span class="gl">配置 / 校验 / 顾问</span>
+                <div class="chips">
+                  <span class="chip">defaults</span><span class="chip">validator</span><span class="chip">param_advisor</span>
+                  <span class="chip adapter-mod" data-tier="adapter">adapter</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="blk-head">专属 MCP 工具 <span class="cnt">×4</span><span class="bar"></span></div>
+              <div class="chips" data-tier="new">
+                <span class="chip tool-own">insar_describe_s1</span>
+                <span class="chip tool-own">insar_prepare_sentinel_data</span>
+                <span class="chip tool-own">insar_run_mintpy_isce2</span>
+                <span class="chip tool-own">insar_apply_troposphere_isce2</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───── ISCE3 ───── -->
+        <div class="engine isce3" data-engine="isce3">
+          <div class="top-accent"></div>
+          <div class="eng-head">
+            <div class="expand-btn" data-toggle>+ 详尽</div>
+            <div class="badge">◑ 内置引擎 02</div>
+            <div class="eng-name">ISCE3</div>
+            <div class="platform">NISAR · L-band · nisar.workflows</div>
+            <div class="eng-runtime">
+              <span class="rt"><span class="k">conda</span> isce3 / isce3gpu</span>
+              <span class="rt"><span class="k">cmd</span> python -m nisar.workflows.*</span>
+            </div>
+          </div>
+          <div class="eng-body">
+            <div>
+              <div class="blk-head">工作流 · workflows <span class="bar"></span></div>
+              <div class="chips">
+                <span class="chip">d-insar-isce3 <span class="x">/insar</span></span>
+                <span class="chip">stack-insar-isce3 <span class="x">/stack·network</span></span>
+                <span class="chip">data-prep-nisar</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="blk-head">引擎模块 · engines/isce3/ <span class="bar"></span></div>
+              <div class="mod-group">
+                <span class="gl">执行 / 命令</span>
+                <div class="chips"><span class="chip">runner</span><span class="chip">stack</span><span class="chip">network</span></div>
+              </div>
+              <div class="mod-group">
+                <span class="gl">数据准备</span>
+                <div class="chips">
+                  <span class="chip">download</span><span class="chip">dem</span><span class="chip">aoi</span>
+                  <span class="chip">bbox</span><span class="chip">rslc_metadata</span>
+                </div>
+              </div>
+              <div class="mod-group">
+                <span class="gl">产品 / 后处理</span>
+                <div class="chips">
+                  <span class="chip">geotiff</span><span class="chip">baseline</span><span class="chip">mintpy</span>
+                  <span class="chip more-chip">scripts/prep_nisar_current_gunw</span>
+                  <span class="chip more-chip">scripts/apply_common_ifgram_mask</span>
+                </div>
+              </div>
+              <div class="mod-group">
+                <span class="gl">配置 / 校验 / 顾问</span>
+                <div class="chips">
+                  <span class="chip">defaults</span><span class="chip">validator</span><span class="chip">param_advisor</span>
+                  <span class="chip adapter-mod" data-tier="adapter">adapter</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="blk-head">专属 MCP 工具 <span class="cnt">×8</span><span class="bar"></span></div>
+              <div class="chips" data-tier="new">
+                <span class="chip tool-own">insar_describe_rslc</span>
+                <span class="chip tool-own">insar_download_rslc</span>
+                <span class="chip tool-own">insar_prepare_stack</span>
+                <span class="chip tool-own">insar_prepare_network</span>
+                <span class="chip tool-own">insar_run_batch</span>
+                <span class="chip tool-own">insar_run_mintpy</span>
+                <span class="chip tool-own">insar_plot_baseline</span>
+                <span class="chip tool-own">insar_geocode_runw</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───── NEW ENGINE template ───── -->
+        <div class="engine ghost" data-engine="new">
+          <div class="top-accent"></div>
+          <div class="eng-head">
+            <div class="badge">＋ 接入模板 · onboarding</div>
+            <div class="eng-name">新引擎</div>
+            <div class="platform">GAMMA / GMTSAR / …　逐引擎手写处理逻辑</div>
+            <div class="eng-runtime">
+              <span class="rt"><span class="k">conda</span> &lt;your-env&gt;</span>
+              <span class="rt"><span class="k">cmd</span> &lt;engine cli&gt;</span>
+            </div>
+          </div>
+          <div class="eng-body">
+            <div class="tier-cell free" data-tier="free">
+              <div class="tc-step"><span class="dot"></span>① 白拿 · 零代码 <span class="tc-tag">FREE</span></div>
+              <div class="tc-body">共享 <span class="mono">16</span> 工具 · <span class="mono">Project/Job</span> · 统一输出树 <b>自动继承</b>。<br>唯一前提：所有产物走 <span class="mono">resolve_output()</span>，不自拼 output_dir。</div>
+            </div>
+            <div class="tier-cell adapter" data-tier="adapter">
+              <div class="tc-step"><span class="dot"></span>② 适配器 · 必写 <span class="tc-tag">MUST</span></div>
+              <div class="tc-body">新增 <span class="mono">engines/&lt;engine&gt;/adapter.py</span> 实现 4 方法 → 在 <span class="mono">engines/__init__</span> 注册。<b>MCP 工具体一行不改。</b></div>
+            </div>
+            <div class="tier-cell adapter" data-tier="adapter">
+              <div class="tc-step"><span class="dot"></span>③ 引擎模块 · 必写 <span class="tc-tag">MUST</span></div>
+              <div class="tc-body"><span class="mono">engines/&lt;engine&gt;/</span>：命令构建 · 参数模板/白名单 · 校验 · param-advisor 证据。照抄 isce2/isce3 结构，委托到自己模块。</div>
+            </div>
+            <div class="tier-cell new" data-tier="new">
+              <div class="tc-step"><span class="dot"></span>④ 新工具 / skill · 可选 <span class="tc-tag">IF NEW</span></div>
+              <div class="tc-body">仅当引入<b>现有工具表达不了的全新概念</b>时才加，并在 PR 说明理由——避免膨胀 28 工具公共契约。</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────── footer: onboarding checklist + verify ───────── -->
+  <div class="footer">
+    <div>
+      <h3>接入一个新引擎 · 流程清单</h3>
+      <ol class="steps">
+        <li>建引擎包 <span class="mono">engines/&lt;engine&gt;/</span>：命令构建 · 参数模板 · 校验 · 顾问证据 <span class="tg adapter">必写</span></li>
+        <li>实现 <span class="mono">adapter.py</span>：list_workflows / task_id_for / allowed_set_fields / required_fields <span class="tg adapter">必写</span></li>
+        <li>注册：<span class="mono">engines/__init__._ensure_builtin()</span> 加 <span class="mono">_REGISTRY["&lt;engine&gt;"]</span> <span class="tg adapter">必写</span></li>
+        <li>输出走 <span class="mono">core.output_resolver.resolve_output</span>，绝不自拼 output_dir <span class="tg free">白拿</span></li>
+        <li>仅在必要时新增 MCP 工具 / skill，并在 PR 说明理由 <span class="tg new">可选</span></li>
+        <li>验证合规：运行下方两个守护测试</li>
+      </ol>
+    </div>
+    <div class="verify">
+      <div class="vh">合规守护 · compliance gates</div>
+      <code>pytest tests/unit/test_engine_adapter_contract.py</code>
+      <div style="font-size:11px;color:var(--ink-faint)">断言每个 adapter 满足 Protocol；并用临时 GAMMA 占位证明零 mcp/ 改动即可注册并列出工作流。</div>
+      <code>pytest tests/unit/test_output_containment.py</code>
+      <div style="font-size:11px;color:var(--ink-faint)">结构性断言：没有文件落在 outputs/&lt;run_id&gt; 之外。</div>
+      <div class="ref">依据来源 · <span class="mono">docs/engine-onboarding.md</span> · <span class="mono">docs/architecture.md</span> · <span class="mono">engines/base.py</span></div>
+    </div>
+  </div>
+
+  <div class="credit">据源码核实绘制 · branch refactor/output-layout-and-modularization · 2026-06-16</div>
+
+</div>
+
+<script>
+  (function () {
+    "use strict";
+
+    // ── legend hover → cross-diagram tier highlight ──
+    var tierClass = { free: "free-lit", adapter: "adapter-lit", new: "new-lit" };
+    var legendRows = document.querySelectorAll(".legend-row[data-hl]");
+
+    function lightTier(tier) {
+      document.body.classList.add("focusing");
+      var cls = tierClass[tier];
+      document.querySelectorAll("[data-tier]").forEach(function (el) {
+        var tiers = (el.dataset.tier || "").split(/\s+/);
+        if (tiers.indexOf(tier) !== -1) {
+          el.classList.add("lit", cls);
+        }
+      });
+    }
+    function clearTier() {
+      document.body.classList.remove("focusing");
+      document.querySelectorAll("[data-tier].lit").forEach(function (el) {
+        el.classList.remove("lit", "free-lit", "adapter-lit", "new-lit");
+      });
+    }
+    legendRows.forEach(function (row) {
+      var t = row.dataset.hl;
+      row.addEventListener("mouseenter", function () { lightTier(t); });
+      row.addEventListener("mouseleave", clearTier);
+      // touch / click toggle for non-hover devices
+      row.addEventListener("click", function () {
+        if (document.body.classList.contains("focusing")) { clearTier(); }
+        else { lightTier(t); }
+      });
+    });
+
+    // ── engine column: expand to 详尽 / collapse ──
+    document.querySelectorAll(".expand-btn[data-toggle]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var col = btn.closest(".engine");
+        var open = col.classList.toggle("expanded");
+        btn.textContent = open ? "– 收起" : "+ 详尽";
+      });
+    });
+
+    // ── engine column focus on hover ──
+    var engines = document.querySelectorAll(".engine[data-engine]");
+    engines.forEach(function (col) {
+      col.addEventListener("mouseenter", function () {
+        if (document.body.classList.contains("focusing")) return;
+        document.body.classList.add("col-focus");
+        col.classList.add("focused");
+      });
+      col.addEventListener("mouseleave", function () {
+        document.body.classList.remove("col-focus");
+        col.classList.remove("focused");
+      });
+    });
+  })();
+</script>
+</body>
+</html>

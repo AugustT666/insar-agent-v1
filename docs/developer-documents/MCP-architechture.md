@@ -18,14 +18,14 @@ mcp = FastMCP("insar-mcp-server")
 启动方式：
 ```bash
 insar-mcp-server --stdio          # stdio 模式（供 agent 客户端接入）
-insar-mcp-server --describe       # 打印全部工具/资源/prompt 的 JSON 摘要
+insar-mcp-server --describe       # 打印兼容性 JSON 摘要
 ```
 
 插件模式下服务器名为 `plugin:insar-agent-plugin:insar-mcp-server`（冒号，非下划线）。
 
 ---
 
-## Resources（2 个）
+## Resources（1 个 + 1 个 resource template）
 
 Resources 是只读文档，AI 客户端在处理任务前加载，不触发副作用。
 
@@ -33,7 +33,7 @@ Resources 是只读文档，AI 客户端在处理任务前加载，不触发副�
 
 **内容：** 指向 `insar-agent-plugin:insar-agent` skill 的入口引导——告知直接访问 MCP server 的 agent 应通过 skill 获取完整工作流约束和路由逻辑。
 
-**实现：** 内联于 `mcp/server.py::_WORKFLOW_GUIDE` 字符串常量，不读取文件系统。
+**实现：** `mcp/resources.py::get_workflow_guide` 读取 `skills/insar-agent/SKILL.md`，使 MCP resource 与主路由 skill 单点同步。
 
 ```python
 @mcp.resource("insar://workflow-guide")
@@ -67,7 +67,7 @@ Prompts 是任务引导模板，调用后返回预填好的分步说明字符串
 
 ---
 
-## Tools（25 个）
+## Tools（28 个）
 
 按功能分 9 组，全部通过 `@mcp.tool()` 注册。
 
@@ -78,10 +78,13 @@ Prompts 是任务引导模板，调用后返回预填好的分步说明字符串
 | **G3 执行** | `insar_run_workflow`, `insar_get_job` | 启动工作流；轮询任意类型 Job |
 | **G4 输出** | `insar_list_outputs` | 列举完成 Job 的产品文件 |
 | **G5 Stack** | `insar_prepare_stack`, `insar_prepare_network`, `insar_run_batch`, `insar_plot_baseline` | 批量 runconfig 生成；网络准备；并行批处理；基线可视化 |
-| **G6 数据** | `insar_describe_rslc`, `insar_download_rslc`, `insar_download_dem` | RSLC 元数据摘要；RSLC/DEM 下载 |
-| **G7 分析** | `insar_export_geotiff`, `insar_run_mintpy`, `insar_run_mintpy_isce2` | GeoTIFF 导出；ISCE3/ISCE2 MintPy 时序分析 |
+| **G6 数据** | `insar_search`, `insar_describe_rslc`, `insar_download_rslc`, `insar_download_dem` | ASF/CMR 编目发现；RSLC 元数据摘要；RSLC/DEM 下载 |
+| **G7 分析** | `insar_export_geotiff`, `insar_geocode_runw`, `insar_apply_troposphere_isce2`, `insar_run_mintpy`, `insar_run_mintpy_isce2` | GeoTIFF 导出；RUNW 恢复 geocode；ISCE2 ERA5 对流层改正；ISCE3/ISCE2 MintPy 时序分析 |
 | **G8 Sentinel** | `insar_download_scene`, `insar_describe_s1`, `insar_prepare_sentinel_data` | S1 场景下载；SAFE 元数据；ISCE2 输入整理 |
 | **G9 环境** | `insar_check_env` | conda 环境 + MCP + skill 安装状态检查 |
+
+校准记录：FastMCP 实际注册面与 `insar-mcp-server --describe` 均为
+28 tools、1 resource、1 resource template、2 prompts。
 
 ---
 
