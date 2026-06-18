@@ -56,9 +56,13 @@ from insar_agent.mcp.tools.prepare_tools import (  # noqa: F401  (re-export)
 )
 from insar_agent.mcp.tools.product_tools import (  # noqa: F401  (re-export)
     insar_geocode_runw,
+    insar_apply_troposphere_isce2,
 )
 from insar_agent.mcp.tools.env_tools import (  # noqa: F401  (re-export)
     insar_check_env,
+)
+from insar_agent.mcp.tools.search_tools import (  # noqa: F401  (re-export)
+    insar_search,
 )
 
 
@@ -1468,6 +1472,7 @@ def build_server_description() -> dict:
             "insar_create_project",
             "insar_get_runconfig",
             "insar_set_runconfig_value",
+            "insar_record_param_advice",
             "insar_set_processing_param",
             "insar_describe_rslc",
             "insar_run_workflow",
@@ -1479,8 +1484,11 @@ def build_server_description() -> dict:
             "insar_download_rslc",
             "insar_download_dem",
             "insar_export_geotiff",
+            "insar_geocode_runw",
+            "insar_apply_troposphere_isce2",
             "insar_run_mintpy",
             "insar_plot_baseline",
+            "insar_search",
             "insar_download_scene",
             "insar_describe_s1",
             "insar_prepare_sentinel_data",

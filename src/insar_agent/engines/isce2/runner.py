@@ -214,3 +214,35 @@ def build_tops_resume_command(
     if conda_env:
         return ["conda", "run", "-n", conda_env, "--no-capture-output", "bash", "-c", inner_cmd]
     return ["bash", "-c", inner_cmd]
+
+
+# ----- ERA5 troposphere post-correction (topsApp has no built-in tropo stage) -----
+# Sentinel prefixing the CLI's result JSON line, so callers can recover it from
+# pyAPS/PROJ stdout noise. Kept here (import-light) next to the command builder.
+TROPO_RESULT_SENTINEL = "TROPO_RESULT_JSON "
+
+
+def build_troposphere_command(
+    run_root: str,
+    ref_date: str,
+    sec_date: str,
+    grib_files: list[str],
+    conda_env: str = "isce2",
+    out_dir: str | None = None,
+) -> list[str]:
+    """Build the ``conda run`` argv that runs the ISCE2 ERA5 troposphere
+    correction CLI inside an env with pyaps3/pygrib/GDAL.
+
+    The correction backend (``engines.isce2.troposphere.apply_era5_troposphere``)
+    pulls heavy GDAL/pyAPS deps; this builder is deliberately import-light so the
+    MCP layer can construct the command without importing them.
+    """
+    cmd = [
+        "conda", "run", "-n", conda_env, "--no-capture-output",
+        "python", "-m", "insar_agent.engines.isce2.troposphere",
+        str(run_root), str(ref_date), str(sec_date),
+        *[str(g) for g in grib_files],
+    ]
+    if out_dir:
+        cmd += ["--out-dir", str(out_dir)]
+    return cmd
