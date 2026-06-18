@@ -66,8 +66,25 @@ def insar_check_env() -> dict:
         except subprocess.TimeoutExpired:
             env_results[env_name] = {"status": "timeout", "error": "probe timed out after 30s"}
 
-    # Check MCP registration via claude mcp list
+    # Determine MCP registration. This tool only executes because the agent
+    # reached the insar MCP server, so "registered" must not hinge on a fresh
+    # `claude mcp list`: under inline `--plugin-dir` loading the session-only
+    # server is invisible to a new CLI process (and `claude` may be off PATH).
     mcp_status: dict = {"registered": False, "server_name": "insar-mcp-server"}
+
+    # Signal 1 (reliable under plugin loading): Claude Code exports
+    # CLAUDE_PLUGIN_ROOT into plugin-spawned MCP server processes, for both
+    # inline `--plugin-dir` and marketplace installs. Its presence means we ARE
+    # the connected plugin server, exposed as plugin:<plugin>:<server>.
+    if os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        mcp_status["registered"] = True
+        mcp_status["server_name"] = "plugin:insar-agent-plugin:insar-mcp-server"
+        mcp_status["detected_via"] = "plugin_runtime"
+
+    # Signal 2 (best-effort name refinement): `claude mcp list` resolves the
+    # exact registered name for installs the CLI can see (project .mcp.json or
+    # marketplace). A miss here never downgrades registration; it simply cannot
+    # see session-only plugin servers.
     try:
         result = subprocess.run(
             ["claude", "mcp", "list"],
@@ -75,25 +92,26 @@ def insar_check_env() -> dict:
             text=True,
             timeout=10,
         )
+        mcp_status["raw_output"] = result.stdout.strip()[:500]
         if result.returncode == 0 and "insar-mcp-server" in result.stdout:
-            mcp_status["registered"] = True
-            # Extract actual connected server name(s).
-            # Each line format: "<server-name>: <command> - ✓ Connected"
-            # Server names may contain colons (e.g. plugin:foo:bar), so split on ": " not ":"
+            # Each line: "<server-name>: <command> - ✔ Connected". Server names
+            # may contain colons (plugin:foo:bar), so split on ": " and match the
+            # stable "Connected" text rather than a specific check glyph.
             connected_insar: list[str] = []
             for line in result.stdout.splitlines():
-                if "insar" in line.lower() and "✓" in line:
-                    parts = line.split(": ", 1)
-                    if parts:
-                        connected_insar.append(parts[0].strip())
+                if "insar-mcp-server" in line and "connect" in line.lower():
+                    name = line.split(": ", 1)[0].strip()
+                    if name:
+                        connected_insar.append(name)
             if connected_insar:
+                mcp_status["registered"] = True
                 # Prefer the plugin-namespaced form so agents use the correct name
                 # in readMcpResource / listMcpResources calls.
                 plugin_form = [s for s in connected_insar if s.startswith("plugin:")]
                 mcp_status["server_name"] = plugin_form[0] if plugin_form else connected_insar[0]
-        mcp_status["raw_output"] = result.stdout.strip()[:500]
+                mcp_status["detected_via"] = "claude_mcp_list"
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        mcp_status["error"] = "claude CLI not found or timed out"
+        mcp_status["probe_error"] = "claude CLI not reachable from MCP server; used runtime signal"
 
     # Check installed/configured skills for both Claude Code and OpenCode clients.
     expected_skills = [
