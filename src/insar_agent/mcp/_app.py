@@ -109,6 +109,7 @@ mcp = FastMCP("insar-mcp-server")
 
 _CONDA_SAFE_DEFAULTS = {
     "_CONDA_SET_GEOTIFF_CSV": "",
+    "PYTHONWARNINGS": "ignore::FutureWarning",
 }
 
 # Entry point for AI clients that reach the MCP server directly.

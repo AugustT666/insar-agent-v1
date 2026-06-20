@@ -8,6 +8,7 @@ from xml.etree import ElementTree as ET
 
 _CONDA_SAFE_DEFAULTS = {
     "_CONDA_SET_GEOTIFF_CSV": "",
+    "PYTHONWARNINGS": "ignore::FutureWarning",
 }
 
 
