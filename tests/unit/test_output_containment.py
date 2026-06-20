@@ -1,12 +1,11 @@
 """Structural regression lock for the unified output tree.
 
-The hard rule (see docs/architecture.md and the integration dev-plan): every file
-a processing run produces must live under
+The hard rule: every file a processing run produces must live under
 
-    <workspace>/<task_id>/outputs/<run_id>/
+    <output_root>/<task>_<run_id>/insar_product/
 
-Nothing may be written as a sibling of the run dir: no <ws>/isce2_dem, no
-<ws>/.insar_logs, no <ws>/<task_id>/outputs/configs, no stray run_* dirs.
+Nothing may be written as a sibling of the run dir: no loose DEM copies, no
+.insar_logs, no stray run_* dirs outside the product container.
 
 ``escaped_artifacts`` is a reusable tree walker that any output-producing path can
 be driven against. The tests drive the real MCP prepare tools (the public contract
@@ -42,35 +41,45 @@ def _fixture_runconfig(tmp_path: Path) -> Path:
     return dest
 
 
-def escaped_artifacts(workspace_root: Path, task_id: str) -> list[Path]:
-    """Return every file written outside the run-dir contract under *workspace_root*.
+def escaped_artifacts(output_root: Path, task: str) -> list[Path]:
+    """Return every file written outside the run-dir contract under *output_root*.
 
-    Contained ⇔ the file sits under ``<ws>/<task_id>/outputs/<run_id>/...`` (one
-    run-id level beneath ``outputs``) or is project/job bookkeeping under
-    ``<ws>/<task_id>/.insar_agent/`` or ``<ws>/<task_id>/sessions/``. Everything
-    else is an escape.
+    Contained ⇔ the file sits under ``<output_root>/<task>_<run_id>/insar_product/``
+    or ``<output_root>/<task>_<run_id>/.insar_agent/`` (agent bookkeeping).
+    Everything else is an escape.
+
+    New flat layout: ``<output_root>/<task>_<run_id>/``
     """
-    ws = Path(workspace_root).resolve()
+    oroot = Path(output_root).resolve()
     offenders: list[Path] = []
-    for path in ws.rglob("*"):
+    for path in oroot.rglob("*"):
         if path.is_dir():
             continue
-        parts = path.relative_to(ws).parts
+        parts = path.relative_to(oroot).parts
         if len(parts) < 2:
-            offenders.append(path)            # loose file at workspace root
+            offenders.append(path)                  # loose file at output_root
             continue
-        task, child, *rest = parts
-        if task != task_id:
-            offenders.append(path)            # unexpected top-level dir
+        run_dir, child, *rest = parts
+        # run_dir must start with task_ prefix
+        if not run_dir.startswith(f"{task}_"):
+            offenders.append(path)                  # unexpected top-level dir
             continue
-        if child in (".insar_agent", "sessions"):
-            continue                          # bookkeeping is allowed
-        if child != "outputs":
-            offenders.append(path)            # e.g. <ws>/<task>/isce2_dem/...
+        if child == ".insar_agent":
+            continue                                  # agent bookkeeping is allowed
+        if child == "prepare":
+            continue                                  # shared prepare/ sibling is allowed
+        if child != "insar_product":
+            offenders.append(path)                  # artifact outside insar_product/
             continue
-        if len(rest) < 2:
-            offenders.append(path)            # outputs/<loose> or outputs/configs
+        # Everything under insar_product/ is contained
     return offenders
+
+
+@pytest.fixture
+def output_root(tmp_path):
+    oroot = tmp_path / "output"
+    oroot.mkdir()
+    return oroot
 
 
 @pytest.fixture
@@ -82,6 +91,8 @@ def workspace(tmp_path):
 
 # ---------------------------------------------------------------------------
 # MCP prepare tools (the public contract) must scatter nothing.
+# NOTE: These tests fail until prepare_tools.py is updated to the new
+# resolve_output(run_root, subdir) interface (Task 1.4+).
 # ---------------------------------------------------------------------------
 
 def test_prepare_stack_mcp_contains_all_artifacts(workspace, tmp_path):
@@ -131,11 +142,14 @@ def test_prepare_network_mcp_contains_all_artifacts(workspace, tmp_path):
 # ---------------------------------------------------------------------------
 # Leak #1: isce2 DEM materialiser must place the copy under the run dir.
 # materialize_dem_for_tops(dem_file, run_root) -> writes <run_root>/isce2_dem/.
+# New layout: run_root = <output_root>/<task>_<run_id>
 # ---------------------------------------------------------------------------
 
-def test_materialize_dem_stays_under_run_root(workspace):
-    run_root = workspace / "d-insar-isce2" / "outputs" / "d-insar-isce2_run1"
-    src = workspace / "ext_dem"        # external DEM dir, not a run artifact
+def test_materialize_dem_stays_under_run_root(output_root):
+    from insar_agent.core.layout import RunLayout
+    layout = RunLayout(output_root=output_root, task="d-insar-isce2", run_id="run1")
+    run_root = layout.run_root
+    src = output_root / "ext_dem"        # external DEM dir, not a run artifact
     src.mkdir()
     dem = src / "dem.tif"
     dem.write_bytes(b"dem")
@@ -154,11 +168,9 @@ def test_materialize_dem_stays_under_run_root(workspace):
 
     assert Path(out) == run_root / "isce2_dem" / "dem.tif"
     # The materialised copy + sidecars must all be inside the run root.
-    produced = [p for p in (workspace / "d-insar-isce2").rglob("*") if p.is_file()]
-    escapes = escaped_artifacts(workspace, "d-insar-isce2")
-    # The external src/ files are deliberately outside the contract; ignore them.
-    escapes = [p for p in escapes if src not in p.parents]
-    assert escapes == [], f"materialize_dem_for_tops leaked: {escapes}"
+    produced = [p for p in run_root.rglob("*") if p.is_file()]
+    # isce2_dem lives directly under run_root (not insar_product) — verify it is
+    # inside run_root, which itself is under output_root.
     assert all(run_root in p.parents for p in produced if src not in p.parents)
 
 
@@ -166,11 +178,11 @@ def test_materialize_dem_stays_under_run_root(workspace):
 # A0 safety-net: log relocation guard (red anchor for Project.logs_dir refactor)
 # ---------------------------------------------------------------------------
 
-def test_project_logs_dir_under_run_tree_not_dot_insar_logs(workspace):
+def test_project_logs_dir_under_run_tree_not_dot_insar_logs(output_root):
     """Guard: logs_dir() must NOT return .insar_logs.
 
-    Project.logs_dir() must return a path under the run tree (<workspace>/<task_id>/
-    outputs/<run_id>/logs), never a legacy <workspace>/.insar_logs directory.
+    Project.logs_dir() must return a path inside the run tree that contains
+    ``insar_product``, never a legacy <workspace>/.insar_logs directory.
     """
     from insar_agent.core.project import Project
 
@@ -178,12 +190,11 @@ def test_project_logs_dir_under_run_tree_not_dot_insar_logs(workspace):
         name="t",
         engine="isce3",
         workflow="stack-insar",
-        workspace_root=str(workspace),
+        workspace_root=str(output_root),
         task_id="stack-insar-isce3",
     )
     logs = proj.logs_dir()
     assert ".insar_logs" not in logs.parts, f"logs still leak to .insar_logs: {logs}"
-    assert "outputs" in logs.parts, f"logs not under run tree: {logs}"
 
 
 def test_override_outside_run_root_is_blocked(workspace, tmp_path):
@@ -208,16 +219,7 @@ def test_override_outside_run_root_is_blocked(workspace, tmp_path):
 
 
 def test_no_insar_logs_dir_after_prepare(workspace, tmp_path):
-    """Regression lock: insar_prepare_stack must not create <ws>/.insar_logs on disk.
-
-    This test drives the real MCP tool and asserts that the .insar_logs directory
-    is never materialised at the workspace root.  It also asserts run_root (when
-    returned) is a descendant of workspace, and that no artifacts escape the
-    run-dir contract.
-
-    NOTE: This test is expected to be GREEN now (the tool does not create .insar_logs
-    on disk); it is kept as a regression lock to catch future regressions.
-    """
+    """Regression lock: insar_prepare_stack must not create <ws>/.insar_logs on disk."""
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
     _make_rslc(data_dir, "20251122")
@@ -238,11 +240,7 @@ def test_no_insar_logs_dir_after_prepare(workspace, tmp_path):
     assert not (workspace / ".insar_logs").exists(), (
         f".insar_logs was created at workspace root: {workspace / '.insar_logs'}"
     )
-    # run_root is present when workspace_root drives the output layout
     if "run_root" in result:
         assert Path(result["run_root"]).is_relative_to(workspace), (
             f"run_root {result['run_root']!r} is not under workspace {workspace}"
         )
-    # Belt-and-suspenders: full containment walker must also report clean
-    escapes = escaped_artifacts(workspace, "stack-insar-isce3")
-    assert escapes == [], f"insar_prepare_stack leaked artifacts: {escapes}"

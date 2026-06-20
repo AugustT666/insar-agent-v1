@@ -1,12 +1,11 @@
 """Single source of truth for *where outputs go*.
 
 Every MCP tool and engine call routes through :func:`resolve_output` to obtain the
-directory it should write into. There is exactly one place that turns user input
-(an optional ``output_dir`` override plus ``workspace_root``/``task_id``/``run_id``
-or a ``Project``) into a validated :class:`RunLayout`. Engines receive the layout
-(or a pre-validated path), never raw user strings, so nothing can leak outside
+directory it should write into. There is exactly one place that turns a run root
+into a validated path under ``insar_product/``. Engines receive a concrete
+:class:`Path`, never raw user strings, so nothing can leak outside
 
-    <workspace_root>/<task_id>/outputs/<run_id>/
+    <output_root>/<task>_<run_id>/insar_product/
 
 Enforcement is hard by default: a path outside the run root raises
 :class:`OutputEscapeError`. Set ``INSAR_STRICT_OUTPUT=0`` to downgrade enforcement
@@ -18,6 +17,7 @@ protocol-agnostic and belong in ``core``.
 """
 from __future__ import annotations
 
+import json
 import os
 import warnings
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 from insar_agent.core.config import get_path, set_path
 from insar_agent.core.layout import (
     RunLayout,
-    infer_run_root,
+    find_run_root,
     sanitize_identifier,
 )
 
@@ -65,7 +65,7 @@ def enforce_inside_run(path: str | Path, layout: RunLayout) -> Path:
         return Path(path)
     message = (
         f"Output path {resolved!r} escapes the run root {run_root!r}. "
-        "All run artifacts must live under <workspace>/<task_id>/outputs/<run_id>/."
+        "All run artifacts must live under <output_root>/<task>_<run_id>/insar_product/."
     )
     if _strict_output():
         raise OutputEscapeError(message)
@@ -74,12 +74,40 @@ def enforce_inside_run(path: str | Path, layout: RunLayout) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# ResolvedOutput + the one resolver
+# Primary resolver: resolve_output(run_root, subdir) -> Path
+# ---------------------------------------------------------------------------
+
+def resolve_output(run_root: str | Path, subdir: str) -> Path:
+    """Return the directory a caller should write into under ``insar_product/``.
+
+    All write targets for a run land under::
+
+        <run_root>/insar_product/<subdir>
+
+    Parameters
+    ----------
+    run_root:
+        The run root directory (contains ``.insar_agent/project.json``).
+    subdir:
+        Name of the product subdirectory (e.g. ``"stack"``, ``"logs"``).
+        Must be non-empty.
+
+    Returns
+    -------
+    Path
+        ``run_root / "insar_product" / subdir`` — NOT yet created on disk.
+        Callers that need the directory to exist must call ``.mkdir()`` themselves.
+    """
+    return Path(run_root) / "insar_product" / subdir
+
+
+# ---------------------------------------------------------------------------
+# ResolvedOutput (legacy container — kept so existing callers compile)
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ResolvedOutput:
-    """Result of :func:`resolve_output`."""
+    """Result of :func:`_resolve_output_legacy`."""
 
     layout: RunLayout
     run_root: Path
@@ -89,44 +117,19 @@ class ResolvedOutput:
 
 
 def _layout_from_run_root(run_root: Path) -> RunLayout | None:
-    """Rebuild a RunLayout from an existing ``.../<task_id>/outputs/<run_id>`` path."""
-    parts = run_root.parts
-    if len(parts) < 4 or parts[-2] != "outputs":
+    """Rebuild a RunLayout from an existing run directory via ``.insar_agent/project.json``."""
+    marker = run_root / ".insar_agent" / "project.json"
+    if not marker.exists():
         return None
-    run_id = parts[-1]
-    task_id = parts[-3]
-    workspace_root = Path(*parts[:-3])
     try:
-        return RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id)
-    except ValueError:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        return RunLayout(
+            output_root=data["output_root"],
+            task=data["task"],
+            run_id=data["run_id"],
+        )
+    except (KeyError, ValueError, OSError):
         return None
-
-
-def _default_layout(
-    workspace_root: str | Path | None,
-    task_id: str,
-    run_id: str | None,
-    project: "Project | None",
-) -> RunLayout:
-    """Build (or recover) the canonical layout when no override is given."""
-    if project is not None:
-        recovered = resolve_run_layout(project)
-        if recovered is not None:
-            # Honour an explicit run_id request even when recovering from project.
-            if run_id and recovered.run_id != sanitize_identifier(run_id):
-                return RunLayout(
-                    workspace_root=recovered.workspace_root,
-                    task_id=recovered.task_id,
-                    run_id=run_id,
-                )
-            return recovered
-        workspace_root = workspace_root or project.workspace_root
-        task_id = task_id or project.task_id or project.name or project.project_id
-    if not workspace_root:
-        raise ValueError("workspace_root is required to resolve an output location")
-    if not task_id:
-        raise ValueError("task_id is required to resolve an output location")
-    return RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id)
 
 
 def _subdir_target(layout: RunLayout, subdir: str) -> Path:
@@ -137,75 +140,8 @@ def _subdir_target(layout: RunLayout, subdir: str) -> Path:
     target = getattr(layout, prop, None)
     if isinstance(target, Path):
         return target
-    # Unknown subdir: build under run root, still containment-checked.
-    return layout.resolve_child(subdir)
-
-
-def resolve_output(
-    *,
-    workspace_root: str | Path | None = None,
-    task_id: str = "",
-    run_id: str | None = None,
-    output_dir: str | Path | None = None,
-    subdir: str = "",
-    project: "Project | None" = None,
-    create: bool = True,
-) -> ResolvedOutput:
-    """Resolve the directory a caller should write into.
-
-    (a) **Auto default** — no ``output_dir``: recover the run from ``project`` if
-        possible, else build ``RunLayout(workspace_root, task_id, run_id)``. The
-        target is ``layout.<subdir>_dir`` (or the run root when ``subdir`` is empty).
-    (b) **Override** — an ``output_dir`` is given: if it already names a path inside
-        an existing run root, that run is adopted; the override must resolve inside
-        the run root or :class:`OutputEscapeError` is raised.
-    (c) **Containment** — the returned ``target`` is always inside ``run_root``.
-    """
-    override = output_dir not in (None, "")
-    layout: RunLayout | None = None
-
-    if override:
-        out = Path(output_dir).expanduser()  # type: ignore[arg-type]
-        run_root = infer_run_root(out)
-        if run_root is not None:
-            layout = _layout_from_run_root(run_root)
-
-    if layout is None:
-        # With no explicit run_id/override/project, reuse the project's pinned run
-        # so every step of a task (prepare/download/run) shares one run.
-        if (
-            not override
-            and project is None
-            and not (run_id and str(run_id).strip())
-            and workspace_root
-            and task_id
-        ):
-            try:
-                from insar_agent.core.project import Project as _Project
-                _proj = _Project.load_for_task(workspace_root, task_id)
-                if _proj is not None and _proj.run_id:
-                    run_id = _proj.run_id
-            except Exception:
-                pass
-        layout = _default_layout(workspace_root, task_id, run_id, project)
-
-    if override:
-        target = enforce_inside_run(Path(output_dir).expanduser(), layout)  # type: ignore[arg-type]
-    else:
-        target = _subdir_target(layout, subdir)
-
-    created = False
-    if create:
-        Path(target).mkdir(parents=True, exist_ok=True)
-        created = True
-
-    return ResolvedOutput(
-        layout=layout,
-        run_root=layout.run_root,
-        target=Path(target),
-        override=override,
-        created=created,
-    )
+    # Unknown subdir: build under insar_product, still containment-checked.
+    return layout.insar_product_dir / subdir
 
 
 # ---------------------------------------------------------------------------
@@ -213,22 +149,27 @@ def resolve_output(
 # ---------------------------------------------------------------------------
 
 def resolve_run_layout(project: "Project") -> RunLayout | None:
+    """Recover the RunLayout for *project*, preferring the pinned run_id.
+
+    Recovery order:
+    1. Pinned ``project.run_id`` → direct construction.
+    2. ``find_run_root`` on recorded runconfig paths → read ``.insar_agent/project.json``.
+    3. Fall back to constructing a new layout from ``workspace_root`` + ``task_id``.
+    """
     try:
-        workspace_root = Path(project.workspace_root).expanduser().resolve()
-    except ValueError:
+        output_root = Path(project.workspace_root).expanduser().resolve()
+    except (ValueError, AttributeError):
         return None
 
+    task = project.task_id or getattr(project, "name", None) or getattr(project, "project_id", "")
     pinned = getattr(project, "run_id", None)
     if pinned:
         try:
-            return RunLayout(
-                workspace_root=workspace_root,
-                task_id=project.task_id or project.name or project.project_id,
-                run_id=pinned,
-            )
+            return RunLayout(output_root=output_root, task=task, run_id=pinned)
         except ValueError:
             return None
 
+    # Try to recover from runconfig paths via find_run_root + marker.
     for key in (
         "runconfig.groups.product_path_group.product_path",
         "runconfig.groups.product_path_group.scratch_path",
@@ -241,42 +182,37 @@ def resolve_run_layout(project: "Project") -> RunLayout | None:
             continue
         if not isinstance(value, str) or not value:
             continue
-        run_root = infer_run_root(value)
+        run_root = find_run_root(value)
         if run_root is None:
             continue
-        try:
-            rel = run_root.relative_to(workspace_root)
-        except ValueError:
-            continue
-        parts = rel.parts
-        if len(parts) == 3 and parts[1] == "outputs" and (not project.task_id or parts[0] == project.task_id):
-            try:
-                return RunLayout(workspace_root=workspace_root, task_id=parts[0], run_id=parts[2])
-            except ValueError:
-                return None
+        layout = _layout_from_run_root(run_root)
+        if layout is not None:
+            return layout
 
     try:
-        return RunLayout(
-            workspace_root=workspace_root,
-            task_id=project.task_id or project.name or project.project_id,
-        )
+        return RunLayout(output_root=output_root, task=task)
     except ValueError:
         return None
 
 
 def check_output_dir_depth(
     output_dir: str | Path,
-    workspace_root: str | Path,
+    output_root: str | Path,
     subdir_name: str = "",
 ) -> str | None:
+    """Check that *output_dir* is deep enough for the new flat layout.
+
+    New layout: ``<output_root>/<task>_<run_id>/insar_product/<subdir>``
+    Returns an error message string if shallow, ``None`` if OK.
+    """
     try:
-        rel = Path(output_dir).resolve().relative_to(Path(workspace_root).resolve())
+        rel = Path(output_dir).resolve().relative_to(Path(output_root).resolve())
     except ValueError:
-        return f"output_dir {output_dir!r} is outside workspace_root {workspace_root!r}"
+        return f"output_dir {output_dir!r} is outside output_root {output_root!r}"
     parts = rel.parts
-    # New layout: <workspace>/<task_id>/outputs/<run_id>/...
-    if len(parts) >= 2 and parts[1] == "outputs" and len(parts) < 4:
-        expected = f"<workspace>/<task_id>/outputs/<run_id>/{subdir_name or '<subdir>'}"
+    # Expect at least: <task_run>/ insar_product/ <subdir>
+    if len(parts) < 2:
+        expected = f"<output_root>/<task>_<run_id>/insar_product/{subdir_name or '<subdir>'}"
         return (
             f"output_dir {output_dir!r} looks too shallow for run-root layout. "
             f"Expected structure: {expected}"
@@ -285,6 +221,7 @@ def check_output_dir_depth(
 
 
 def apply_run_layout_to_runconfig(project: "Project", layout: RunLayout) -> None:
+    """Stamp the runconfig paths to the canonical ``insar_product/`` subdirs."""
     product_path_key = "runconfig.groups.product_path_group.product_path"
     scratch_path_key = "runconfig.groups.product_path_group.scratch_path"
     sas_output_key = "runconfig.groups.product_path_group.sas_output_file"
@@ -303,6 +240,10 @@ def apply_run_layout_to_runconfig(project: "Project", layout: RunLayout) -> None
 
 
 def param_advice_output_dir(project: "Project", output_dir: str, task_id: str) -> Path:
+    """Return the ``param_advisor`` output dir for *project*.
+
+    Location: ``<run_root>/insar_product/param_advisor``.
+    """
     if output_dir.strip():
         candidate = Path(output_dir)
         try:
@@ -313,56 +254,39 @@ def param_advice_output_dir(project: "Project", output_dir: str, task_id: str) -
             )
         return candidate
 
-    requested_task_id = sanitize_identifier(task_id) if task_id.strip() else ""
-    preferred_task_id = project.task_id or requested_task_id or project.name or project.project_id
-    # Prefer the project's pinned run so the param-advisor output joins the one run
-    # (works for ISCE2 too, which has no product_path_group to recover the run from).
+    requested_task = sanitize_identifier(task_id) if task_id.strip() else ""
+    preferred_task = project.task_id or requested_task or getattr(project, "name", "") or getattr(project, "project_id", "")
     pinned = getattr(project, "run_id", None)
     if pinned:
         try:
             return RunLayout(
-                workspace_root=project.workspace_root,
-                task_id=preferred_task_id,
+                output_root=project.workspace_root,
+                task=preferred_task,
                 run_id=pinned,
             ).param_advisor_dir
         except ValueError:
             pass
     try:
-        layout = RunLayout(
-            workspace_root=project.workspace_root,
-            task_id=preferred_task_id,
-            run_id=None,
-        )
-        try:
-            product_path = get_path(project.runconfig, "runconfig.groups.product_path_group.product_path")
-        except KeyError:
-            product_path = None
-        if isinstance(product_path, str) and product_path:
-            pp = Path(product_path)
-            # New layout: <workspace>/<task_id>/outputs/<run_id>/products
-            # Recover run_root by stripping the last segment (products)
-            try:
-                rel = pp.relative_to(Path(project.workspace_root))
-                parts = rel.parts
-                # Expect: <task_id>/outputs/<run_id>/[products]
-                if len(parts) >= 3 and parts[1] == "outputs":
-                    return Path(project.workspace_root) / parts[0] / "outputs" / parts[2] / "param_advisor"
-            except ValueError:
-                pass
-        return layout.param_advisor_dir
+        layout = resolve_run_layout(project)
+        if layout is not None:
+            return layout.param_advisor_dir
+        return RunLayout(
+            output_root=project.workspace_root,
+            task=preferred_task,
+        ).param_advisor_dir
     except ValueError:
-        fallback_task_id = sanitize_identifier(preferred_task_id or project.project_id)
-        return Path(project.workspace_root) / fallback_task_id / "outputs" / "param_advisor"
+        fallback_task = sanitize_identifier(preferred_task or getattr(project, "project_id", "unknown"))
+        return Path(project.workspace_root) / f"{fallback_task}_default" / "insar_product" / "param_advisor"
 
 
 def run_logs_dir(
     *,
-    workspace_root: str | Path,
-    task_id: str,
+    output_root: str | Path,
+    task: str,
     run_id: str | None = None,
 ) -> Path:
-    """Logs directory for a run: <workspace>/<task_id>/outputs/<run_id>/logs.
+    """Logs directory for a run: ``<output_root>/<task>_<run_id>/insar_product/logs``.
 
     Thin convenience over RunLayout — the single place to get a run's log dir.
     """
-    return RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=run_id).logs_dir
+    return RunLayout(output_root=output_root, task=task, run_id=run_id).logs_dir
