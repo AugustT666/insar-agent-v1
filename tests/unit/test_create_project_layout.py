@@ -225,3 +225,16 @@ def test_project_load_drops_unknown_keys(tmp_path):
 
     loaded = Project.load(p.project_id)
     assert loaded.output_root == str(tmp_path / "out")
+
+
+# ---------------------------------------------------------------------------
+# Task 3.1: insar_create_project uses output_root + flat run dir
+# ---------------------------------------------------------------------------
+
+def test_create_project_new_layout(tmp_path, monkeypatch):
+    # isolated_registry autouse fixture already set XDG_DATA_HOME + created reg dir
+    from insar_agent.mcp.server import insar_create_project
+    r = insar_create_project(output_root=str(tmp_path / "out"), engine="isce2", workflow="stack")
+    rr = Path(r["run_root"])
+    assert rr.parent == tmp_path / "out" and rr.name.startswith("stack-insar-isce2_")
+    assert (rr / ".insar_agent" / "project.json").exists()

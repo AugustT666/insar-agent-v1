@@ -97,27 +97,35 @@ def insar_get_project(project_id: str) -> dict:
 def insar_create_project(
     engine: str,
     workflow: str,
-    workspace_root: str,
+    output_root: str = "",
     name: str = "",
     conda_env: str = "",
+    # Deprecated: use output_root instead. Accepted for backwards compatibility.
+    workspace_root: str = "",
     task_id: str = "",
 ) -> dict:
     """
     Create a new InSAR processing project.
 
-    Initializes the workspace, loads the default runconfig template for the
-    chosen workflow, and registers the project for future lookups.
+    Initializes the run directory under ``<output_root>/<task>_<timestamp>/``,
+    loads the default runconfig template for the chosen workflow, and registers
+    the project for future lookups.
 
     Args:
-        engine: Engine name, e.g. 'isce3'
-        workflow: Workflow name, e.g. 'insar' or 'stack'
-        workspace_root: Absolute path where project files will be written
+        engine: Engine name, e.g. 'isce3' or 'isce2'
+        workflow: Workflow name, e.g. 'insar', 'stack', or 'tops'
+        output_root: Absolute path that will contain all run directories.
+            Each run is created as ``<output_root>/<task>_<timestamp>/``.
         name: Human-readable project name (auto-generated if omitted)
         conda_env: Conda environment name for workflow execution (e.g. 'isce3')
-        task_id: Overrides the auto-derived task_id.  Normally omitted:
-            task_id is derived from engine+workflow and determines the
-            top-level workspace directory (<workspace_root>/<task_id>/outputs/).
+        workspace_root: Deprecated alias for output_root.
+        task_id: Deprecated override for the auto-derived task identifier.
     """
+    # Resolve output_root — accept deprecated workspace_root as alias.
+    effective_output_root = output_root.strip() or workspace_root.strip()
+    if not effective_output_root:
+        return {"error": "output_root_required", "message": "output_root is required"}
+
     if engine not in _ENGINES:
         return _engine_error(engine)
 
@@ -125,17 +133,17 @@ def insar_create_project(
     if workflow not in workflow_names:
         return {"error": "workflow_not_found", "message": f"Workflow {workflow!r} not found for engine {engine!r}"}
 
-    ws = Path(workspace_root)
-    if not ws.exists():
+    out = Path(effective_output_root)
+    if not out.exists():
         try:
-            ws.mkdir(parents=True, exist_ok=True)
+            out.mkdir(parents=True, exist_ok=True)
         except Exception as exc:
-            return {"error": "workspace_not_writable", "message": str(exc)}
-    elif not ws.is_dir():
-        return {"error": "workspace_not_writable", "message": f"{workspace_root!r} exists but is not a directory"}
+            return {"error": "output_root_not_writable", "message": str(exc)}
+    elif not out.is_dir():
+        return {"error": "output_root_not_writable", "message": f"{effective_output_root!r} exists but is not a directory"}
 
-    # Auto-derive task_id from engine+workflow unless the caller overrides it.
-    resolved_task_id = task_id.strip() or _WORKFLOW_TO_TASK_ID.get((engine, workflow), "")
+    # Derive the canonical task identifier via the engine adapter.
+    task = _ENGINES[engine].task_id_for(workflow)
 
     # ISCE2 uses a flat param dict instead of a nested YAML runconfig
     if engine == "isce2":
@@ -144,36 +152,37 @@ def insar_create_project(
         except FileNotFoundError as exc:
             return {"error": "template_not_found", "message": str(exc)}
 
-        project_name = name.strip() or f"{engine}-{workflow}-{ws.name}"
+        project_name = name.strip() or f"{engine}-{workflow}-{out.name}"
         project = new_project(
             name=project_name,
             engine=engine,
             workflow=workflow,
-            workspace_root=str(ws.resolve()),
+            output_root=str(out.resolve()),
             conda_env=conda_env.strip() or None,
-            task_id=resolved_task_id or None,
+            task=task,
         )
+        from insar_agent.core.layout import make_run_id
+        project.run_id = make_run_id()
         project.runconfig = default_params
         project.runconfig_template = default_params
-        if project.task_id:
-            from insar_agent.core.layout import make_run_id
-            project.run_id = make_run_id(project.task_id)
 
         try:
             project.save()
         except Exception as exc:
-            return {"error": "workspace_not_writable", "message": str(exc)}
+            return {"error": "output_root_not_writable", "message": str(exc)}
 
         required = ISCE2_REQUIRED_PARAM_FIELDS.get(workflow, [])
         return {
             "project_id": project.project_id,
+            "run_root": str(project.run_root()),
+            "output_root": project.output_root,
+            "task": project.task,
+            "run_id": project.run_id,
             "name": project.name,
             "engine": project.engine,
             "workflow": project.workflow,
-            "workspace_root": project.workspace_root,
             "conda_env": project.conda_env,
             "created_at": project.created_at,
-            "run_id": project.run_id,
             "required_fields": required,
             "guidance": (
                 "Set required path fields with insar_set_processing_param. "
@@ -192,37 +201,38 @@ def insar_create_project(
     except FileNotFoundError as exc:
         return {"error": "template_not_found", "message": str(exc)}
 
-    project_name = name.strip() or f"{engine}-{workflow}-{ws.name}"
+    project_name = name.strip() or f"{engine}-{workflow}-{out.name}"
     project = new_project(
         name=project_name,
         engine=engine,
         workflow=workflow,
-        workspace_root=str(ws.resolve()),
+        output_root=str(out.resolve()),
         conda_env=conda_env.strip() or None,
-        task_id=resolved_task_id or None,
+        task=task,
     )
+    from insar_agent.core.layout import make_run_id
+    project.run_id = make_run_id()
     project.runconfig = default_runconfig
     project.runconfig_template = default_runconfig
-    if project.task_id:
-        from insar_agent.core.layout import make_run_id
-        project.run_id = make_run_id(project.task_id)
     _ensure_project_logging(project)
 
     try:
         project.save()
     except Exception as exc:
-        return {"error": "workspace_not_writable", "message": str(exc)}
+        return {"error": "output_root_not_writable", "message": str(exc)}
 
     required = REQUIRED_PATH_FIELDS.get(workflow, [])
     return {
         "project_id": project.project_id,
+        "run_root": str(project.run_root()),
+        "output_root": project.output_root,
+        "task": project.task,
+        "run_id": project.run_id,
         "name": project.name,
         "engine": project.engine,
         "workflow": project.workflow,
-        "workspace_root": project.workspace_root,
         "conda_env": project.conda_env,
         "created_at": project.created_at,
-        "run_id": project.run_id,
         "required_fields": required,
         "guidance": (
             "Set required path fields with insar_set_runconfig_value. "
