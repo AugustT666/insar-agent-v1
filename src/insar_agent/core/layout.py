@@ -42,14 +42,22 @@ def make_run_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def infer_run_root(path: str | Path) -> Path | None:
-    """Legacy helper: infer the run root from a nested path containing 'outputs'."""
-    p = Path(path).expanduser().resolve()
-    parts = p.parts
-    for index, part in enumerate(parts):
-        if part == "outputs" and index >= 3 and index + 1 < len(parts):
-            return Path(*parts[: index + 2])
+def find_run_root(path: str | Path) -> Path | None:
+    """Walk up from *path* to find the directory containing ``.insar_agent/project.json``.
+
+    Returns the first ancestor (inclusive of *path* itself) that holds the
+    marker file, or ``None`` if no such directory is found up to the filesystem
+    root.
+    """
+    p = Path(path).resolve()
+    for cand in (p, *p.parents):
+        if (cand / ".insar_agent" / "project.json").exists():
+            return cand
     return None
+
+
+# Transitional alias so existing call sites continue to work.
+infer_run_root = find_run_root
 
 
 # ---------------------------------------------------------------------------

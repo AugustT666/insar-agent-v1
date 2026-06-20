@@ -7,6 +7,7 @@ import pytest
 
 from insar_agent.core.layout import (
     RunLayout,
+    find_run_root,
     infer_run_root,
     make_run_id,
     sanitize_identifier,
@@ -225,3 +226,17 @@ def test_mkdir_all_does_not_pollute_output_root(tmp_path):
     # Sibling dirs like products/, scratch/ should NOT appear in output_root
     for sibling in ("products", "scratch", "configs", "logs"):
         assert not (tmp_path / sibling).exists()
+
+
+# ---------------------------------------------------------------------------
+# find_run_root — marker-file run-root recovery
+# ---------------------------------------------------------------------------
+
+def test_find_run_root_walks_to_marker(tmp_path):
+    run = tmp_path / "stack-insar-isce2_r1"
+    (run / ".insar_agent").mkdir(parents=True)
+    (run / ".insar_agent" / "project.json").write_text("{}")
+    deep = run / "insar_product" / "stack" / "scratch"
+    deep.mkdir(parents=True)
+    assert find_run_root(deep) == run
+    assert find_run_root(tmp_path) is None
