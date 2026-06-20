@@ -146,6 +146,12 @@ def test_prepare_network_mcp_contains_all_artifacts(workspace, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_materialize_dem_stays_under_run_root(output_root):
+    """Production path: output_root= kwarg puts DEM under <output_root>/prepare/dem/.
+
+    Previously this test passed run_root positionally which bound to the legacy
+    workspace_root parameter and exercised the old isce2_dem/ branch instead of
+    the production prepare/dem path called from server.py:200.
+    """
     from insar_agent.core.layout import RunLayout
     layout = RunLayout(output_root=output_root, task="d-insar-isce2", run_id="run1")
     run_root = layout.run_root
@@ -164,14 +170,20 @@ def test_materialize_dem_stays_under_run_root(output_root):
         encoding="utf-8",
     )
 
-    out = materialize_dem_for_tops(str(dem), run_root)
+    # M2 fix: call with output_root= (the production path) NOT as positional arg.
+    # The production call-site is server.py ~line 200: materialize_dem_for_tops(
+    #     params["dem_file"], output_root=project.output_root)
+    out = materialize_dem_for_tops(str(dem), output_root=output_root)
 
-    assert Path(out) == run_root / "isce2_dem" / "dem.tif"
-    # The materialised copy + sidecars must all be inside the run root.
-    produced = [p for p in run_root.rglob("*") if p.is_file()]
-    # isce2_dem lives directly under run_root (not insar_product) — verify it is
-    # inside run_root, which itself is under output_root.
-    assert all(run_root in p.parents for p in produced if src not in p.parents)
+    # Production path: DEM lands under <output_root>/prepare/dem/, NOT run_root/isce2_dem/
+    assert Path(out) == output_root / "prepare" / "dem" / "dem.tif", (
+        f"Expected <output_root>/prepare/dem/dem.tif, got: {out}"
+    )
+    # The materialised sidecars must be inside output_root (shared prepare dir)
+    prepare_dem_dir = output_root / "prepare" / "dem"
+    produced = [p for p in prepare_dem_dir.rglob("*") if p.is_file()]
+    assert produced, "Expected files written to prepare/dem/"
+    assert all(prepare_dem_dir in p.parents or p.parent == prepare_dem_dir for p in produced)
 
 
 # ---------------------------------------------------------------------------

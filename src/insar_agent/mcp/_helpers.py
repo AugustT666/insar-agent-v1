@@ -772,12 +772,14 @@ def _launch_dem_download_background(params: dict) -> dict:
             _proj = Project.load(_pid)
         except (KeyError, FileNotFoundError):
             return {"error": "project_not_found", "message": f"Project {_pid!r} not found"}
-        _jobs_dir = Path(_proj.output_root) / ".insar_agent" / "jobs"
+        _jobs_dir = _proj.jobs_dir()
+        # I-2/I-3: resolve the real run_root from the project for progress logging.
+        _proj_run_root_str = str(_proj.run_root()) if hasattr(_proj, "run_root") else ""
         job_context = {
             "workspace_root": _proj.output_root,
             "task_id": _proj.task or _proj.task_id or "",
             "run_id": _proj.run_id or "",
-            "run_root": str(run_root) if run_root else "",
+            "run_root": _proj_run_root_str,
             "jobs_dir": _jobs_dir,
         }
     else:
@@ -811,6 +813,8 @@ def _launch_dem_download_background(params: dict) -> dict:
     params_for_disk["proxy"] = None
     params_path.write_text(json.dumps(params_for_disk, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    _dem_run_root_str = str(job_context.get("run_root") or "")
+
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
 import json
@@ -819,6 +823,9 @@ import sys
 import traceback
 sys.path.insert(0, {src_dir!r})
 from insar_agent.mcp.server import insar_download_dem
+from insar_agent.core.progress import append_progress
+
+_progress_run_root = {_dem_run_root_str!r}
 
 with open({str(params_path)!r}, encoding="utf-8") as _f:
     _params = json.load(_f)
@@ -826,13 +833,26 @@ _dem_proxy = os.environ.get("INSAR_AGENT_DEM_PROXY")
 if _dem_proxy is not None:
     _params["proxy"] = _dem_proxy
 
+if _progress_run_root:
+    append_progress(_progress_run_root, f"DEM download started: {{_params.get('output_path')}}")
+
 try:
     _result = insar_download_dem(**_params)
     if isinstance(_result, dict) and _result.get("error"):
+        if _progress_run_root:
+            append_progress(_progress_run_root, f"DEM download failed: {{_result.get('message')}}")
         print("ERROR: " + json.dumps(_result, ensure_ascii=False), flush=True)
     else:
+        if _progress_run_root:
+            _out = _result.get("output_path") if isinstance(_result, dict) else ""
+            append_progress(_progress_run_root, f"DEM download done: {{_out}}")
         print(json.dumps({{"status": "done", "result": _result}}, ensure_ascii=False), flush=True)
 except Exception as _exc:
+    if _progress_run_root:
+        try:
+            append_progress(_progress_run_root, f"DEM download failed: {{_exc}}")
+        except Exception:
+            pass
     print(json.dumps({{"status": "failed", "error": str(_exc), "traceback": traceback.format_exc()}}, ensure_ascii=False), flush=True)
 """
     runner_path.write_text(runner_script, encoding="utf-8")
@@ -854,6 +874,19 @@ except Exception as _exc:
 
     job.pid = proc.pid
     job.save(Path(job_context["jobs_dir"]))
+
+    # I-2: emit a synchronous launch marker so get_job shows something immediately
+    if _dem_run_root_str:
+        try:
+            from insar_agent.core.progress import append_progress as _ap
+            _ap(_dem_run_root_str, f"DEM download launched: {output_path}")
+        except Exception:
+            pass
+
+    _dem_progress_log = (
+        str(Path(_dem_run_root_str) / ".insar_agent" / "progress.log")
+        if _dem_run_root_str else ""
+    )
     return {
         "job_id": job.job_id,
         "status": "running",
@@ -863,6 +896,7 @@ except Exception as _exc:
         "n_files": job.n_files,
         "log_path": str(log_path),
         "params_path": str(params_path),
+        "monitor": f"tail -f {_dem_progress_log}" if _dem_progress_log else f"tail -f {log_path}",
         "workspace_root": job_context.get("workspace_root"),
         "task_id": job_context.get("task_id"),
         "run_id": job_context.get("run_id"),
@@ -879,11 +913,13 @@ def _launch_sentinel_prepare_background(params: dict) -> dict:
     # find_run_root returns None.  Mirror _launch_dem_download_background:
     # build job context directly from the loaded project.
     _pid = str(params.get("project_id") or "").strip()
+    _output_root_for_prepare: str | None = None
     if _pid:
         try:
             _proj = Project.load(_pid)
         except (KeyError, FileNotFoundError):
             return {"error": "project_not_found", "message": f"Project {_pid!r} not found"}
+        _output_root_for_prepare = _proj.output_root
         job_context: dict | None = {
             "workspace_root": _proj.output_root,
             "task_id": _proj.task or _proj.task_id or "",
@@ -902,6 +938,20 @@ def _launch_sentinel_prepare_background(params: dict) -> dict:
                 "error": "missing_task_context",
                 "message": "Background Sentinel preparation must be associated with <workspace>/<task_id>; provide workspace_root and task_id or a project_root under outputs/<run_id>.",
             }
+        _output_root_for_prepare = str(job_context.get("workspace_root") or "")
+
+    # Resolve the real run_root BEFORE writing the runner script so we can
+    # embed progress_run_root into the runner and fix the Layer-1 progress path.
+    _run_root_str = job_context.get("run_root") or ""
+    if not _run_root_str:
+        _ws = str(job_context.get("workspace_root") or "")
+        _task = str(job_context.get("task_id") or "")
+        _rid = str(job_context.get("run_id") or "")
+        if _ws and _task and _rid:
+            _run_root_str = str(Path(_ws) / f"{_task}_{_rid}")
+        elif _ws and _task:
+            _run_root_str = str(Path(_ws) / _task)
+
     logs_dir = (infer_run_root(root) or root) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     job = DownloadJob(
@@ -921,6 +971,15 @@ def _launch_sentinel_prepare_background(params: dict) -> dict:
     params_for_disk = {key: value for key, value in params.items() if key != "orbit_password"}
     params_path.write_text(json.dumps(params_for_disk, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # I-4: Canonical DEM/orbit dirs — resolve via prepare_input_dir so they
+    # are siblings of prepare/safe, not nested inside it.
+    _dem_dir_override: str = ""
+    _orbit_dir_override: str = ""
+    if _output_root_for_prepare:
+        from insar_agent.core.output_resolver import prepare_input_dir as _pid_fn
+        _dem_dir_override = str(_pid_fn(_output_root_for_prepare, "dem"))
+        _orbit_dir_override = str(_pid_fn(_output_root_for_prepare, "orbits"))
+
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
 import json
@@ -936,9 +995,24 @@ with open({str(params_path)!r}, encoding="utf-8") as _f:
 _params.pop("workspace_root", None)
 _params.pop("task_id", None)
 _params.pop("run_id", None)
+_params.pop("project_id", None)
 _orbit_password = os.environ.get("INSAR_AGENT_ORBIT_PASSWORD")
 if _orbit_password is not None:
     _params["orbit_password"] = _orbit_password
+
+# I-4: Override DEM and orbit dirs to canonical prepare/<kind> siblings.
+# Only apply when not already explicitly set by the caller.
+_dem_dir_override = {_dem_dir_override!r}
+_orbit_dir_override = {_orbit_dir_override!r}
+if _dem_dir_override and not _params.get("dem_output_path") and not _params.get("dem_path"):
+    _params["dem_output_path"] = _dem_dir_override
+if _orbit_dir_override and not _params.get("orbit_dir"):
+    _params["orbit_dir"] = _orbit_dir_override
+
+# I-1: Pass the real run_root so progress entries land in the right place.
+_progress_run_root = {_run_root_str!r}
+if _progress_run_root:
+    _params["progress_run_root"] = _progress_run_root
 
 try:
     _result = prepare_sentinel_data(**_params, dem_downloader=insar_download_dem)
@@ -966,17 +1040,6 @@ except Exception as _exc:
     job.pid = proc.pid
     job.save(Path(job_context["jobs_dir"]))
 
-    # Layer-1 progress log: concise SYNTHESIZE/DEM/ORBIT entries the user watches.
-    # Derive from run_root if available; fall back to workspace_root + task + run_id.
-    _run_root_str = job_context.get("run_root") or ""
-    if not _run_root_str:
-        _ws = str(job_context.get("workspace_root") or "")
-        _task = str(job_context.get("task_id") or "")
-        _rid = str(job_context.get("run_id") or "")
-        if _ws and _task and _rid:
-            _run_root_str = str(Path(_ws) / f"{_task}_{_rid}")
-        elif _ws and _task:
-            _run_root_str = str(Path(_ws) / _task)
     progress_log = str(Path(_run_root_str) / ".insar_agent" / "progress.log") if _run_root_str else ""
 
     return {

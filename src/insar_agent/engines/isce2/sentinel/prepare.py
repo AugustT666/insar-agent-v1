@@ -238,10 +238,21 @@ def prepare_sentinel_data(
     resume: bool = True,
     validate_isce2_import: bool = False,
     dem_downloader: Callable[..., dict] | None = None,
+    progress_run_root: str | None = None,
 ) -> dict:
+    """Prepare Sentinel-1 SAFE data for ISCE2 processing.
+
+    progress_run_root: when provided, Layer-1 progress entries are written to
+        ``<progress_run_root>/.insar_agent/progress.log`` (the project's real
+        run root).  Without it the engine falls back to infer_run_root(project_root)
+        which returns None for the markerless ``prepare/safe`` dir.
+    """
     _ = (mode, include_pair, include_stack)
     root = Path(project_root).expanduser().resolve()
-    _run_root = infer_run_root(root) or root
+    if progress_run_root:
+        _run_root = Path(progress_run_root).expanduser().resolve()
+    else:
+        _run_root = infer_run_root(root) or root
     logs_dir = _ensure_dir(_run_root / "logs")
     job_id = uuid4().hex[:12]
     prep_log_path = logs_dir / f"sentinel_prep_{job_id}.log"
@@ -461,23 +472,32 @@ def prepare_sentinel_data(
     if download_orbits:
         orbit_log_path.touch()
         orbit_target = Path(orbit_dir or (root / "orbits")).expanduser().resolve()
-        resolved_orbit_token = orbit._resolve_orbit_token_file(
-            orbit_token_file,
-            orbit_username,
-            orbit_password,
-            logs_dir,
-        )
-        orbit_downloaded_count, orbit_failed = orbit._download_orbits_for_scenes(
-            scenes,
-            orbit_target,
-            orbit_username=orbit_username,
-            orbit_password=orbit_password,
-            orbit_token_file=resolved_orbit_token,
-            on_log=lambda line: _append_log(orbit_log_path, line),
-        )
-        resolved_orbit_dir = str(orbit_target)
-        _append_log(prep_log_path, f"ORBIT dir={resolved_orbit_dir} downloaded={orbit_downloaded_count} failed={len(orbit_failed)}")
-        append_progress(_run_root, f"ORBIT dir={resolved_orbit_dir} downloaded={orbit_downloaded_count} failed={len(orbit_failed)}")
+        # Orbit reuse guard: if the directory already contains EOF files skip re-download.
+        _existing_eof = list(orbit_target.glob("*.EOF")) if orbit_target.exists() else []
+        if _existing_eof:
+            resolved_orbit_dir = str(orbit_target)
+            orbit_downloaded_count = 0
+            orbit_failed = []
+            _append_log(prep_log_path, f"ORBIT reused existing dir={resolved_orbit_dir} eof_count={len(_existing_eof)}")
+            append_progress(_run_root, f"ORBIT reused existing dir={resolved_orbit_dir} eof_count={len(_existing_eof)}")
+        else:
+            resolved_orbit_token = orbit._resolve_orbit_token_file(
+                orbit_token_file,
+                orbit_username,
+                orbit_password,
+                logs_dir,
+            )
+            orbit_downloaded_count, orbit_failed = orbit._download_orbits_for_scenes(
+                scenes,
+                orbit_target,
+                orbit_username=orbit_username,
+                orbit_password=orbit_password,
+                orbit_token_file=resolved_orbit_token,
+                on_log=lambda line: _append_log(orbit_log_path, line),
+            )
+            resolved_orbit_dir = str(orbit_target)
+            _append_log(prep_log_path, f"ORBIT dir={resolved_orbit_dir} downloaded={orbit_downloaded_count} failed={len(orbit_failed)}")
+            append_progress(_run_root, f"ORBIT dir={resolved_orbit_dir} downloaded={orbit_downloaded_count} failed={len(orbit_failed)}")
     elif orbit_dir:
         orbit_target = Path(orbit_dir).expanduser().resolve()
         if not orbit_target.exists():

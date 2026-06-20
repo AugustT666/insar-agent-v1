@@ -51,7 +51,6 @@ class Job:
     metrics_path: str | None = None
     tool_name: str | None = None
     job_type: str | None = None
-    progress_path: str | None = None
 
     def save(self, jobs_dir: Path) -> None:
         jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -92,7 +91,6 @@ class BatchJob:
     exit_code: int | None = None
     log_path: str | None = None
     command: list[str] = field(default_factory=list)
-    progress_path: str | None = None
 
     @staticmethod
     def jobs_dir_for(batch_dir: str | Path) -> Path:
@@ -137,7 +135,6 @@ class DownloadJob:
     job_type: str | None = None
     output_path: str | None = None
     params_path: str | None = None
-    progress_path: str | None = None
 
     @staticmethod
     def jobs_dir_for_run(run_root: str | Path) -> Path:

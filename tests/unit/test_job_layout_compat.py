@@ -145,14 +145,25 @@ def test_batch_job_load_legacy(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Task 2.2: jobs_dir_for_run + progress_path field + old JSON back-compat
+# Task 2.2: jobs_dir_for_run + progress path handling + old JSON back-compat
 # ---------------------------------------------------------------------------
 
 def test_jobs_dir_inside_run_and_progress(tmp_path):
+    """jobs_dir_for_run returns the correct path.
+
+    progress_path field has been removed from DownloadJob (it was never
+    assigned in production — progress is always read via run_root/.insar_agent/
+    progress.log at get_job time).  Verify jobs_dir_for_run still works and
+    that DownloadJob does NOT accept the dead progress_path kwarg.
+    """
     from insar_agent.core.jobs import DownloadJob
     assert DownloadJob.jobs_dir_for_run(tmp_path) == tmp_path / ".insar_agent" / "jobs"
-    d = DownloadJob(job_id="j", output_dir=str(tmp_path), progress_path=str(tmp_path / ".insar_agent/progress.log"))
-    assert d.progress_path.endswith("progress.log")
+    # Field removed: constructing without it must succeed
+    d = DownloadJob(job_id="j", output_dir=str(tmp_path))
+    assert d.job_id == "j"
+    assert not hasattr(d, "progress_path"), (
+        "progress_path was removed from DownloadJob — it was never assigned in production"
+    )
 
 
 def test_old_job_json_tolerated(tmp_path):
@@ -161,37 +172,64 @@ def test_old_job_json_tolerated(tmp_path):
     assert DownloadJob.load("j", tmp_path).job_id == "j"
 
 
-def test_job_progress_path_field(tmp_path):
-    from insar_agent.core.jobs import Job
-    jobs_dir = tmp_path / "jobs"
-    progress = str(tmp_path / ".insar_agent" / "progress.log")
-    job = Job(
-        project_id="p",
-        engine="isce3",
-        workflow="insar",
-        job_id="j-pp",
-        progress_path=progress,
+def test_old_job_json_with_progress_path_tolerated(tmp_path):
+    """Old job JSON containing the removed progress_path key must load without error.
+
+    The load() classmethod filters unknown keys (including the legacy
+    progress_path) before construction so old persisted JSONs remain
+    backwards-compatible.
+    """
+    from insar_agent.core.jobs import Job, DownloadJob
+
+    # DownloadJob with legacy progress_path key — file must be named <job_id>.json
+    dl_dir = tmp_path / "dl_jobs"
+    dl_dir.mkdir()
+    (dl_dir / "dl1.json").write_text(
+        '{"job_id":"dl1","output_dir":"/x","progress_path":"/old/progress.log"}'
     )
-    job.save(jobs_dir)
-    loaded = Job.load("j-pp", jobs_dir)
-    assert loaded.progress_path == progress
+    dl = DownloadJob.load("dl1", dl_dir)
+    assert dl.job_id == "dl1"
+    assert not hasattr(dl, "progress_path"), "progress_path should not be on loaded DownloadJob"
+
+    # Job with legacy progress_path key
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+    (jobs_dir / "j1.json").write_text(
+        '{"job_id":"j1","project_id":"p","engine":"isce3","workflow":"insar",'
+        '"progress_path":"/old/progress.log"}'
+    )
+    j = Job.load("j1", jobs_dir)
+    assert j.job_id == "j1"
+    assert not hasattr(j, "progress_path"), "progress_path should not be on loaded Job"
 
 
-def test_batch_job_progress_path_field(tmp_path):
+def test_job_progress_path_field_dropped(tmp_path):
+    """progress_path field has been removed from Job — verify it is gone.
+
+    Progress is served via read_progress_tail(run_root) in get_job, not via
+    a stored path on the job itself.
+    """
+    from insar_agent.core.jobs import Job
+    job = Job(project_id="p", engine="isce3", workflow="insar", job_id="j-np")
+    assert not hasattr(job, "progress_path"), (
+        "progress_path removed from Job — progress is read from run_root at get_job time"
+    )
+
+
+def test_batch_job_progress_path_field_dropped(tmp_path):
+    """progress_path field has been removed from BatchJob — verify it is gone."""
     from insar_agent.core.jobs import BatchJob
-    progress = str(tmp_path / ".insar_agent" / "progress.log")
     bj = BatchJob(
         batch_dir=str(tmp_path),
         batch_type="stack",
         num_pairs=2,
         run_parallel_sh="run.sh",
         max_jobs=1,
-        job_id="bj-pp",
-        progress_path=progress,
+        job_id="bj-np",
     )
-    bj.save()
-    loaded = BatchJob.load("bj-pp", tmp_path)
-    assert loaded.progress_path == progress
+    assert not hasattr(bj, "progress_path"), (
+        "progress_path removed from BatchJob"
+    )
 
 
 def test_jobs_dir_for_task_still_works(tmp_path):

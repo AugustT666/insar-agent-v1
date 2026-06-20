@@ -33,6 +33,7 @@ from insar_agent.core.config import get_path, set_path, unset_path
 from insar_agent.core.jobs import BatchJob, DownloadJob, Job
 from insar_agent.core.layout import RunLayout, find_run_root, infer_run_root
 from insar_agent.core.output_resolver import prepare_input_dir, resolve_output
+from insar_agent.core.progress import append_progress
 from insar_agent.core.project import Project, new_project
 from insar_agent.mcp.layout_helpers import (
     apply_run_layout_to_runconfig as _apply_run_layout_to_runconfig,
@@ -161,7 +162,7 @@ __all__ = [
     "get_path", "set_path", "unset_path",
     "BatchJob", "DownloadJob", "Job",
     "RunLayout", "find_run_root", "infer_run_root",
-    "prepare_input_dir", "resolve_output",
+    "prepare_input_dir", "resolve_output", "append_progress",
     "Project", "new_project",
     # layout helpers
     "_apply_run_layout_to_runconfig", "_check_output_dir_depth",

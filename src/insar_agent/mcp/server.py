@@ -313,6 +313,17 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         job.save(project.jobs_dir())
         return {"error": "launch_failed", "message": str(exc)}
 
+    # I-2: emit a launch progress marker so get_job returns non-empty progress.
+    try:
+        append_progress(
+            project.run_root(),
+            f"workflow launched: {project.engine}/{project.workflow} job={job.job_id}",
+            step=0,
+            total=1,
+        )
+    except Exception:
+        pass
+
     response: dict = {
         "job_id": job.job_id,
         "project_id": project.project_id,
@@ -499,6 +510,17 @@ def insar_run_workflow(project_id: str, dry_run: bool = False, conda_env: str = 
         job.exit_code = -1
         job.save(project.jobs_dir())
         return {"error": "launch_failed", "message": str(exc)}
+
+    # I-2: emit a launch progress marker so get_job returns non-empty progress.
+    try:
+        append_progress(
+            project.run_root(),
+            f"workflow launched: {project.engine}/{project.workflow} job={job.job_id}",
+            step=0,
+            total=1,
+        )
+    except Exception:
+        pass
 
     result = {
         "job_id": job.job_id,
@@ -1022,22 +1044,46 @@ def insar_download_rslc(
     dl_job.log_path = log_path
     dl_job.params_path = params_file
 
+    _rslc_run_root_str = str(job_context.get("run_root") or "")
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
 import sys, json, traceback
 sys.path.insert(0, {repr(src_dir)})
 from insar_agent.engines.isce3.download import download_rslc_stack
+from insar_agent.core.progress import append_progress
+
+_progress_run_root = {_rslc_run_root_str!r}
+
+def _on_progress(msg):
+    print(msg, flush=True)
+    if _progress_run_root:
+        try:
+            append_progress(_progress_run_root, msg)
+        except Exception:
+            pass
 
 with open({repr(params_file)}) as _f:
     _p = json.load(_f)
 if _p["bbox"] is not None:
     _p["bbox"] = tuple(_p["bbox"])
-_p["on_progress"] = lambda msg: (print(msg, flush=True))
+_p["on_progress"] = _on_progress
+
+if _progress_run_root:
+    append_progress(_progress_run_root, f"RSLC download started: {{len(_p['urls'])}} files -> {{_p['output_dir']}}")
 
 try:
     _result = download_rslc_stack(**_p)
+    if _progress_run_root:
+        _ok = len(_result.get("ok", []))
+        _fail = len(_result.get("failed", []))
+        append_progress(_progress_run_root, f"RSLC download done: ok={{_ok}} failed={{_fail}}")
     print(json.dumps({{"status": "done", "result": _result}}), flush=True)
 except Exception as _e:
+    if _progress_run_root:
+        try:
+            append_progress(_progress_run_root, f"RSLC download failed: {{_e}}")
+        except Exception:
+            pass
     print(json.dumps({{"status": "failed", "error": str(_e), "traceback": traceback.format_exc()}}), flush=True)
 """
     with open(runner_file, "w") as f:
@@ -1057,6 +1103,22 @@ except Exception as _e:
     dl_job.pid = proc.pid
     dl_job.save(Path(job_context["jobs_dir"]))
 
+    # I-2: emit a launch marker synchronously so get_job shows something immediately
+    if _rslc_run_root_str:
+        try:
+            append_progress(
+                _rslc_run_root_str,
+                f"RSLC download launched: {len(h5_urls)} files → {output_dir}",
+                step=0,
+                total=len(h5_urls),
+            )
+        except Exception:
+            pass
+
+    _rslc_progress_log = (
+        str(Path(_rslc_run_root_str) / ".insar_agent" / "progress.log")
+        if _rslc_run_root_str else ""
+    )
     return {
         "job_id": job_id,
         "status": "running",
@@ -1065,6 +1127,7 @@ except Exception as _e:
         "output_dir": output_dir,
         "log_path": log_path,
         "params_path": params_file,
+        "monitor": f"tail -f {_rslc_progress_log}" if _rslc_progress_log else f"tail -f {log_path}",
         "workspace_root": job_context.get("workspace_root"),
         "task_id": job_context.get("task_id"),
         "run_id": job_context.get("run_id"),
