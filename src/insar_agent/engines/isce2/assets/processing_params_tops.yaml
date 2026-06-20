@@ -127,7 +127,8 @@ parameters:
     valid_range: [1, 20]
     description: >
       Number of range looks for multilooking. More looks reduce noise but
-      decrease resolution. Default 20 produces ~80m pixel spacing for S1 IW.
+      decrease resolution. Default 10 for S1 IW (10:2 with azimuth_looks=2);
+      freely adjustable per scene or by the param-advisor.
 
   - key: azimuth_looks
     label: Azimuth looks
@@ -136,8 +137,8 @@ parameters:
     risk_level: medium
     valid_range: [1, 20]
     description: >
-      Number of azimuth looks for multilooking. Default 4 produces ~80m pixel
-      spacing for S1 IW (combined with range_looks=20).
+      Number of azimuth looks for multilooking. Default 2 for S1 IW (10:2 with
+      range_looks=10); freely adjustable per scene or by the param-advisor.
 
   # ── Unwrapping ──────────────────────────────────────────────────────────────
 

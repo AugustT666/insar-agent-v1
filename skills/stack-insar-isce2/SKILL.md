@@ -26,10 +26,13 @@ version: 0.1.0
 
 - Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
 - Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
-- **interactive**: At Step 4.5, pause and ask the user whether to run param-advisor (engine=isce2).
-  Wait for confirmation before proceeding.
+- **interactive**: At Step 4.5, consulting param-advisor (engine=isce2) is required before
+  execution; run it, then present the three-choice (defaults / recommended / custom) and wait
+  for the user's pick.
 - **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking.
-  Skip only if the user has explicitly said to use default parameters.
+- Consulting the advisor is mandatory in both modes — accepting default parameters afterward is
+  fine, but the param-advisor subagent must be invoked first. A PreToolUse gate blocks
+  `insar_run_workflow` until the `insar-agent-plugin:param-advisor` subagent has run this session.
 
 ## Prerequisites
 
@@ -146,27 +149,30 @@ Key optional parameters:
 
 ---
 
-### Step 4.5 — Optional parameter tuning
+### Step 4.5 — Parameter advisor (required before execution)
 
-If the user wants help choosing looks, network density, coregistration mode,
-filtering, or swath/bbox tradeoffs, enter:
+Consulting the param-advisor is **mandatory before `insar_run_workflow`**, even when the final
+choice is to keep default parameters. A PreToolUse gate denies `insar_run_workflow` until the
+`insar-agent-plugin:param-advisor` subagent has been invoked this session.
+
+Enter:
 
 ```
 param-advisor (engine=isce2)
 ```
 
-This should happen **after required fields are set and before `insar_run_workflow`**.
+This happens **after required fields are set and before `insar_run_workflow`**.
 The advisor flow should build a compressed evidence profile from:
 
 - `insar_get_runconfig(format='yaml')`
 - `insar_describe_s1(...)` on 1–3 representative scenes from `slc_dir`
 - runtime/hardware evidence included by the ISCE2 param-advisor profile, especially current `num_proc`, logical CPUs, memory, and conservative parallelism guidance
 
-The skill then delegates recommendation generation to:
-
-- `insar-agent-plugin:param-advisor` subagent
-
-and applies accepted changes via `insar_set_processing_param` only.
+It then **must invoke the `insar-agent-plugin:param-advisor` subagent** (via the Task tool,
+`subagent_type: insar-agent-plugin:param-advisor`) to generate recommendations — the main
+session must not substitute its own advice. Accepted changes are applied via
+`insar_set_processing_param` only; choosing the default parameters is a valid outcome, but the
+subagent must still have been consulted first.
 
 ---
 
@@ -197,6 +203,14 @@ For multi-hour stack jobs, rely on the background job returned by `insar_run_wor
 - the exact `insar_get_job` polling call
 
 Monitor only with `insar_get_job(job_id=job_id, project_id=project_id)`.
+
+**轮询纪律 —— 自定节奏的"睡-醒-查",勿秒级紧凑 loop:** stack 是多小时任务。每隔几秒连续
+`insar_get_job` 会迅速撑爆数据 agent 自己的上下文(长跑会话曾因此崩溃)。正确做法:每次轮询之间
+**拉开到分钟级**再查 —— 用 `Bash` 的 `sleep <N>`(或 `ScheduleWakeup`)隔开,N 随阶段自定(早期
+配准/几何 ~5–10min,长时间 stack 运算 ~20–40min);醒来只做一次 `insar_get_job`(必要时再
+`tail` 一次日志)判断 running/done/failed,再决定继续睡还是收口。**绝不用不退出的 `while true`**。
+这与开发 agent 监控隔离会话的"睡-醒-判断"纪律一致。
+
 Do not execute generated run scripts manually; the MCP workflow owns stack execution.
 
 > Runtime: several hours to days depending on scene count and AOI size.

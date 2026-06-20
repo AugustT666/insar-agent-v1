@@ -43,9 +43,9 @@ def test_plugin_hooks_use_plugin_wrapper_format() -> None:
     hooks = json.loads((REPO_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
 
     assert "description" in hooks
-    assert set(hooks["hooks"]) == {"PreToolUse"}
+    assert set(hooks["hooks"]) == {"PreToolUse", "PostToolUse"}
     assert "PreToolUse" not in hooks
-    assert len(hooks["hooks"]["PreToolUse"]) == 3
+    assert all(hooks["hooks"].values())
 
 
 def test_plugin_has_stable_insar_agent_command() -> None:

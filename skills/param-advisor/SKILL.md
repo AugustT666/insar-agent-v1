@@ -68,69 +68,59 @@ version: 0.1.0
 
 ## 职责分工
 
-### 本 skill / 主会话负责
+### 本 skill / 主会话负责（保持上下文轻量）
 
 - 读取当前任务目标和用户约束
 - 确定 `engine` 参数（isce3 或 isce2）
-- 调 engine-specific describe 工具（`insar_describe_rslc` 或 `insar_describe_s1`）收集 metadata-first 证据
-- 构造压缩 evidence profile
+- 只向 subagent 传**指针**：`project_id`、关键数据路径、任务目标、processing path / workflow。
+  **不**在主会话预收集证据、不读大块元数据 / 完整 YAML
 - 调 `insar-agent-plugin:param-advisor` subagent（传入 engine 参数）
+- subagent 返回后，**全读**它落盘的 `recommendation.json`
 - 向用户展示建议摘要、风险摘要和 `yaml_diff_preview`
 - 执行三选一确认
 - 如用户确认，逐项调用 `insar_set_processing_param`
 - 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 
-### project-level subagent 负责
+### project-level subagent 负责（自取证据 + 出建议 + 落盘）
 
-- 读取 evidence profile、runconfig 摘要和白名单参数摘要
+- **自取证据**（只读，留在 subagent 自己的上下文里，不污染主会话）：
+  `insar_get_runconfig` 读 runconfig 摘要 + 白名单参数摘要、`insar_describe_rslc` / `insar_describe_s1`
+  取场景元数据、`insar_probe_host` 取 runtime/hardware 摘要（含 `num_proc` 上限）
 - 参考 engine-specific reference 文件（路径由 subagent 定义持有，主会话不读取）
-- 输出结构化 recommendation package
+- WebSearch 补研究区 / 传感器背景
+- 输出结构化 recommendation package，并用 `insar_record_param_advice` **自行落盘**为 `recommendation.json`
+- 只回传精简摘要 + `recommendation.json` 路径
 - 不与用户对话
 - 不直接调用 `insar_set_processing_param`
 
 ## 执行流程
 
-### Phase 1 — 证据收集
+### Phase 1 — 交接（只传指针，不在主会话收集证据）
 
-#### ISCE3 路径
+主会话只组装一个**指针 stub** 交给 subagent，不在本地预读元数据 / YAML：
 
-1. 若已有 project，读取当前 runconfig 摘要
-2. 调 `insar_describe_rslc`
-3. 补齐高影响缺失信息
-4. 组最小 evidence profile，只保留：
-   - `project_id`（若有）
-   - processing path / task type（例如单对 InSAR、Path B stack/network、MintPy 前置调参）
-   - workflow / 当前目标摘要
-   - runconfig 摘要
-   - local metadata summary
-   - evidence profile
-   - missing information
-   - whitelist-controlled parameter registry summary
-   - 若是时序任务，再补：
-     - `base_runconfig` 是否将传播到整条 stack/network
-     - stack 场景数 / 时间跨度 / 参考景策略
-     - network 模式（`tbase` / `conn` / 自定义 pair list）
-     - 用户当前更偏向"稳定 coherence"还是"单对分辨率/锐利度"
+- `engine`（isce3 或 isce2）
+- `project_id`
+- 关键数据路径（reference/secondary RSLC、SAFE/SLC dir、DEM）
+- 任务目标 + processing path / workflow（单对 InSAR vs 时序 / Path B）
 
-#### ISCE2 路径
+不传完整 runconfig、完整元数据、完整知识库或长 reasoning 历史。
 
-压缩 evidence profile 只保留：
+### Phase 2 — subagent 自取证据 + 出建议 + 落盘
 
-- `project_id`（若有）
-- `workflow`: `tops` 或 `stack`
-- 当前目标摘要
-- Sentinel metadata summary（`relative_orbit`、`pass_direction`、`polarization`、`bbox`、scene count）
-- 当前参数摘要
-- 对应 template summary（`tops` 或 `stack`）
-- runtime/hardware resource summary（logical CPU count、可用/总内存、当前 `num_proc`、并行度风险）
-- whitelist-controlled parameter registry summary
-- missing information
+把 Phase 1 的指针 stub 交给 `insar-agent-plugin:param-advisor` subagent（传入 `engine` 参数）。
+subagent 用自己的只读工具自取证据（都留在它自己的上下文里）：
 
-### Phase 2 — 调 subagent
+- `insar_get_runconfig` 读 runconfig 摘要 + whitelist-controlled parameter registry summary
+- ISCE3：`insar_describe_rslc`；ISCE2：`insar_describe_s1`（`relative_orbit`、`pass_direction`、`polarization`、`bbox`、scene count）
+- `insar_probe_host` 取 runtime/hardware resource summary（logical CPU count、可用/总内存、`num_proc` 上限、并行度风险）
+- Read engine-specific reference 文件；WebSearch 补研究区/传感器背景
 
-把 Phase 1 的压缩结果交给 `insar-agent-plugin:param-advisor` subagent，传入 `engine` 参数。
+时序任务再确认：`base_runconfig` 是否传播整条 stack/network、stack 场景数/时间跨度/参考景、
+network 模式（`tbase` / `conn` / 自定义 pair list）、偏"稳定 coherence"还是"单对分辨率/锐利度"。
 
-subagent 返回内容至少应包含：
+subagent 完成后用 `insar_record_param_advice` **自行落盘**为 `<run_root>/param_advisor/recommendation.json`，
+只回传精简摘要 + 该路径。落盘内容至少应包含：
 
 - `summary`
 - `changes`
@@ -145,7 +135,8 @@ subagent 返回内容至少应包含：
 
 ### Phase 3 — 三选一确认
 
-向用户展示建议 diff 后，必须明确给出三个选项：
+subagent 返回后，主会话先**全读**它落盘的 `recommendation.json`（路径见 subagent 回传），
+再向用户展示建议 diff，必须明确给出三个选项：
 
 1. 使用默认参数（模板值）直接运行
 2. 采用以上建议参数
@@ -157,7 +148,7 @@ subagent 返回内容至少应包含：
 
 如果用户选择采用建议参数或自行指定参数：
 
-1. 先调用 `insar_record_param_advice(project_id, recommendation_package=<subagent完整结构化输出>, task_id=<任务代号如E1>)`，把建议、理论依据、外部信源和 diff 固定格式落盘为 JSON + Markdown
+1. 建议已由 subagent 用 `insar_record_param_advice` 落盘为 `recommendation.json`（JSON + Markdown）并被主会话全读，无需主会话重复落盘
 2. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 3. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 4. **落盘（防重复调优）：**

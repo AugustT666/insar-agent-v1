@@ -68,31 +68,27 @@ Each option generates shell scripts that can be launched manually or through `in
 
 ## Standard workflow
 
-### Step 0 — 参数调优
+### Step 0 — 参数调优（生成 runconfigs 前必做）
 
-收到 `PARAM_ADVISOR_PROMPT` 后，先用 Glob 工具检测 `<data_dir>/base_runconfig_param_tuned.yaml`
-是否存在（`insar_prepare_stack` / `insar_prepare_network` 调用后也会在返回值中确认
+咨询参数顾问是 `insar_prepare_stack` / `insar_prepare_network` 前的**强制步骤**——
+即使最终选用默认参数。PreToolUse 门会拦截这两个工具，直到本会话已调用过
+`insar-agent-plugin:param-advisor` subagent（或已存在调优产物 recommendation.json）。
+
+先用 Glob 工具检测 `<data_dir>/base_runconfig_param_tuned.yaml` 是否存在
+（`insar_prepare_stack` / `insar_prepare_network` 调用后也会在返回值中确认
 `param_tuned_found` 和 `param_tuned_base_runconfig` 字段）：
 
 - **若文件存在（或调用后 `param_tuned_found: true`）**：
-  - interactive：提示用户"已有已优化参数文件（路径），是否复用？"，等待确认后复用或重新调优
-  - auto：直接将其作为 base_runconfig 传入后续选项，跳过调优
-- **若不存在**，根据 interaction_mode 决策：
-
-**interactive 模式：** 询问用户是否在生成 runconfigs 之前进行参数调优，等待确认。
-提供三个选项：
-1. 使用默认参数，直接继续
-2. 进入 param-advisor (engine=isce3) 进行专家调优
-3. 手动指定 base_runconfig 路径
-
-**auto 模式：** 直接进入 `param-advisor (engine=isce3)`，无需用户确认。
-自动接受推荐参数，导出调优后的 YAML 作为 base_runconfig。
+  - interactive：提示"已有已优化参数文件（路径），复用还是重新调优？"，等待确认
+  - auto：直接将其作为 base_runconfig 传入后续选项
+- **若不存在**：必须先咨询顾问，再据 interaction_mode 决策是否应用其建议。
 
 param-advisor (engine=isce3) 调用链（Path B）：
 - `insar_describe_rslc`（data_dir 中代表性 RSLC 的元数据）
-- `insar-agent-plugin:param-advisor` subagent（生成推荐）
-- interactive：展示 yaml_diff_preview，等待确认；auto：自动接受
-- 若接受：`insar_set_processing_param`（临时 project）
+- **必须通过 Task 工具调用 `insar-agent-plugin:param-advisor` subagent**
+  （`subagent_type: insar-agent-plugin:param-advisor`）生成推荐；主会话不得自行替代
+- interactive：展示 yaml_diff_preview，三选一等待确认；auto：自动接受推荐
+- 若采用：`insar_set_processing_param`（临时 project）
 - **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用
 - 使用该文件作为后续选项的 base_runconfig
 
@@ -134,6 +130,8 @@ insar_run_batch(
 Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_logs=True` while polling — only use it once if the job fails.
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
 
+**轮询纪律:** 多小时批处理,**勿秒级紧凑轮询**(会撑爆数据 agent 上下文,长跑会话曾因此崩)。每次 `insar_get_job` 之间用 `sleep <N>`/`ScheduleWakeup` 拉开到分钟级(N 随阶段自定,长跑 ~20–40min),醒来只查一次 status 再决定继续睡或收口;绝不用不退出的 `while true`。与开发 agent 的"睡-醒-判断"监控一致。
+
 Progress: monitor `tail -f <log_path>` in a terminal for real-time engine output.
 `insar_get_job` reports `num_pairs` (total) and `status` (running/done/failed) but
 does not attempt to parse per-pair progress from the engine log.
@@ -169,7 +167,8 @@ insar_run_batch(
     interaction_mode=<interactive|auto>
 )
 ```
-Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(batch_dir=...)` until done.
+Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(batch_dir=...)` until done
+(同 Option A 的**轮询纪律**:睡醒式、分钟级间隔、绝不 `while true`,避免数据 agent 上下文饱和)。
 Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>`
 
 ## Output requirements (report after each completed option)

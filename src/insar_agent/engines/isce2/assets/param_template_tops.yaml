@@ -1,5 +1,7 @@
 template_name: sentinel-isce2-dinsar
-description: Single-pair Sentinel-1 TOPS D-InSAR parameter template aligned to topsApp defaults.
+description: >
+  Single-pair Sentinel-1 TOPS D-InSAR parameter template. Default multilook 10:2
+  for S1 IW — a starting point the user or the param-advisor can adjust per scene.
 shared_defaults:
   swaths: [1, 2, 3]
   polarization: vv
@@ -9,8 +11,8 @@ shared_defaults:
   filter_strength: 0.5
   do_unwrap: true
 workflow_defaults:
-  range_looks: 4
-  azimuth_looks: 1
+  range_looks: 10
+  azimuth_looks: 2
   # snaphu is the robust default; icu can silently emit an all-zero unwrapped
   # phase on larger TOPS scenes. Matches defaults.py and the stack template.
   unwrap_method: snaphu
@@ -26,5 +28,5 @@ sources:
   - title: ISCE2 topsApp.xml example
     url: https://github.com/isce-framework/isce2/blob/a492b8d/examples/input_files/topsApp.xml
 notes:
-  - Use smaller looks to preserve single-pair detail.
+  - Multilook 10:2 is the default starting point; tune per scene for more/less detail.
   - ESD remains enabled by default for TOPS burst alignment.

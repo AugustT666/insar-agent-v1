@@ -115,7 +115,8 @@ parameters:
     risk_level: medium
     valid_range: [1, 100]
     description: >
-      Range multilook factor.
+      Range multilook factor. Default 10 for S1 IW (10:2 with azimuth_looks=2);
+      freely adjustable per scene or by the param-advisor.
 
   - key: azimuth_looks
     label: Azimuth looks
@@ -124,7 +125,8 @@ parameters:
     risk_level: medium
     valid_range: [1, 100]
     description: >
-      Azimuth multilook factor.
+      Azimuth multilook factor. Default 2 for S1 IW (10:2 with range_looks=10);
+      freely adjustable per scene or by the param-advisor.
 
   - key: do_unwrap
     label: Enable phase unwrapping

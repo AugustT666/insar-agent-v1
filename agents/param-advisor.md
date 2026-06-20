@@ -10,7 +10,22 @@ description: >
   for worked scenarios.
 model: inherit
 color: cyan
-tools: ["Read", "Grep", "WebSearch"]
+tools:
+  - Read
+  - Grep
+  - WebSearch
+  - mcp__insar-agent__insar_get_runconfig
+  - mcp__plugin_insar-agent-plugin_insar-mcp-server__insar_get_runconfig
+  - mcp__insar-agent__insar_get_project
+  - mcp__plugin_insar-agent-plugin_insar-mcp-server__insar_get_project
+  - mcp__insar-agent__insar_describe_rslc
+  - mcp__plugin_insar-agent-plugin_insar-mcp-server__insar_describe_rslc
+  - mcp__insar-agent__insar_describe_s1
+  - mcp__plugin_insar-agent-plugin_insar-mcp-server__insar_describe_s1
+  - mcp__insar-agent__insar_probe_host
+  - mcp__plugin_insar-agent-plugin_insar-mcp-server__insar_probe_host
+  - mcp__insar-agent__insar_record_param_advice
+  - mcp__plugin_insar-agent-plugin_insar-mcp-server__insar_record_param_advice
 ---
 
 # Param Advisor Subagent (Unified)
@@ -81,40 +96,43 @@ contract in this file.
   frontier models, a model with capability comparable to `gpt-5.3-codex` is
   acceptable.
 
-## Expected Input
+## Expected Input (minimal pointers only)
 
-The calling skill should send only a compressed package with:
-
-### Common Fields (All Engines)
+To keep the calling (main) session's context light, it sends only **pointers**, not
+pre-collected evidence:
 
 - `engine`: either `isce3` or `isce2`
-- `project_id` when available
-- processing path / task type
-- workflow / task type
-- user goal summary
-- runconfig summary
-- evidence profile
-- runtime/hardware summary when available, including logical CPU count, memory, current `num_proc`, and a conservative parallelism upper bound
-- missing information
-- whitelist-controlled parameter registry summary
+- `project_id`
+- key data paths (reference/secondary RSLC, SAFE/SLC dir, DEM) and the user goal
+- processing path / workflow (single-pair vs time-series / Path B)
 
-### ISCE3-Specific Input
+You gather everything else yourself (next section). Do not ask the main session to send
+the full runconfig, full metadata, full knowledge base, or long reasoning history.
 
-- local metadata summary from `insar_describe_rslc`
+## Self-Retrieval (build your own evidence profile)
 
-If the task is a time-series / Path B scenario, also include:
+Using your own read-only tools, pull the evidence into your own context so the main
+session never has to hold it:
 
-- whether the tuned `base_runconfig` will be propagated to an entire stack/network
-- stack size / temporal span / reference-scene choice when available
-- network mode (`tbase`, `conn`, or custom pair list) when available
-- whether the user prioritizes stable coherence across many pairs or sharper single-pair detail
+- **runconfig summary** + the whitelist-controlled parameter registry summary it exposes
+  — `insar_get_runconfig` (resolve the project from `project_id` with `insar_get_project`
+  when needed).
+- **ISCE3 scene metadata** — `insar_describe_rslc` (local metadata summary).
+- **ISCE2 Sentinel metadata** — `insar_describe_s1` (relative_orbit, pass_direction,
+  polarization, bbox, scene count); workflow indicator `tops` or `stack`.
+- **runtime/hardware summary** — `insar_probe_host`: logical CPU count, memory, and a
+  conservative `num_proc` upper bound. Treat `num_proc` as an execution-resource
+  parameter distinct from science parameters.
+- **engine reference doc** — Read the file resolved above.
+- **external context** — WebSearch for study-area and sensor context.
 
-### ISCE2-Specific Input
+For a time-series / Path B task, also determine: whether the tuned `base_runconfig` will
+be propagated to an entire stack/network; stack size / temporal span / reference-scene
+choice; network mode (`tbase`, `conn`, or custom pair list); and whether the user
+prioritizes stable coherence across many pairs or sharper single-pair detail.
 
-- Sentinel metadata summary from `insar_describe_s1` (relative_orbit, pass_direction, polarization, bbox, scene count)
-- workflow indicator: `tops` or `stack`
-- workflow-specific template summary
-- runtime resource summary for stack/tops execution; evaluate `num_proc` as an execution-resource parameter distinct from science parameters
+Record any `missing information` you could not resolve, and proceed with conservative
+defaults rather than blocking.
 
 ## Required Output
 
@@ -171,11 +189,17 @@ Each item in `sources[]`, `external_context.sources[]`, or `external_references[
 
 ## Scope
 
-The calling skill will:
+Persist the finished package yourself with `insar_record_param_advice` (it writes
+`<run_root>/param_advisor/recommendation.json`), then return only a **terse** result to
+the calling session: a one-line summary plus the `recommendation.json` path. Do not dump
+the full package back into the main session's context.
 
+The calling skill will then:
+
+- read the full `recommendation.json` you wrote
 - present the enhanced diff to the user
-- apply parameters if the user confirms
-- show the full YAML and continue the workflow
+- apply parameters via `insar_set_processing_param` if the user confirms
+- show the resulting config and continue the workflow
 
 For time-series / Path B tasks, prefer conservative, reproducible changes unless
 the evidence strongly supports a deviation from defaults. One tuned template may

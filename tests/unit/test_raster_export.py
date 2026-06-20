@@ -93,13 +93,55 @@ def test_export_geo_h5_velocity_and_mask(tmp_path):
     _make_geo_h5(tmp_path / "velocity.h5", "velocity", [[0.1, -0.2], [0.3, 0.4]])
     _make_geo_h5(tmp_path / "maskTempCoh.h5", "mask", [[1, 0], [1, 1]])
     out = tmp_path / "qgis_export"
-    written = _export_geo_h5(tmp_path / "velocity.h5", out, tag="E3_NISAR")
+    # browse=False keeps this test GDAL-only (no matplotlib dependency)
+    res = _export_geo_h5(tmp_path / "velocity.h5", out, tag="E3_NISAR", browse=False)
+    written = res["files"]
     vel = out / "E3_NISAR_velocity.tif"
     assert vel.name in written
     ds = gdal.Open(str(vel))
     assert "4326" in ds.GetProjection()
     # masked velocity auto-produced when maskTempCoh.h5 is a sibling
     assert "E3_NISAR_velocity_masked.tif" in written
+
+
+def test_browse_value_range_robust_ignores_outliers():
+    from insar_agent.engines.raster_export import _browse_value_range
+    # 100 well-behaved values in [-0.05, 0.05] plus one wild outlier
+    arr = np.concatenate([np.linspace(-0.05, 0.05, 100), [1.0e6]])
+    vmin, vmax = _browse_value_range(arr, mode="robust")
+    assert -1.0 < vmin < 0.0
+    assert 0.0 < vmax < 1.0  # the 1e6 outlier must NOT saturate the range
+
+
+def test_browse_value_range_symmetric_centered_on_zero():
+    from insar_agent.engines.raster_export import _browse_value_range
+    vmin, vmax = _browse_value_range(np.array([-0.2, -0.1, 0.0, 0.05]), mode="symmetric")
+    assert vmin == pytest.approx(-vmax)
+    assert vmax > 0
+
+
+def test_browse_value_range_unit_is_zero_one():
+    from insar_agent.engines.raster_export import _browse_value_range
+    assert _browse_value_range(np.array([0.2, 0.7, 0.9]), mode="unit") == (0.0, 1.0)
+
+
+def test_export_geo_h5_writes_browse_png(tmp_path):
+    pytest.importorskip("matplotlib")
+    from insar_agent.engines.raster_export import _export_geo_h5
+    _make_geo_h5(tmp_path / "velocity.h5", "velocity", [[0.1, -0.2], [0.3, 0.4]])
+    out = tmp_path / "qgis_export"
+    res = _export_geo_h5(tmp_path / "velocity.h5", out, tag="E1_142A")
+    assert any(b.endswith(".png") and "velocity" in b for b in res["browse"])
+    assert (out / "browse" / "E1_142A_velocity.png").exists()
+
+
+def test_export_path_mintpy_includes_browse(tmp_path):
+    pytest.importorskip("matplotlib")
+    from insar_agent.engines.raster_export import export_path
+    _make_geo_h5(tmp_path / "velocity.h5", "velocity", [[0.1, 0.2], [0.3, 0.4]])
+    res = export_path(tmp_path, tmp_path / "out", tag="E1")
+    assert res.get("browse")
+    assert any(b.endswith(".png") for b in res["browse"])
 
 
 def test_export_gdal_geo_vrt(tmp_path):
@@ -232,6 +274,30 @@ def test_insar_export_geotiff_mintpy_dir(tmp_path):
     assert "error" not in res
     assert res["n_files"] >= 1
     assert any("velocity" in f for f in res["files"])
+
+
+def test_insar_export_geotiff_radar_mintpy_not_routed_to_gunw(tmp_path, monkeypatch):
+    """Routing guard: a radar-coordinate MintPy velocity.h5 FILE (no X_FIRST, no
+    GUNW grids) must flow to the general exporter (which geocodes), NOT the GUNW
+    per-dataset exporter that would dump velocity/velocityStd/intercept tifs."""
+    import h5py
+    from insar_agent.mcp import server
+    mp = tmp_path / "mintpy"
+    mp.mkdir()
+    with h5py.File(mp / "velocity.h5", "w") as f:
+        f.create_dataset("velocity", data=[[0.1, 0.2], [0.3, 0.4]])  # radar: no X_FIRST
+
+    used = {"gunw": False}
+
+    def fake_gunw(**kwargs):
+        used["gunw"] = True
+        return {"output_dir": str(tmp_path / "out"), "files": [], "skipped": 0}
+
+    monkeypatch.setattr(server, "export_geotiff", fake_gunw)
+    server.insar_export_geotiff(
+        h5_path=str(mp / "velocity.h5"), output_dir=str(tmp_path / "out")
+    )
+    assert used["gunw"] is False
 
 
 def test_insar_export_geotiff_tag_prefixes_filenames(tmp_path):

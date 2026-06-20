@@ -44,6 +44,83 @@ def _write_gtiff(path, arr, geotransform, epsg: int = 4326, nodata=None) -> None
     ds = None
 
 
+# Per-layer browse styling: layer -> (cmap, range_mode, colorbar_label, display_scale).
+# range_mode is consumed by _browse_value_range; display_scale converts raw units
+# for the quick-look (e.g. velocity m/yr -> cm/yr) without touching the GeoTIFF.
+_BROWSE_STYLE = {
+    "velocity":          ("RdBu_r", "symmetric", "LOS velocity [cm/yr]", 100.0),
+    "velocity_masked":   ("RdBu_r", "symmetric", "LOS velocity [cm/yr]", 100.0),
+    "temporalCoherence": ("viridis", "unit", "temporal coherence", 1.0),
+    "avgSpatialCoh":     ("viridis", "unit", "avg spatial coherence", 1.0),
+    "maskTempCoh":       ("gray", "unit", "mask", 1.0),
+}
+
+
+def _browse_style(layer: str) -> tuple:
+    """(cmap, range_mode, colorbar_label, display_scale) for a curated layer."""
+    return _BROWSE_STYLE.get(layer, ("viridis", "robust", layer, 1.0))
+
+
+def _browse_value_range(arr, *, mode: str = "robust", pct: float = 2.0) -> tuple[float, float]:
+    """Pick a robust colour range for a browse image.
+
+    mode="robust"    -> [pct, 100-pct] percentiles of the finite values, so a few
+                        outlier pixels cannot saturate the whole image.
+    mode="symmetric" -> symmetric about 0 using the robust magnitude (velocity).
+    mode="unit"      -> fixed (0.0, 1.0) (coherence / masks).
+    """
+    import numpy as np
+
+    if mode == "unit":
+        return (0.0, 1.0)
+    a = np.asarray(arr, dtype="float64")
+    finite = a[np.isfinite(a)]
+    if finite.size == 0:
+        return (0.0, 1.0)
+    lo = float(np.percentile(finite, pct))
+    hi = float(np.percentile(finite, 100.0 - pct))
+    if mode == "symmetric":
+        m = max(abs(lo), abs(hi)) or 1.0
+        return (-m, m)
+    if hi <= lo:
+        hi = lo + 1.0
+    return (lo, hi)
+
+
+def _write_browse_png(path, arr, *, cmap, vmin, vmax, title, cbar_label) -> None:
+    """Render a 2-D array to a colour browse PNG with a colourbar (Agg backend)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    a = np.asarray(arr, dtype="float64")
+    a = np.where(np.isfinite(a), a, np.nan)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    im = ax.imshow(a, cmap=cmap, vmin=vmin, vmax=vmax, interpolation="nearest")
+    ax.set_title(title)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    cbar = fig.colorbar(im, ax=ax, shrink=0.82)
+    cbar.set_label(cbar_label)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _write_layer_browse(browse_dir, stem: str, layer: str, arr) -> str:
+    """Render one curated MintPy layer to browse/<stem>.png; returns the filename."""
+    import numpy as np
+
+    cmap, mode, label, scale = _browse_style(layer)
+    disp = np.asarray(arr, dtype="float64") * scale
+    vmin, vmax = _browse_value_range(disp, mode=mode)
+    browse_dir = Path(browse_dir)
+    browse_dir.mkdir(parents=True, exist_ok=True)
+    out = browse_dir / f"{stem}.png"
+    _write_browse_png(out, disp, cmap=cmap, vmin=vmin, vmax=vmax, title=stem, cbar_label=label)
+    return out.name
+
+
 def _detect_format(path) -> str:
     """Classify a single file path into an export strategy.
 
@@ -94,14 +171,19 @@ def _first_2d_dataset(f):
     return found
 
 
-def _export_geo_h5(h5_path, out_dir, *, tag: str) -> list[str]:
-    """Export a geocoded MintPy .h5 (and its curated sibling layers) to GeoTIFF."""
+def _export_geo_h5(h5_path, out_dir, *, tag: str, browse: bool = True) -> dict:
+    """Export a geocoded MintPy .h5 (and its curated sibling layers) to GeoTIFF.
+
+    Returns {"files": [tif names], "browse": [png names]}. When ``browse`` is
+    True a colour quick-look PNG is rendered per layer into ``<out_dir>/browse/``.
+    """
     import h5py
     import numpy as np
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
+    browse_files: list[str] = []
     mintpy_dir = Path(h5_path).parent
 
     # Curated layer files in the same dir (velocity.h5, temporalCoherence.h5, ...).
@@ -121,6 +203,10 @@ def _export_geo_h5(h5_path, out_dir, *, tag: str) -> list[str]:
             dst = out_dir / f"{tag}_{layer}.tif"
             _write_gtiff(dst, arr, gt, epsg=epsg)
             written.append(dst.name)
+            if browse:
+                browse_files.append(
+                    _write_layer_browse(out_dir / "browse", f"{tag}_{layer}", layer, arr)
+                )
             break
 
     # Auto masked velocity = velocity * maskTempCoh (low-coherence -> NaN).
@@ -146,7 +232,13 @@ def _export_geo_h5(h5_path, out_dir, *, tag: str) -> list[str]:
                     nodata=float("nan"),
                 )
                 written.append(f"{tag}_velocity_masked.tif")
-    return written
+                if browse:
+                    browse_files.append(
+                        _write_layer_browse(
+                            out_dir / "browse", f"{tag}_velocity_masked", "velocity_masked", vm
+                        )
+                    )
+    return {"files": written, "browse": browse_files}
 
 
 # Layers to keep from an ISCE2 merged dir, with output tags and band selection.
@@ -263,6 +355,7 @@ def export_path(src, out_dir, *, tag: str = "export", conda_env: str = "isce2") 
     src = Path(src)
     out_dir = Path(out_dir)
     files: list[str] = []
+    browse_files: list[str] = []
     notes: list[str] = []
     skipped = 0
     geocoded = False
@@ -279,15 +372,17 @@ def export_path(src, out_dir, *, tag: str = "export", conda_env: str = "isce2") 
             elif fmt == "gunw":
                 files.extend(_export_gunw(path, out_dir, tag=tag))
             elif fmt == "geo_h5":
-                files.extend(_export_geo_h5(path, out_dir, tag=tag))
+                res = _export_geo_h5(path, out_dir, tag=tag)
+                files.extend(res["files"])
+                browse_files.extend(res["browse"])
             elif fmt == "radar_h5":
                 geo_dir = _geocode_radar_h5(path, conda_env=conda_env)
                 geocoded = True
-                files.extend(
-                    _export_geo_h5(
-                        geo_dir / f"geo_{Path(path).stem}.h5", out_dir, tag=tag
-                    )
+                res = _export_geo_h5(
+                    geo_dir / f"geo_{Path(path).stem}.h5", out_dir, tag=tag
                 )
+                files.extend(res["files"])
+                browse_files.extend(res["browse"])
             else:
                 notes.append(f"unsupported: {path.name}")
                 skipped += 1
@@ -317,6 +412,7 @@ def export_path(src, out_dir, *, tag: str = "export", conda_env: str = "isce2") 
         "output_dir": str(out_dir),
         "n_files": len(uniq),
         "files": uniq,
+        "browse": list(dict.fromkeys(browse_files)),
         "skipped": skipped,
         "geocoded": geocoded,
         "notes": notes,

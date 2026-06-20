@@ -27,10 +27,13 @@ version: 0.1.0
 
 - Check the current workspace `CLAUDE.md` first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
 - Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
-- **interactive**: At Step 4, pause and ask the user whether to run param-advisor (engine=isce3).
-  Wait for confirmation before proceeding.
+- **interactive**: At Step 4, consulting param-advisor (engine=isce3) is required before
+  execution; run it, then present the three-choice (defaults / recommended / custom) and wait
+  for the user's pick.
 - **auto**: At Step 4, automatically enter param-advisor (engine=isce3) without asking.
-  Skip only if the user has explicitly said to use default parameters.
+- Consulting the advisor is mandatory in both modes — accepting default parameters afterward is
+  fine, but the param-advisor subagent must be invoked first. A PreToolUse gate blocks
+  `insar_run_workflow` until the `insar-agent-plugin:param-advisor` subagent has run this session.
 
 ## Hard constraints
 
@@ -90,32 +93,30 @@ version: 0.1.0
    - The returned `run_root` shows the exact output directory for this run.
    - **Never** set `workspace_root` to a task or run subdirectory.
 
-4. **参数调优**
+4. **参数调优（执行前必做）**
 
-   收到 `PARAM_ADVISOR_PROMPT` 后，先调用 `insar_run_workflow(project_id, dry_run=True)`
-   获取 `param_tuned_found` 和 `param_tuned_config` 字段：
+   咨询参数顾问是 `insar_run_workflow` 前的**强制步骤**——即使最终选用默认参数。
+   PreToolUse 门会拦截 `insar_run_workflow`，直到本会话已调用过
+   `insar-agent-plugin:param-advisor` subagent（或本 run 已存在 recommendation.json）。
 
-   - **若 `param_tuned_found: true`**：
-     - interactive：提示用户"已有已优化参数文件（`param_tuned_config`），是否复用？"，等待确认后复用或重新调优
-     - auto：直接复用，跳过调优，继续 Step 5
-   - **若 `param_tuned_found: false`**，根据 interaction_mode 决策：
+   先调用 `insar_run_workflow(project_id, dry_run=True)` 获取 `param_tuned_found` 和
+   `param_tuned_config` 字段：
 
-   **interactive 模式：** 询问用户是否进入参数调优，等待确认后再继续。
-   提供三个选项：
-   1. 使用默认参数，直接运行
-   2. 进入 param-advisor (engine=isce3) 进行专家调优
-   3. 手动指定参数值
-
-   **auto 模式：** 直接进入 `param-advisor (engine=isce3)`，无需用户确认。
+   - **若 `param_tuned_found: true`**（本 run 已有调优产物 + recommendation.json）：
+     - interactive：提示"已有已优化参数文件（`param_tuned_config`），复用还是重新调优？"，等待确认
+     - auto：直接复用，继续 Step 5
+   - **若 `param_tuned_found: false`**：必须先咨询顾问，再据 interaction_mode 决策是否应用其建议。
 
    param-advisor (engine=isce3) 调用链：
    - `insar_describe_rslc(reference_rslc, secondary_rslc, project_id)`
-   - `insar-agent-plugin:param-advisor` subagent（生成推荐 + yaml_diff_preview）
-   - interactive：展示 diff，等待用户三选一确认；auto：自动接受推荐
-   - 若接受：`insar_set_processing_param(project_id, key, value, justification)` × N
+   - **必须通过 Task 工具调用 `insar-agent-plugin:param-advisor` subagent**
+     （`subagent_type: insar-agent-plugin:param-advisor`）生成推荐 + yaml_diff_preview；
+     主会话不得自行替代顾问给建议
+   - 展示 diff 后三选一（默认 / 采用推荐 / 自定）；interactive 等待用户确认，auto 自动接受推荐
+   - 若采用推荐或自定：`insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置
-   - **落盘**：调优完成后 `insar_record_param_advice` 自动写入 `<run_root>/param_advisor/recommendation.json`
-   完成后继续 Step 5。
+   - **落盘**：`insar_record_param_advice` 写入 `<run_root>/param_advisor/recommendation.json`
+   - 选用默认参数也是有效结果，但 subagent 必须已被咨询过。完成后继续 Step 5。
 
 5. **Run workflow**
    ```

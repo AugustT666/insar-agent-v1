@@ -26,10 +26,13 @@ version: 0.1.0
 
 - Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
 - Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
-- **interactive**: At Step 4.5, pause and ask the user whether to run param-advisor (engine=isce2).
-  Wait for confirmation before proceeding.
+- **interactive**: At Step 4.5, consulting param-advisor (engine=isce2) is required before
+  execution; run it, then present the three-choice (defaults / recommended / custom) and wait
+  for the user's pick.
 - **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking.
-  Skip only if the user has explicitly said to use default parameters.
+- Consulting the advisor is mandatory in both modes — accepting default parameters afterward is
+  fine, but the param-advisor subagent must be invoked first. A PreToolUse gate blocks
+  `insar_run_workflow` until the `insar-agent-plugin:param-advisor` subagent has run this session.
 
 ## Prerequisites
 
@@ -133,27 +136,30 @@ Optional parameters (change only if needed):
 
 ---
 
-### Step 4.5 — Optional parameter tuning
+### Step 4.5 — Parameter advisor (required before execution)
 
-If the user wants help choosing looks, filtering, ESD, swaths, or unwrapping settings,
-enter:
+Consulting the param-advisor is **mandatory before `insar_run_workflow`**, even when the final
+choice is to keep default parameters. A PreToolUse gate denies `insar_run_workflow` until the
+`insar-agent-plugin:param-advisor` subagent has been invoked this session.
+
+Enter:
 
 ```
 param-advisor (engine=isce2)
 ```
 
-This should happen **after required path fields are set and before `insar_run_workflow`**.
+This happens **after required path fields are set and before `insar_run_workflow`**.
 The advisor flow must build a metadata-first evidence profile using:
 
 - `insar_describe_s1(reference_safe)`
 - `insar_describe_s1(secondary_safe)`
 - `insar_get_runconfig(format='yaml')`
 
-The skill then delegates recommendation generation to:
-
-- `insar-agent-plugin:param-advisor` subagent
-
-and applies accepted changes via `insar_set_processing_param` only.
+It then **must invoke the `insar-agent-plugin:param-advisor` subagent** (via the Task tool,
+`subagent_type: insar-agent-plugin:param-advisor`) to generate recommendations — the main
+session must not substitute its own advice. Accepted changes are applied via
+`insar_set_processing_param` only; choosing the default parameters is a valid outcome, but the
+subagent must still have been consulted first.
 
 ---
 

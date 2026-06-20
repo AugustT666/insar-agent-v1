@@ -60,6 +60,7 @@ from insar_agent.mcp.tools.product_tools import (  # noqa: F401  (re-export)
 )
 from insar_agent.mcp.tools.env_tools import (  # noqa: F401  (re-export)
     insar_check_env,
+    insar_probe_host,
 )
 from insar_agent.mcp.tools.search_tools import (  # noqa: F401  (re-export)
     insar_search,
@@ -549,7 +550,9 @@ def insar_export_geotiff(h5_path: str, output_dir: str = "", tag: str = "E") -> 
 
     Accepts a file OR a directory:
       - NISAR GUNW .h5            -> per-dataset GeoTIFF + colour PNG under browse/ (now georeferenced)
-      - MintPy .h5 / mintpy dir   -> velocity, temporalCoherence, masks (+ masked velocity);
+      - MintPy .h5 / mintpy dir   -> velocity, temporalCoherence, masks (+ masked velocity)
+                                     GeoTIFFs, plus colour quick-look PNGs under browse/
+                                     (robust auto-ranged; velocity symmetric about 0);
                                      ISCE2 radar-coordinate products are auto-geocoded first
       - ISCE2 .geo / .geo.vrt     -> already-geocoded layers
     Unsupported formats (e.g. GAMMA) are reported in `notes`, not exported.
@@ -574,34 +577,34 @@ def insar_export_geotiff(h5_path: str, output_dir: str = "", tag: str = "E") -> 
         rr = infer_run_root(src)
         out = str((rr / "qgis_export") if rr is not None else (src.parent / "qgis_export"))
 
-    # GUNW .h5 keeps its browse/+PNG behavior via export_geotiff (now georeferenced).
-    # An .h5 file routes here unless it is positively a MintPy/geocoded geo_h5
-    # (which the general exporter handles); files h5py cannot open default to GUNW
-    # so the export_geotiff path (and its tests) still apply.
-    if src.is_file() and src.suffix.lower() in (".h5", ".hdf5", ".he5"):
-        is_geo_h5 = False
-        try:
-            import h5py
-            with h5py.File(src, "r") as f:
-                is_geo_h5 = "X_FIRST" in f.attrs
-        except Exception:
-            is_geo_h5 = False
-        if not is_geo_h5:
-            try:
-                result = export_geotiff(h5_path=str(src), output_dir=out)
-            except RuntimeError as exc:
-                return {"error": "dependency_missing", "message": str(exc)}
-            except Exception as exc:  # noqa: BLE001
-                return {"error": "export_failed", "message": str(exc)}
-            return {
-                "output_dir": result["output_dir"],
-                "n_files": len(result["files"]),
-                "files": result["files"],
-                "skipped": result["skipped"],
-            }
-
-    # Everything else (MintPy dir/.h5, ISCE2 .geo, single rasters) -> general exporter.
+    # Only a NISAR GUNW .h5 uses the dedicated per-dataset browse exporter
+    # (export_geotiff). Every other raster — MintPy .h5 (geocoded OR
+    # radar-coordinate, the latter geocoded first), ISCE2 .geo, or a directory —
+    # flows through the general exporter. Detecting GUNW POSITIVELY (rather than
+    # "any .h5 lacking X_FIRST") keeps a radar-coordinate MintPy velocity.h5 from
+    # being mis-dumped per-dataset instead of geocoded + browsed.
     from insar_agent.engines import raster_export
+    route_gunw = False
+    if src.is_file() and src.suffix.lower() in (".h5", ".hdf5", ".he5"):
+        try:
+            route_gunw = raster_export._detect_format(src) == "gunw"
+        except Exception:
+            route_gunw = True  # unreadable .h5 -> let the GUNW exporter try (legacy)
+    if route_gunw:
+        try:
+            result = export_geotiff(h5_path=str(src), output_dir=out)
+        except RuntimeError as exc:
+            return {"error": "dependency_missing", "message": str(exc)}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": "export_failed", "message": str(exc)}
+        return {
+            "output_dir": result["output_dir"],
+            "n_files": len(result["files"]),
+            "files": result["files"],
+            "skipped": result["skipped"],
+        }
+
+    # Everything else -> general exporter (geocodes radar-coord MintPy first).
     try:
         return raster_export.export_path(src, out, tag=tag or "E")
     except RuntimeError as exc:
@@ -1349,6 +1352,12 @@ def insar_prepare_sentinel_data(
     """
     Organize Sentinel-1 SAFE inputs into grouped SAFE paths for later ISCE2 use.
 
+    ⚠️ LONG-RUNNING for multi-scene stacks (SAFE synthesis + DEM + orbit downloads).
+    For more than ~2 scenes, ALWAYS call with background=True and then poll
+    insar_get_job(job_id=..., workspace_root=..., task_id=...) until done — a
+    synchronous call WILL exceed the MCP client's ~600s per-call timeout. Only
+    single-pair / small prep is safe to run synchronously (background=False).
+
     This tool only prepares grouped SAFE outputs. It can organize existing
     SAFE/ZIP inputs or synthesize lightweight SAFE directories from local burst
     files. It can also optionally prepare DEM and Sentinel-1 orbit files for
@@ -1364,6 +1373,13 @@ def insar_prepare_sentinel_data(
         task_id: Workflow task_id (e.g. ``"d-insar-isce2"``).  Used only to
             derive the default project_root when project_root is omitted.
         run_id: Optional run identifier used with workspace_root/task_id.
+        background: When True (RECOMMENDED for multi-scene stacks), run the whole
+            prep (SAFE synthesis + DEM + orbits) in a detached background job and
+            return immediately with {job_id, status:"running", log_path, poll}.
+            Then poll insar_get_job(job_id=..., workspace_root=..., task_id=...)
+            until status is "done"/"failed". This avoids the MCP client's ~600s
+            per-call timeout that a synchronous multi-scene prep WILL hit.
+            Default False (synchronous) is only safe for small/quick prep.
     """
     if not project_root.strip():
         if workspace_root.strip() and task_id.strip():
@@ -1493,6 +1509,7 @@ def build_server_description() -> dict:
             "insar_describe_s1",
             "insar_prepare_sentinel_data",
             "insar_check_env",
+            "insar_probe_host",
             "insar_export_runconfig",
             "insar_run_mintpy_isce2",
         ],

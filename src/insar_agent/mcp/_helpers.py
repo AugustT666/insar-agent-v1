@@ -934,6 +934,7 @@ except Exception as _exc:
         "output_dir": str(root),
         "n_files": job.n_files,
         "log_path": str(log_path),
+        "monitor": f"tail -f {log_path}",
         "params_path": str(params_path),
         "workspace_root": job_context.get("workspace_root"),
         "task_id": job_context.get("task_id"),

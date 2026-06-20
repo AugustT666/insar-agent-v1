@@ -19,3 +19,4 @@ logs/
 .claude/worktrees/
 .opencode-test/
 *.log
+.copernicus_dataspace_token

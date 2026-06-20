@@ -7,6 +7,32 @@ from insar_agent.mcp._helpers import *  # noqa: F403  (shared helpers)
 
 
 @mcp.tool()
+def insar_probe_host() -> dict:
+    """
+    Probe local hardware (CPU / memory / GPU) for compute-efficiency advice.
+
+    Read-only, deterministic, structured read of the machine InSAR processing will
+    run on, so the param-advisor subagent can ground its num_proc / parallelism
+    advice in the actual host (and a server-side num_proc ceiling can reuse it):
+
+        {
+            "logical_cpu_count": int,
+            "usable_cpu_count": int,        # honors cgroup/affinity limits
+            "total_memory_gb": float | None,
+            "available_memory_gb": float | None,
+            "gpus": [{"name": str, "total_vram_gb": float | None}, ...],
+            "suggested_num_proc_upper_bound": int,
+        }
+    """
+    from insar_agent.core.host_probe import probe_host
+
+    try:
+        return probe_host()
+    except Exception as exc:  # never break the advisory flow on a probe error
+        return {"error": "probe_failed", "message": str(exc)}
+
+
+@mcp.tool()
 def insar_check_env() -> dict:
     """
     Check the project environment status: conda envs, MCP registration, and skills.

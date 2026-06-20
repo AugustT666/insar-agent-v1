@@ -1,31 +1,26 @@
 {
-  "description": "Non-blocking parameter-advisor reminders before irreversible InSAR execution steps.",
+  "description": "Force the param-advisor subagent before irreversible InSAR execution (run_workflow / prepare_stack / prepare_network); record advisor consultation via the Task tool. Enforces process, not parameter values.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__insar-agent__insar_run_workflow",
+        "matcher": "^mcp__.*insar.*__insar_(run_workflow|prepare_stack|prepare_network)$",
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'PARAM_ADVISOR_PROMPT [Path A]: 即将运行 insar_run_workflow。这是调整处理参数的最后机会。'"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/param_advisor_gate.py",
+            "timeout": 15
           }
         ]
-      },
+      }
+    ],
+    "PostToolUse": [
       {
-        "matcher": "mcp__insar-agent__insar_prepare_stack",
+        "matcher": "Task",
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'PARAM_ADVISOR_PROMPT [Path B]: 即将写入 stack runconfigs，此后无法通过模板修改处理参数。'"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__insar-agent__insar_prepare_network",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'PARAM_ADVISOR_PROMPT [Path B]: 即将写入 network runconfigs，此后无法通过模板修改处理参数。'"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/param_advisor_marker.py",
+            "timeout": 10
           }
         ]
       }

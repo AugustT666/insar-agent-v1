@@ -132,8 +132,22 @@ insar_prepare_sentinel_data(
     orbit_dir="/path/to/project-root/orbits",
     validate_isce2_import=True,  # required for burst_manifest inputs
     resume=True,
+    background=True,   # 多景 stack 必须为 True;返回 job 后睡醒式轮询(见下方说明)
 )
 ```
+
+> **多景 stack 必须用 `background=True` + 睡醒式轮询(关键)。** 31 景级的 SAFE 合成 + DEM + 轨道
+> 同步跑会超过 MCP 客户端单次工具调用上限(~600s)而超时。`background=True` 会**立即返回**
+> `{job_id, status:"running", log_path, poll}`,真正的 prep 在后台 detached 进程里跑;之后按
+> **自定节奏睡-醒轮询**(间隔分钟级,**勿秒级紧凑 loop、勿 `while true`**):
+>
+> ```python
+> insar_get_job(job_id=<job_id>, workspace_root=<workspace_root>, task_id=<task_id>)
+> ```
+>
+> 直到 `status` 为 `done`(再从结果/磁盘读 `safe_root`/`grouped_safe_paths`/`dem_path`/`orbit_dir`)
+> 或 `failed`(读 `log_path` 排查)。返回里还带 `monitor` 命令(`tail -f <log_path>`)——
+> **务必把它转告用户**,让用户能在自己终端实时看后台处理进度。仅单对/小量 prep 可省略 `background` 同步跑。
 
 For Sentinel workflows that will feed `d-insar-isce2` or `stack-insar-isce2`,
 use `dem_backend="isce2"` and an ISCE2 DEM output such as
