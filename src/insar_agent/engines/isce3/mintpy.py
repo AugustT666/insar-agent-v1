@@ -86,9 +86,10 @@ def run_mintpy(
             raise FileNotFoundError(str(config))
 
     work_dir.mkdir(parents=True, exist_ok=True)
-    jobs_dir = work_dir / ".jobs"
-    jobs_dir.mkdir(exist_ok=True)
-    logs_dir = work_dir / "logs"
+    from insar_agent.core.output_resolver import resolve_output
+    jobs_dir = work_dir / ".insar_agent" / "jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = resolve_output(work_dir, "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = str(uuid4())
@@ -144,7 +145,7 @@ def get_mintpy_status(job_id: str, mintpy_work_dir: str | Path) -> dict[str, obj
     Returns:
         dict with keys: job_id, pid, status, log_path, submitted_at, finished_at
     """
-    jobs_dir = Path(mintpy_work_dir) / ".jobs"
+    jobs_dir = Path(mintpy_work_dir) / ".insar_agent" / "jobs"
     job_file = jobs_dir / f"{job_id}.json"
     if not job_file.exists():
         raise FileNotFoundError(job_file)

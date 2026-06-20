@@ -116,7 +116,8 @@ class TestRunMintpyISCE2Stack:
                 conda_env="isce2",
             )
 
-        job_file = tmp_path / "mintpy" / ".jobs" / f"{result['job_id']}.json"
+        # new layout: .insar_agent/jobs/
+        job_file = tmp_path / "mintpy" / ".insar_agent" / "jobs" / f"{result['job_id']}.json"
         assert job_file.exists()
         data = json.loads(job_file.read_text())
         assert data["pid"] == 4242
@@ -143,7 +144,8 @@ class TestRunMintpyISCE2Stack:
                 conda_env="isce2",
             )
 
-        job_file = tmp_path / "mintpy" / ".jobs" / f"{result['job_id']}.json"
+        # new layout: .insar_agent/jobs/
+        job_file = tmp_path / "mintpy" / ".insar_agent" / "jobs" / f"{result['job_id']}.json"
         data = json.loads(job_file.read_text())
         template = Path(data["mintpy_config"]).read_text(encoding="utf-8")
         assert f"mintpy.load.baselineDir = {(stack / 'baselines').as_posix()}" in template

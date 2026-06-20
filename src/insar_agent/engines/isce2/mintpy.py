@@ -132,9 +132,10 @@ def run_mintpy_isce2_stack(
     baseline_dir = export_mintpy_tops_baselines(stack_dir)
 
     work_dir.mkdir(parents=True, exist_ok=True)
-    jobs_dir = work_dir / ".jobs"
-    jobs_dir.mkdir(exist_ok=True)
-    logs_dir = work_dir / "logs"
+    from insar_agent.core.output_resolver import resolve_output
+    jobs_dir = work_dir / ".insar_agent" / "jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = resolve_output(work_dir, "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = Path(mintpy_config) if mintpy_config else _write_default_template(work_dir, stack_dir, baseline_dir)

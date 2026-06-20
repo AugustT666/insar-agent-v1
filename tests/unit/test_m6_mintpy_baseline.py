@@ -85,15 +85,15 @@ class TestRunMintpy:
         assert result["status"] == "running"
         assert result["pid"] == 99999
 
-        # job JSON persisted
-        job_file = tmp_path / "work" / ".jobs" / f"{job_id}.json"
+        # job JSON persisted under new layout: .insar_agent/jobs/
+        job_file = tmp_path / "work" / ".insar_agent" / "jobs" / f"{job_id}.json"
         assert job_file.exists()
         data = json.loads(job_file.read_text())
         assert data["job_id"] == job_id
         assert data["pid"] == 99999
 
-        # log file created
-        assert Path(result["log_path"]).parent == tmp_path / "work" / "logs"
+        # log file created under new layout: insar_product/logs/
+        assert Path(result["log_path"]).parent == tmp_path / "work" / "insar_product" / "logs"
         assert Path(result["log_path"]).parent.exists()
 
     def test_command_includes_dem_as_4th_arg(self, tmp_path):
@@ -172,15 +172,16 @@ class TestGetMintpyStatus:
             get_mintpy_status("no-such-id", str(tmp_path))
 
     def test_running_pid_alive_returns_running(self, tmp_path):
-        self._write_job(tmp_path / ".jobs", "job1", pid=os.getpid())
+        # new layout: .insar_agent/jobs/
+        self._write_job(tmp_path / ".insar_agent" / "jobs", "job1", pid=os.getpid())
         result = get_mintpy_status("job1", str(tmp_path))
         assert result["status"] == "running"
 
     def test_dead_pid_success_returns_done(self, tmp_path):
         log = tmp_path / "ok.log"
         log.write_text("Resuming MintPy from correct_unwrap_error\nDone.\n")
-        jobs_dir = tmp_path / ".jobs"
-        jobs_dir.mkdir()
+        jobs_dir = tmp_path / ".insar_agent" / "jobs"
+        jobs_dir.mkdir(parents=True)
         data = {
             "job_id": "job2", "pid": 99999999,
             "status": "running", "log_path": str(log),
@@ -197,8 +198,8 @@ class TestGetMintpyStatus:
     def test_dead_pid_error_in_log_returns_failed(self, tmp_path):
         log = tmp_path / "fail.log"
         log.write_text("Running MintPy...\nError: something went wrong\nTraceback: foo\n")
-        jobs_dir = tmp_path / ".jobs"
-        jobs_dir.mkdir()
+        jobs_dir = tmp_path / ".insar_agent" / "jobs"
+        jobs_dir.mkdir(parents=True)
         data = {
             "job_id": "job3", "pid": 99999999,
             "status": "running", "log_path": str(log),
@@ -212,7 +213,7 @@ class TestGetMintpyStatus:
         assert result["status"] == "failed"
 
     def test_already_done_not_reprocessed(self, tmp_path):
-        self._write_job(tmp_path / ".jobs", "job4", pid=1, status="done")
+        self._write_job(tmp_path / ".insar_agent" / "jobs", "job4", pid=1, status="done")
         # os.kill should NOT be called
         with patch("os.kill") as mock_kill:
             result = get_mintpy_status("job4", str(tmp_path))
@@ -352,8 +353,9 @@ class TestInsarGetMintpyStatus:
         assert result["error"] == "job_not_found"
 
     def test_running_job_returns_status(self, tmp_path):
-        jobs_dir = tmp_path / ".jobs"
-        jobs_dir.mkdir()
+        # new layout: .insar_agent/jobs/
+        jobs_dir = tmp_path / ".insar_agent" / "jobs"
+        jobs_dir.mkdir(parents=True)
         data = {
             "job_id": "j1", "pid": os.getpid(),
             "status": "running", "log_path": "",

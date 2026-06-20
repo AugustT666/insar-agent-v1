@@ -36,16 +36,56 @@ def _resolve_tops_swaths(params: dict) -> list[int]:
     return common_swaths or configured
 
 
-def materialize_dem_for_tops(dem_file: str, workspace_root: str | Path) -> str:
+def materialize_dem_for_tops(
+    dem_file: str,
+    workspace_root: str | Path | None = None,
+    *,
+    output_root: str | Path | None = None,
+) -> str:
+    """Materialise a DEM into the canonical prepare/dem directory.
+
+    The DEM and its sidecar files (.xml, .vrt) are written to::
+
+        <output_root>/prepare/dem/<filename>
+
+    If the target already exists (reuse path), the function returns
+    immediately without re-writing any sidecars.
+
+    Parameters
+    ----------
+    dem_file:
+        Source DEM path (must have companion .xml and .vrt sidecars to
+        trigger materialisation; bare paths without sidecars are returned
+        unchanged).
+    workspace_root:
+        Deprecated positional parameter kept for backwards compatibility.
+        When *output_root* is provided, *workspace_root* is ignored.
+    output_root:
+        Top-level output directory.  The DEM is written under
+        ``<output_root>/prepare/dem/``.
+    """
     source = Path(dem_file)
     source_xml = Path(f"{source}.xml")
     source_vrt = Path(f"{source}.vrt")
     if not source_xml.exists() or not source_vrt.exists():
         return dem_file
 
-    target_dir = Path(workspace_root) / "isce2_dem"
+    # Resolve target directory: new layout preferred over legacy.
+    if output_root is not None:
+        from insar_agent.core.output_resolver import prepare_input_dir
+        target_dir = prepare_input_dir(output_root, "dem")
+    elif workspace_root is not None:
+        target_dir = Path(workspace_root) / "isce2_dem"
+    else:
+        raise ValueError("Either output_root or workspace_root must be provided")
+
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / source.name
+
+    # Reuse: if the target sidecar (.xml) is already present, the DEM has
+    # been materialised before — return without re-writing anything.
+    if Path(f"{target}.xml").exists():
+        return str(target)
 
     xml_tree = ET.parse(source_xml)
     xml_root = xml_tree.getroot()
