@@ -132,18 +132,6 @@ def _layout_from_run_root(run_root: Path) -> RunLayout | None:
         return None
 
 
-def _subdir_target(layout: RunLayout, subdir: str) -> Path:
-    """Map a subdir name to the matching RunLayout directory (validated)."""
-    if not subdir:
-        return layout.run_root
-    prop = f"{subdir}_dir"
-    target = getattr(layout, prop, None)
-    if isinstance(target, Path):
-        return target
-    # Unknown subdir: build under insar_product, still containment-checked.
-    return layout.insar_product_dir / subdir
-
-
 # ---------------------------------------------------------------------------
 # Run-layout helpers (relocated from mcp.layout_helpers — protocol-agnostic)
 # ---------------------------------------------------------------------------

@@ -84,15 +84,7 @@ def validate_output_root(output_root: str | Path) -> Path:
 # validate_workspace_root continue to work until they are updated.
 def validate_workspace_root(workspace_root: str | Path) -> Path:
     """Deprecated alias for validate_output_root (kept for backwards compatibility)."""
-    ws = Path(workspace_root).resolve()
-    parts = ws.parts
-    for part in parts[1:]:
-        if part == "outputs":
-            raise ValueError(
-                f"workspace_root appears to point inside a run outputs directory: {ws!r}. "
-                "workspace_root must be the top-level workspace, not a task or run subdirectory."
-            )
-    return ws
+    return validate_output_root(workspace_root)
 
 
 # ---------------------------------------------------------------------------

@@ -196,11 +196,22 @@ def test_infer_from_project_id_fallback(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_infer_run_root_returns_none_for_new_layout(tmp_path):
-    # The new layout has no "outputs" segment; infer_run_root is legacy and may return None
-    layout = RunLayout(output_root=tmp_path, task="d-insar-isce3", run_id="20260620T010203Z")
-    # infer_run_root is a best-effort helper; it still works for legacy paths
-    result = infer_run_root(Path("/tmp/outputs/run1/dem.tif"))
-    assert result is None
+    """find_run_root returns None when no .insar_agent/project.json marker exists above the path,
+    and returns the run dir when the marker IS present.
+    """
+    # Tree with no marker anywhere: find_run_root must return None.
+    no_marker_dir = tmp_path / "run_no_marker" / "insar_product" / "stack"
+    no_marker_dir.mkdir(parents=True)
+    assert find_run_root(no_marker_dir) is None
+
+    # Tree WITH a marker: find_run_root must return the run directory.
+    run_dir = tmp_path / "run_with_marker"
+    (run_dir / ".insar_agent").mkdir(parents=True)
+    (run_dir / ".insar_agent" / "project.json").write_text("{}")
+    deep_path = run_dir / "insar_product" / "logs" / "insar_workflow.log"
+    deep_path.parent.mkdir(parents=True)
+    deep_path.write_text("log")
+    assert find_run_root(deep_path) == run_dir
 
 
 # ---------------------------------------------------------------------------
