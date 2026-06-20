@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from insar_agent.mcp._app import *  # noqa: F403  (foundation: imports + constants + mcp)
 from insar_agent.mcp._helpers import *  # noqa: F403  (shared helpers)
+from insar_agent.core.progress import read_progress_tail
 
 
 @mcp.tool()
@@ -133,6 +134,7 @@ def insar_get_job(
             "finished_at": job.finished_at,
             "log_path": job.log_path,
             "runconfig_path": job.runconfig_path,
+            "progress": read_progress_tail(_project.run_root()),
         }
         if include_logs:
             if job.log_path and Path(job.log_path).exists():
@@ -344,6 +346,7 @@ def insar_get_job(
         "finished_at": job.finished_at,
         "log_path": job.log_path,
         "runconfig_path": job.runconfig_path,
+        "progress": read_progress_tail(project.run_root()),
     }
     if include_logs:
         if job.log_path and Path(job.log_path).exists():

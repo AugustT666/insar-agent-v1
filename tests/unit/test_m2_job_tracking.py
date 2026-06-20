@@ -438,3 +438,57 @@ class TestWorkflowJobArtifactFinalization:
         saved = Job.load(job.job_id, jobs_dir)
         assert saved.status == "failed"
         assert saved.exit_code == 1
+
+
+# ── Task 4.2: insar_get_job surfaces Layer-1 progress tail ────────────────────
+
+class TestGetJobProgressField:
+    """insar_get_job must include a `progress` field sourced from
+    read_progress_tail when a project context is available."""
+
+    def _launch_job(self, project_id: str, pid: int) -> str:
+        mock_proc = MagicMock()
+        mock_proc.pid = pid
+        with patch("insar_agent.mcp.server.subprocess.Popen", return_value=mock_proc):
+            result = insar_run_workflow(project_id, dry_run=False)
+        return result["job_id"]
+
+    def test_progress_field_contains_tail_lines(self, ready_project):
+        """When progress.log exists under run_root, insar_get_job returns
+        its tail lines in a `progress` key."""
+        import os as _os
+        live_pid = _os.getpid()
+        job_id = self._launch_job(ready_project, pid=live_pid)
+
+        project = Project.load(ready_project)
+        run_root = project.run_root()
+        progress_log = run_root / ".insar_agent" / "progress.log"
+        progress_log.parent.mkdir(parents=True, exist_ok=True)
+        progress_log.write_text(
+            "2026-01-01T00:00:00+00:00\t[1/5] Downloading DEM\n"
+            "2026-01-01T00:01:00+00:00\t[2/5] Running topo\n",
+            encoding="utf-8",
+        )
+
+        result = insar_get_job(job_id=job_id, project_id=ready_project)
+
+        assert "progress" in result, "result dict must have a 'progress' key"
+        assert "[1/5] Downloading DEM" in result["progress"]
+        assert "[2/5] Running topo" in result["progress"]
+
+    def test_progress_field_empty_when_no_progress_log(self, ready_project):
+        """When no progress.log exists, `progress` field is empty string (graceful degrade)."""
+        import os as _os
+        live_pid = _os.getpid()
+        job_id = self._launch_job(ready_project, pid=live_pid)
+
+        project = Project.load(ready_project)
+        progress_log = project.run_root() / ".insar_agent" / "progress.log"
+        if progress_log.exists():
+            progress_log.unlink()
+
+        result = insar_get_job(job_id=job_id, project_id=ready_project)
+
+        # Graceful degrade: key present but empty (or key absent -- either is acceptable)
+        progress = result.get("progress", "")
+        assert progress == "", f"Expected empty progress, got: {progress!r}"
