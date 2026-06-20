@@ -851,6 +851,7 @@ def insar_download_rslc(
     n_workers: int = 8,
     chunk_rows: int = 256,
     proxy: str | None = None,
+    project_id: str = "",
     workspace_root: str = "",
     task_id: str = "",
     run_id: str = "",
@@ -877,6 +878,8 @@ def insar_download_rslc(
                     If omitted, the download process inherits current system
                     proxy settings. If provided, it is applied only to this
                     download process.
+        project_id: Project UUID (preferred). When provided, derives output_dir
+                    from the project's output_root via prepare_input_dir.
         workspace_root: Top-level workspace root for task-level job tracking.
         task_id:    Workflow task_id for task-level job tracking.
         run_id:     Optional run identifier used to derive output_dir if omitted.
@@ -920,14 +923,21 @@ def insar_download_rslc(
         return {"error": "invalid_input", "message": "No RSLC .h5 URLs found in the provided list"}
 
     if not output_dir.strip():
-        if workspace_root.strip() and task_id.strip():
+        if project_id.strip():
+            try:
+                _proj = Project.load(project_id.strip())
+            except (KeyError, FileNotFoundError):
+                return {"error": "project_not_found", "message": f"Project {project_id!r} not found"}
+            output_dir = str(prepare_input_dir(_proj.output_root, "rslc"))
+            workspace_root = workspace_root or _proj.output_root
+        elif workspace_root.strip() and task_id.strip():
             _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
-            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=_rid or None)
-            output_dir = str(layout.run_root / "rslc")
+            _layout = RunLayout(output_root=workspace_root, task=task_id, run_id=_rid or None)
+            output_dir = str(_layout.run_root / "rslc")
         else:
             return {
                 "error": "missing_input",
-                "message": "Either output_dir or both workspace_root and task_id must be provided.",
+                "message": "Either output_dir, project_id, or both workspace_root and task_id must be provided.",
             }
     output_dir_path = Path(output_dir).expanduser().resolve()
     output_dir = str(output_dir_path)
@@ -1076,6 +1086,7 @@ def insar_download_dem(
     proxy: str | None = None,
     backend: str = "general",
     dem_type: str | None = None,
+    project_id: str = "",
     workspace_root: str = "",
     task_id: str = "",
     run_id: str = "",
@@ -1085,8 +1096,10 @@ def insar_download_dem(
 
     Args:
         output_path: Destination path for the downloaded DEM.  When omitted,
-            defaults under ``<workspace_root>/<task_id>/outputs/<run_id>/dem/``
-            if workspace_root and task_id are provided.
+            defaults under ``<output_root>/prepare/dem/`` when project_id is
+            supplied, or under the run root when workspace_root+task_id are given.
+        project_id: Project UUID (preferred). When provided, derives output_path
+            from the project's output_root via prepare_input_dir("dem").
         workspace_root: Top-level workspace root.  Used only to derive the
             default output_path when output_path is omitted.
         task_id: Workflow task_id (e.g. ``"d-insar-isce3"``).  Used only to
@@ -1095,17 +1108,34 @@ def insar_download_dem(
         background: If true, launch the DEM download as a background job and poll with insar_get_job.
     """
     if not output_path.strip():
-        if workspace_root.strip() and task_id.strip():
+        if project_id.strip():
+            try:
+                _proj = Project.load(project_id.strip())
+            except (KeyError, FileNotFoundError):
+                return {"error": "project_not_found", "message": f"Project {project_id!r} not found"}
+            _dem_dir = prepare_input_dir(_proj.output_root, "dem")
+            output_path = str(_dem_dir / f"{source}_dem.tif")
+            workspace_root = workspace_root or _proj.output_root
+        elif workspace_root.strip() and task_id.strip():
             _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
-            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=_rid or None)
-            output_path = str(layout.dem_dir / f"{source}_dem.tif")
-            workspace_root = str(layout.workspace_root)
-            task_id = layout.task_id
-            run_id = layout.run_id
+            _layout = RunLayout(output_root=workspace_root, task=task_id, run_id=_rid or None)
+            output_path = str(prepare_input_dir(workspace_root, "dem") / f"{source}_dem.tif")
+            workspace_root = str(_layout.output_root)
+            task_id = _layout.task
+            run_id = _layout.run_id
         else:
             return {
                 "error": "missing_input",
-                "message": "Either output_path or both workspace_root and task_id must be provided.",
+                "message": "Either output_path, project_id, or both workspace_root and task_id must be provided.",
+            }
+
+        # Reuse: if the target already exists, skip the download.
+        if Path(output_path).exists():
+            return {
+                "output_path": output_path,
+                "source": source,
+                "reused": True,
+                "message": "DEM already present; skipping download.",
             }
     else:
         output_path, workspace_root, task_id, run_id = _honor_output_path(
@@ -1134,6 +1164,7 @@ def insar_download_dem(
             "proxy": proxy,
             "backend": backend,
             "dem_type": dem_type,
+            "project_id": project_id,
             "workspace_root": workspace_root,
             "task_id": task_id,
             "run_id": run_id,
@@ -1325,6 +1356,7 @@ def insar_download_dem(
 @mcp.tool()
 def insar_prepare_sentinel_data(
     project_root: str = "",
+    project_id: str = "",
     workspace_root: str = "",
     task_id: str = "",
     run_id: str = "",
@@ -1382,17 +1414,24 @@ def insar_prepare_sentinel_data(
             Default False (synchronous) is only safe for small/quick prep.
     """
     if not project_root.strip():
-        if workspace_root.strip() and task_id.strip():
+        if project_id.strip():
+            try:
+                _proj = Project.load(project_id.strip())
+            except (KeyError, FileNotFoundError):
+                return {"error": "project_not_found", "message": f"Project {project_id!r} not found"}
+            project_root = str(prepare_input_dir(_proj.output_root, "safe"))
+            workspace_root = workspace_root or _proj.output_root
+        elif workspace_root.strip() and task_id.strip():
             _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
-            layout = RunLayout(workspace_root=workspace_root, task_id=task_id, run_id=_rid or None)
-            project_root = str(layout.run_root / "prep")
-            workspace_root = str(layout.workspace_root)
-            task_id = layout.task_id
-            run_id = layout.run_id
+            _layout = RunLayout(output_root=workspace_root, task=task_id, run_id=_rid or None)
+            project_root = str(prepare_input_dir(workspace_root, "safe"))
+            workspace_root = str(_layout.output_root)
+            task_id = _layout.task
+            run_id = _layout.run_id
         else:
             return {
                 "error": "missing_input",
-                "message": "Either project_root or both workspace_root and task_id must be provided.",
+                "message": "Either project_root, project_id, or both workspace_root and task_id must be provided.",
             }
     else:
         project_root, workspace_root, task_id, run_id = _honor_output_path(

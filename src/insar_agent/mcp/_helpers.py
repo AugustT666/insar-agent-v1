@@ -131,22 +131,24 @@ def _run_root_logs_dir(*paths: str | Path | None) -> Path | None:
 
 
 def _task_root_from_run_root(run_root: Path) -> Path:
-    return run_root.parent.parent
+    # New layout: run_root is <output_root>/<task>_<run_id>; agent-state is in run_root itself.
+    # Return run_root itself as the "task root" since .insar_agent is a direct child.
+    return run_root
 
 
 def _task_jobs_dir_from_run_root(run_root: Path) -> Path:
-    return _task_root_from_run_root(run_root) / ".insar_agent" / "jobs"
+    return run_root / ".insar_agent" / "jobs"
 
 
 def _task_job_context_from_path(path: str | Path) -> dict | None:
-    run_root = infer_run_root(path)
+    run_root = find_run_root(path)
     if run_root is None:
         return None
-    task_root = _task_root_from_run_root(run_root)
-    workspace_root = task_root.parent
+    # New layout: <output_root>/<task>_<run_id>; output_root is the direct parent.
+    output_root = run_root.parent
     return {
-        "workspace_root": str(workspace_root),
-        "task_id": task_root.name,
+        "workspace_root": str(output_root),
+        "task_id": run_root.name,
         "run_id": run_root.name,
         "run_root": str(run_root),
         "jobs_dir": _task_jobs_dir_from_run_root(run_root),
@@ -207,12 +209,13 @@ def _honor_output_path(
     ``workspace_root``/``task_id``/``run_id`` are preserved unchanged.
     """
     resolved = Path(output_path).expanduser().resolve()
-    run_root = infer_run_root(resolved)
+    run_root = find_run_root(resolved)
     if run_root is not None:
+        output_root = run_root.parent
         return (
             str(resolved),
-            str(run_root.parent.parent.parent),
-            run_root.parent.parent.name,
+            str(output_root),
+            run_root.name,
             run_root.name,
         )
     return str(resolved), workspace_root, task_id, run_id
@@ -759,18 +762,35 @@ def insar_extract_bbox(rslc_paths: list[str]) -> dict:
 def _launch_dem_download_background(params: dict) -> dict:
     output_path = Path(params["output_path"]).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    run_root = infer_run_root(output_path)
+    run_root = find_run_root(output_path)
     output_dir = run_root or output_path.parent
-    job_context = _task_job_context(
-        workspace_root=str(params.get("workspace_root") or ""),
-        task_id=str(params.get("task_id") or ""),
-        path=output_path,
-    )
-    if job_context is None:
-        return {
-            "error": "missing_task_context",
-            "message": "Background DEM downloads must be associated with <workspace>/<task_id>; provide workspace_root and task_id or an output_path under outputs/<run_id>.",
+
+    # Prefer project_id-derived job context (prepare/ path has no run-root ancestor).
+    _pid = str(params.get("project_id") or "").strip()
+    if _pid:
+        try:
+            _proj = Project.load(_pid)
+        except (KeyError, FileNotFoundError):
+            return {"error": "project_not_found", "message": f"Project {_pid!r} not found"}
+        _jobs_dir = Path(_proj.output_root) / ".insar_agent" / "jobs"
+        job_context = {
+            "workspace_root": _proj.output_root,
+            "task_id": _proj.task or _proj.task_id or "",
+            "run_id": _proj.run_id or "",
+            "run_root": str(run_root) if run_root else "",
+            "jobs_dir": _jobs_dir,
         }
+    else:
+        job_context = _task_job_context(
+            workspace_root=str(params.get("workspace_root") or ""),
+            task_id=str(params.get("task_id") or ""),
+            path=output_path,
+        )
+        if job_context is None:
+            return {
+                "error": "missing_task_context",
+                "message": "Background DEM downloads must be associated with a project_id or <workspace>/<task_id>; provide project_id, workspace_root+task_id, or an output_path under a run root.",
+            }
     logs_dir = output_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     job = DownloadJob(
