@@ -35,6 +35,106 @@ def insar_get_job(
         task_id: Workflow task_id for task-level background jobs
         include_logs: If true, include the full log content in the response
     """
+    # New first-priority path: project_id + no other context → try DownloadJob in project.jobs_dir()
+    if project_id and not work_dir and not batch_dir and not output_dir and not (workspace_root and task_id):
+        try:
+            _project = Project.load(project_id)
+        except (KeyError, FileNotFoundError):
+            return _project_error(project_id)
+
+        _jobs_dir = _project.jobs_dir()
+        # Try as DownloadJob first
+        try:
+            dl_job = DownloadJob.load(job_id, _jobs_dir)
+        except ValueError as exc:
+            return {"error": "invalid_job_id", "message": str(exc)}
+        except FileNotFoundError:
+            dl_job = None
+        except Exception as exc:
+            return {"error": "load_failed", "message": str(exc)}
+
+        if dl_job is not None:
+            if dl_job.status == "running" and dl_job.pid is not None:
+                alive = True
+                try:
+                    os.kill(dl_job.pid, 0)
+                    state_line = next(
+                        (ln for ln in Path(f"/proc/{dl_job.pid}/status").read_text().splitlines()
+                         if ln.startswith("State:")),
+                        "",
+                    )
+                    if "Z" in state_line:
+                        alive = False
+                except (ProcessLookupError, FileNotFoundError):
+                    alive = False
+                if not alive:
+                    log_tail = _read_log_tail(dl_job.log_path) if dl_job.log_path else ""
+                    log_lower = log_tail.lower()
+                    failed = (
+                        "error:" in log_lower
+                        or "traceback" in log_lower
+                        or "exception:" in log_lower
+                        or "status: failed" in log_lower
+                    )
+                    dl_job.status = "failed" if failed else "done"
+                    dl_job.finished_at = _utc_now()
+                    dl_job.exit_code = 1 if failed else 0
+                    dl_job.save(_jobs_dir)
+
+            result: dict = {
+                "job_id": dl_job.job_id,
+                "output_dir": dl_job.output_dir,
+                "n_files": dl_job.n_files,
+                "status": dl_job.status,
+                "pid": dl_job.pid,
+                "exit_code": dl_job.exit_code,
+                "submitted_at": dl_job.submitted_at,
+                "finished_at": dl_job.finished_at,
+                "log_path": dl_job.log_path,
+                "task_id": dl_job.task_id,
+                "run_id": dl_job.run_id,
+                "run_root": dl_job.run_root,
+                "tool_name": dl_job.tool_name,
+                "job_type": dl_job.job_type,
+                "output_path": dl_job.output_path,
+                "params_path": dl_job.params_path,
+            }
+            if include_logs:
+                if dl_job.log_path and Path(dl_job.log_path).exists():
+                    result["log_content"] = Path(dl_job.log_path).read_text(errors="replace")
+                else:
+                    result["log_content"] = None
+            return result
+
+        # Not a DownloadJob — fall through to ISCE3 workflow job lookup below
+        try:
+            job = Job.load(job_id, _jobs_dir)
+        except ValueError as exc:
+            return {"error": "invalid_job_id", "message": str(exc)}
+        except FileNotFoundError:
+            return _job_error(job_id)
+
+        job = _refresh_workflow_job_status(job, _jobs_dir)
+
+        result = {
+            "job_id": job.job_id,
+            "project_id": job.project_id,
+            "status": job.status,
+            "pid": job.pid,
+            "exit_code": job.exit_code,
+            "submitted_at": job.submitted_at,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "log_path": job.log_path,
+            "runconfig_path": job.runconfig_path,
+        }
+        if include_logs:
+            if job.log_path and Path(job.log_path).exists():
+                result["log_content"] = Path(job.log_path).read_text(errors="replace")
+            else:
+                result["log_content"] = None
+        return result
+
     if output_dir or (workspace_root and task_id):
         output_path = Path(output_dir).expanduser() if output_dir else None
         if output_path is not None and not output_path.exists():

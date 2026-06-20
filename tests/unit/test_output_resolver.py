@@ -147,7 +147,7 @@ def test_resolve_run_layout_prefers_pinned_run_id(output_root):
         name="t",
         engine="isce3",
         workflow="insar",
-        workspace_root=str(output_root),
+        output_root=str(output_root),
         task_id="d-insar-isce3",
         run_id="PINNED",
     )
@@ -163,7 +163,7 @@ def test_resolve_run_layout_recovers_from_runconfig_path(output_root):
         name="d-insar-isce2",
         engine="isce2",
         workflow="d-insar",
-        workspace_root=str(output_root),
+        output_root=str(output_root),
         task_id="d-insar-isce2",
     )
     # Stamp a runconfig path that points into the run
@@ -207,7 +207,7 @@ def test_param_advice_output_dir_prefers_pinned_run(output_root):
         name="t",
         engine="isce2",
         workflow="topsapp",
-        workspace_root=str(output_root),
+        output_root=str(output_root),
         task_id="d-insar-isce2",
         run_id="PINNED",
     )
@@ -221,7 +221,7 @@ def test_param_advice_output_dir_explicit_path_is_returned(output_root):
         name="t",
         engine="isce2",
         workflow="topsapp",
-        workspace_root=str(output_root),
+        output_root=str(output_root),
         task_id="d-insar-isce2",
     )
     explicit = output_root / "custom_dir"
@@ -234,7 +234,7 @@ def test_param_advice_output_dir_outside_workspace_raises(output_root, tmp_path)
         name="t",
         engine="isce2",
         workflow="topsapp",
-        workspace_root=str(output_root),
+        output_root=str(output_root),
         task_id="d-insar-isce2",
     )
     outside = tmp_path / "outside"

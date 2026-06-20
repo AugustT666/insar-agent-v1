@@ -243,7 +243,7 @@ def param_advice_output_dir(project: "Project", output_dir: str, task_id: str) -
         return candidate
 
     requested_task = sanitize_identifier(task_id) if task_id.strip() else ""
-    preferred_task = project.task_id or requested_task or getattr(project, "name", "") or getattr(project, "project_id", "")
+    preferred_task = getattr(project, "task", None) or project.task_id or requested_task or getattr(project, "name", "") or getattr(project, "project_id", "")
     pinned = getattr(project, "run_id", None)
     if pinned:
         try:

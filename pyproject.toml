@@ -30,7 +30,7 @@ insar-mcp-server = "insar_agent.mcp.server:main"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-m 'not real_data'"
+addopts = "-m 'not real_data' --import-mode=importlib"
 markers = [
   "real_data: tests that require mounted NAS data or launch real processing workflows",
   "timeout: maximum runtime hint for long-running integration tests",

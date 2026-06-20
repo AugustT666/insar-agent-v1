@@ -278,20 +278,24 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
         return _project_error(project_id)
 
     _ensure_project_logging(project)
-    run_layout = _resolve_run_layout(project)
-    dest_dir = Path(output_dir.strip()) if output_dir.strip() else (run_layout.configs_dir if run_layout else project.configs_dir())
-    if output_dir.strip() and project.task_id and run_layout is not None:
-        workspace_root = Path(project.workspace_root).expanduser().resolve()
-        resolved_dest = dest_dir.expanduser().resolve()
-        if resolved_dest.is_relative_to(workspace_root) and not resolved_dest.is_relative_to(run_layout.run_root):
-            return {
-                "error": "invalid_input",
-                "message": (
-                    "For task projects, output_dir inside workspace_root must be under "
-                    "<workspace>/<task_id>/outputs/<run_id>; do not write runconfig exports "
-                    "beside task directories or beside outputs/<run_id>."
-                ),
-            }
+    rl = RunLayout(
+        output_root=project.output_root,
+        task=project.task or project.task_id or project.name or project.project_id,
+        run_id=project.run_id,
+    )
+    dest_dir = Path(output_dir.strip()) if output_dir.strip() else rl.configs_dir
+    if output_dir.strip() and project.task_id:
+        # Legacy-layout containment check (task_id-gated for backward compatibility).
+        # For new-layout projects (task_id=None), no containment check is applied here.
+        run_layout = _resolve_run_layout(project)
+        if run_layout is not None:
+            output_root_path = Path(project.output_root).expanduser().resolve()
+            resolved_dest = dest_dir.expanduser().resolve()
+            if resolved_dest.is_relative_to(output_root_path) and not resolved_dest.is_relative_to(run_layout.run_root.resolve()):
+                return {
+                    "error": "invalid_input",
+                    "message": "output_dir must be inside the run root",
+                }
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:

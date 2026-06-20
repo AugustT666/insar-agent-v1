@@ -19,15 +19,8 @@ def isolated_registry(tmp_path, monkeypatch):
 
 def test_record_param_advice_writes_json_and_markdown_under_product_path(tmp_path):
     workspace = tmp_path / "workspace"
-    result = insar_create_project(engine="isce3", workflow="insar", workspace_root=str(workspace))
+    result = insar_create_project(engine="isce3", workflow="insar", output_root=str(workspace))
     project_id = result["project_id"]
-    # New layout: <workspace>/<task_id>/outputs/<run_id>/products
-    product_dir = workspace / "d-insar-isce3" / "outputs" / "d-insar-isce3_20260511T001500" / "products"
-    insar_set_runconfig_value(
-        project_id,
-        "runconfig.groups.product_path_group.product_path",
-        str(product_dir),
-    )
 
     package = {
         "advisory_only": True,
@@ -76,13 +69,12 @@ def test_record_param_advice_writes_json_and_markdown_under_product_path(tmp_pat
     assert "error" not in record
     json_path = Path(record["recommendation_json"])
     markdown_path = Path(record["recommendation_markdown"])
-    # New layout: param_advisor goes to workspace/<task_id>/outputs/<run_id>/param_advisor/
-    # (or inside the product_dir run-root if product_path already has run_id structure)
     assert json_path.name == "recommendation.json"
     assert markdown_path.name == "recommendation.md"
     assert "param_advisor" in json_path.parts
-    # New layout: param_advisor is under workspace/<task_id>/outputs/<run_id>/param_advisor/
-    assert json_path.is_relative_to(workspace / "d-insar-isce3" / "outputs")
+    # New layout: param_advisor is under <run_root>/insar_product/param_advisor
+    assert "insar_product" in json_path.parts
+    assert json_path.is_relative_to(workspace)
     assert not (workspace / "d-insar-isce3" / "param_advisor").exists()
     assert not (workspace / "d-insar-isce3" / "param_tuned").exists()
     data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -122,7 +114,7 @@ def test_record_param_advice_rejects_output_dir_outside_workspace(tmp_path):
 
 def test_record_param_advice_prefers_project_task_id_over_label(tmp_path):
     workspace = tmp_path / "workspace"
-    result = insar_create_project(engine="isce3", workflow="insar", workspace_root=str(workspace))
+    result = insar_create_project(engine="isce3", workflow="insar", output_root=str(workspace))
 
     record = insar_record_param_advice(
         result["project_id"],
@@ -133,6 +125,8 @@ def test_record_param_advice_prefers_project_task_id_over_label(tmp_path):
     assert "error" not in record
     advice_dir = Path(record["advice_dir"])
     assert advice_dir.resolve().is_relative_to(workspace.resolve())
-    assert advice_dir.is_relative_to(workspace / "d-insar-isce3" / "outputs")
+    # New layout: param_advisor is under <run_root>/insar_product/param_advisor
+    assert "insar_product" in advice_dir.parts
+    assert "param_advisor" in advice_dir.parts
     assert ".." not in advice_dir.parts
     assert "evil" not in str(advice_dir)
