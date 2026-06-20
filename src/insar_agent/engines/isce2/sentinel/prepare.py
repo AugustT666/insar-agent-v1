@@ -7,6 +7,7 @@ from typing import Callable
 from uuid import uuid4
 
 from insar_agent.core.layout import infer_run_root
+from insar_agent.core.progress import append_progress
 from insar_agent.engines.isce2.sentinel import orbit as orbit
 from insar_agent.engines.isce2.sentinel._common import (
     _append_log,
@@ -240,7 +241,8 @@ def prepare_sentinel_data(
 ) -> dict:
     _ = (mode, include_pair, include_stack)
     root = Path(project_root).expanduser().resolve()
-    logs_dir = _ensure_dir((infer_run_root(root) or root) / "logs")
+    _run_root = infer_run_root(root) or root
+    logs_dir = _ensure_dir(_run_root / "logs")
     job_id = uuid4().hex[:12]
     prep_log_path = logs_dir / f"sentinel_prep_{job_id}.log"
     prep_params_path = logs_dir / f"sentinel_prep_{job_id}_params.json"
@@ -367,6 +369,7 @@ def prepare_sentinel_data(
             _validate_safe_annotation_geolocation(safe_dir, metadata["bbox"], require_annotations=True)
             _link_burst_sources(scene_paths, safe_dir / "bursts", scene_id)
             _append_log(prep_log_path, f"SYNTHESIZE {scene_id} -> {safe_dir}")
+            append_progress(_run_root, f"SYNTHESIZE {scene_id} -> {safe_dir}")
 
             match = SCENE_ID_RE.match(scene_id)
             acquisition_date = match.group(2) if match else None
@@ -407,6 +410,7 @@ def prepare_sentinel_data(
         if dem_candidate.exists():
             resolved_dem_path = str(dem_candidate)
             _append_log(prep_log_path, f"DEM using existing {resolved_dem_path}")
+            append_progress(_run_root, f"DEM using existing {resolved_dem_path}")
         elif download_dem:
             # dem_path given but file doesn't exist — will download to it below
             _append_log(prep_log_path, f"DEM path given but not found, will download: {dem_path}")
@@ -447,6 +451,7 @@ def prepare_sentinel_data(
             resolved_dem_path = dem_result["output_path"]
             dem_log_path = dem_result.get("log_path")
             _append_log(prep_log_path, f"DEM downloaded {resolved_dem_path}")
+            append_progress(_run_root, f"DEM downloaded {resolved_dem_path}")
 
     _append_log(prep_log_path, f"DEM final path: {resolved_dem_path}")
 
@@ -472,6 +477,7 @@ def prepare_sentinel_data(
         )
         resolved_orbit_dir = str(orbit_target)
         _append_log(prep_log_path, f"ORBIT dir={resolved_orbit_dir} downloaded={orbit_downloaded_count} failed={len(orbit_failed)}")
+        append_progress(_run_root, f"ORBIT dir={resolved_orbit_dir} downloaded={orbit_downloaded_count} failed={len(orbit_failed)}")
     elif orbit_dir:
         orbit_target = Path(orbit_dir).expanduser().resolve()
         if not orbit_target.exists():

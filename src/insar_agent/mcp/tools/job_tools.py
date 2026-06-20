@@ -105,6 +105,7 @@ def insar_get_job(
                 "job_type": dl_job.job_type,
                 "output_path": dl_job.output_path,
                 "params_path": dl_job.params_path,
+                "progress": read_progress_tail(dl_job.run_root) if dl_job.run_root else "",
             }
             if include_logs:
                 if dl_job.log_path and Path(dl_job.log_path).exists():
@@ -211,6 +212,7 @@ def insar_get_job(
             "job_type": dl_job.job_type,
             "output_path": dl_job.output_path,
             "params_path": dl_job.params_path,
+            "progress": read_progress_tail(dl_job.run_root) if dl_job.run_root else "",
         }
         if include_logs:
             if dl_job.log_path and Path(dl_job.log_path).exists():
