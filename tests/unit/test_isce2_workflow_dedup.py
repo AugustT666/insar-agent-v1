@@ -99,7 +99,8 @@ def _save_job(
     return job
 
 
-def test_run_workflow_isce2_materializes_tops_dem_under_run_root(monkeypatch, tmp_path):
+def test_run_workflow_isce2_materializes_tops_dem_under_prepare_dem(monkeypatch, tmp_path):
+    """C3 fix: DEM must land at output_root/prepare/dem/ (not run_root/isce2_dem/)."""
     project = _make_tops_project(tmp_path)
 
     monkeypatch.setattr(server, "_validate_isce2_safe_annotation_geolocation", lambda _params, _workflow: [], raising=False)
@@ -108,14 +109,16 @@ def test_run_workflow_isce2_materializes_tops_dem_under_run_root(monkeypatch, tm
     result = server._run_workflow_isce2(project, dry_run=True)
 
     run_root = Path(result["run_root"])
-    expected_dem = run_root / "isce2_dem" / "dem.tif"
+    # C3 fix: DEM lands at output_root/prepare/dem/ using output_root= kwarg
+    expected_dem = Path(project.output_root) / "prepare" / "dem" / "dem.tif"
     # New layout: configs live under run_root/insar_product/configs/
     rendered = (run_root / "insar_product" / "configs" / "topsApp.xml").read_text(encoding="utf-8")
     assert f"<property name=\"demfilename\">{expected_dem}</property>" in rendered
     assert (expected_dem.with_suffix(expected_dem.suffix + ".xml")).exists()
     assert (expected_dem.with_suffix(expected_dem.suffix + ".vrt")).exists()
+    # Legacy isce2_dem path must NOT be created
     assert not (Path(project.output_root) / "isce2_dem").exists()
-    assert not (run_root / "isce2_dem").exists() or True  # isce2_dem is directly under run_root
+    assert not (run_root / "isce2_dem").exists()
     assert not (Path(project.output_root) / "d-insar-isce2" / "configs").exists()
 
 

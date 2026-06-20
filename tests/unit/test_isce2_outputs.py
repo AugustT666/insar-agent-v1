@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from insar_agent.core.jobs import Job
 from insar_agent.mcp.server import insar_create_project, insar_list_outputs
 
@@ -17,7 +19,10 @@ def test_insar_list_outputs_includes_isce2_merged_artifacts(tmp_path, monkeypatc
     )
     project_id = created["project_id"]
 
-    merged = workspace / "merged"
+    # In the new layout, ISCE2 native outputs land under run_root/merged/
+    # (run_root = <workspace>/<task>_<run_id>), not directly under workspace_root.
+    run_root = Path(created["run_root"])
+    merged = run_root / "merged"
     merged.mkdir(parents=True, exist_ok=True)
     (merged / "filt_topophase.unw.geo").write_bytes(b"geo")
     (merged / "phsig.cor.geo").write_bytes(b"cor")

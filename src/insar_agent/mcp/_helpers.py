@@ -874,16 +874,34 @@ except Exception as _exc:
 def _launch_sentinel_prepare_background(params: dict) -> dict:
     root = Path(params["project_root"]).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
-    job_context = _task_job_context(
-        workspace_root=str(params.get("workspace_root") or ""),
-        task_id=str(params.get("task_id") or ""),
-        path=root,
-    )
-    if job_context is None:
-        return {
-            "error": "missing_task_context",
-            "message": "Background Sentinel preparation must be associated with <workspace>/<task_id>; provide workspace_root and task_id or a project_root under outputs/<run_id>.",
+
+    # For project_id path, prepare/ dir has no .insar_agent marker so
+    # find_run_root returns None.  Mirror _launch_dem_download_background:
+    # build job context directly from the loaded project.
+    _pid = str(params.get("project_id") or "").strip()
+    if _pid:
+        try:
+            _proj = Project.load(_pid)
+        except (KeyError, FileNotFoundError):
+            return {"error": "project_not_found", "message": f"Project {_pid!r} not found"}
+        job_context: dict | None = {
+            "workspace_root": _proj.output_root,
+            "task_id": _proj.task or _proj.task_id or "",
+            "run_id": _proj.run_id or "",
+            "run_root": str(_proj.run_root()) if hasattr(_proj, "run_root") else "",
+            "jobs_dir": _proj.jobs_dir(),
         }
+    else:
+        job_context = _task_job_context(
+            workspace_root=str(params.get("workspace_root") or ""),
+            task_id=str(params.get("task_id") or ""),
+            path=root,
+        )
+        if job_context is None:
+            return {
+                "error": "missing_task_context",
+                "message": "Background Sentinel preparation must be associated with <workspace>/<task_id>; provide workspace_root and task_id or a project_root under outputs/<run_id>.",
+            }
     logs_dir = (infer_run_root(root) or root) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     job = DownloadJob(

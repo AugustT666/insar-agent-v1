@@ -606,13 +606,18 @@ class TestListOutputs:
         result = insar_list_outputs(job_id, pid)
         assert any(item["path"] == str(product) for item in result["outputs"])
 
-    def test_finds_relative_sas_output_written_to_workspace_root(self, insar_project):
+    def test_finds_gunw_in_run_insar_product_dir(self, insar_project):
+        """I3 fix: ISCE3 .h5 glob is scoped to run_root/insar_product/ (not all-runs output_root)."""
         pid = insar_project["project_id"]
         job_id = self._make_done_job(pid)
 
         from insar_agent.core.project import Project
+        from insar_agent.core.layout import RunLayout
         project = Project.load(pid)
-        product = Path(project.workspace_root) / "GUNW.h5"
+        layout = RunLayout(project.output_root, project.task, project.run_id)
+        insar_product_dir = layout.insar_product_dir
+        insar_product_dir.mkdir(parents=True, exist_ok=True)
+        product = insar_product_dir / "GUNW.h5"
         product.write_text("fake")
 
         result = insar_list_outputs(job_id, pid)

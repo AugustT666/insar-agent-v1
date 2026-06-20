@@ -194,8 +194,16 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
         isce2_work_dir = str(_isce2_layout.run_root) if _isce2_layout else project.workspace_root
 
         try:
-            dem_root = _isce2_layout.run_root if _isce2_layout else Path(project.workspace_root)
-            dem_file = materialize_dem_for_tops(params["dem_file"], dem_root)
+            if _isce2_layout:
+                dem_file = materialize_dem_for_tops(
+                    params["dem_file"],
+                    output_root=project.output_root,
+                )
+            else:
+                dem_file = materialize_dem_for_tops(
+                    params["dem_file"],
+                    workspace_root=Path(project.workspace_root),
+                )
             xml_content = build_topsapp_xml({**params, "dem_file": dem_file})
         except Exception as exc:
             return {"error": "config_generation_failed", "message": str(exc)}
@@ -682,12 +690,17 @@ def insar_run_mintpy(
         "poll": f"insar_get_job(job_id='{job_id}', work_dir='{mintpy_work_dir}')",
         "work_dir": mintpy_work_dir,
     }
-    # Warn if mintpy_work_dir is too shallow for run-root layout
-    _workspace_guess = Path(mintpy_work_dir).parent
-    _depth_warn = _check_output_dir_depth(mintpy_work_dir, _workspace_guess.parent, "mintpy")
+    # Warn if mintpy_work_dir is too shallow for run-root layout.
+    # Use find_run_root to locate the output_root instead of fragile .parent.parent math.
+    _mintpy_run_root = find_run_root(mintpy_work_dir)
+    if _mintpy_run_root is not None:
+        _output_root_guess = _mintpy_run_root.parent
+        _depth_warn = _check_output_dir_depth(mintpy_work_dir, _output_root_guess, "mintpy")
+    else:
+        _depth_warn = None
     if _depth_warn:
         response["layout_warning"] = (
-            _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/mintpy"
+            _depth_warn + " Recommended: <output_root>/<task>_<run_id>/insar_product/mintpy"
         )
     return response
 
@@ -753,11 +766,17 @@ def insar_run_mintpy_isce2(
         "work_dir": mintpy_work_dir,
         "stack_work_dir": stack_work_dir,
     }
-    # Warn if mintpy_work_dir is too shallow for run-root layout
-    _depth_warn = _check_output_dir_depth(mintpy_work_dir, Path(mintpy_work_dir).parent.parent, "mintpy")
+    # Warn if mintpy_work_dir is too shallow for run-root layout.
+    # Use find_run_root to locate the output_root instead of fragile .parent.parent math.
+    _isce2_mintpy_run_root = find_run_root(mintpy_work_dir)
+    if _isce2_mintpy_run_root is not None:
+        _isce2_output_root_guess = _isce2_mintpy_run_root.parent
+        _depth_warn = _check_output_dir_depth(mintpy_work_dir, _isce2_output_root_guess, "mintpy")
+    else:
+        _depth_warn = None
     if _depth_warn:
         isce2_mintpy_response["layout_warning"] = (
-            _depth_warn + " Recommended: <workspace>/<task_id>/outputs/<run_id>/mintpy"
+            _depth_warn + " Recommended: <output_root>/<task>_<run_id>/insar_product/mintpy"
         )
     return isce2_mintpy_response
 
@@ -921,14 +940,17 @@ def insar_download_rslc(
     if not h5_urls:
         return {"error": "invalid_input", "message": "No RSLC .h5 URLs found in the provided list"}
 
+    _rslc_proj: Project | None = None
     if not output_dir.strip():
         if project_id.strip():
             try:
-                _proj = Project.load(project_id.strip())
+                _rslc_proj = Project.load(project_id.strip())
             except (KeyError, FileNotFoundError):
                 return {"error": "project_not_found", "message": f"Project {project_id!r} not found"}
-            output_dir = str(prepare_input_dir(_proj.output_root, "rslc"))
-            workspace_root = workspace_root or _proj.output_root
+            output_dir = str(prepare_input_dir(_rslc_proj.output_root, "rslc"))
+            workspace_root = workspace_root or _rslc_proj.output_root
+            task_id = task_id or _rslc_proj.task or _rslc_proj.task_id or ""
+            run_id = run_id or _rslc_proj.run_id or ""
         elif workspace_root.strip() and task_id.strip():
             _rid = _resolve_task_run_id(workspace_root, task_id, run_id)
             _layout = RunLayout(output_root=workspace_root, task=task_id, run_id=_rid or None)
@@ -940,12 +962,33 @@ def insar_download_rslc(
             }
     output_dir_path = Path(output_dir).expanduser().resolve()
     output_dir = str(output_dir_path)
-    job_context = _task_job_context(workspace_root=workspace_root, task_id=task_id, path=output_dir_path)
-    if job_context is None:
+
+    # Reuse guard: if target dir already exists with content, skip download.
+    if _rslc_proj is not None and output_dir_path.exists() and any(output_dir_path.iterdir()):
         return {
-            "error": "missing_task_context",
-            "message": "Background RSLC downloads must be associated with <workspace>/<task_id>; provide workspace_root and task_id or an output_dir under outputs/<run_id>.",
+            "output_dir": output_dir,
+            "reused": True,
+            "message": "RSLC directory already present; skipping download.",
         }
+
+    # Build job context: for project_id path use project.jobs_dir() directly
+    # (prepare/ dir has no .insar_agent marker so find_run_root returns None).
+    if _rslc_proj is not None:
+        _rslc_jobs_dir = _rslc_proj.jobs_dir()
+        job_context: dict = {
+            "workspace_root": _rslc_proj.output_root,
+            "task_id": task_id,
+            "run_id": run_id,
+            "run_root": str(_rslc_proj.run_root()) if hasattr(_rslc_proj, "run_root") else "",
+            "jobs_dir": _rslc_jobs_dir,
+        }
+    else:
+        job_context = _task_job_context(workspace_root=workspace_root, task_id=task_id, path=output_dir_path)
+        if job_context is None:
+            return {
+                "error": "missing_task_context",
+                "message": "Background RSLC downloads must be associated with <workspace>/<task_id>; provide workspace_root and task_id or an output_dir under outputs/<run_id>.",
+            }
 
     params = {
         "urls": h5_urls,
@@ -1450,6 +1493,7 @@ def insar_prepare_sentinel_data(
 
     params = {
         "project_root": project_root,
+        "project_id": project_id,
         "workspace_root": workspace_root,
         "task_id": task_id,
         "run_id": run_id,

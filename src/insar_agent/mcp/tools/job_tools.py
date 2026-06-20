@@ -437,17 +437,33 @@ def insar_list_outputs(job_id: str, project_id: str) -> dict:
     if project.outputs_dir() not in candidate_dirs:
         candidate_dirs.append(project.outputs_dir())
 
+    # Scope legacy globs to the current run root (not the all-runs output_root
+    # which is what workspace_root now aliases).  ISCE2 native outputs
+    # (merged/, geom_reference/, etc.) land directly in run_root/ in the new
+    # layout, while ISCE3 products (.h5) land in insar_product/.
+    _run_root_path: Path | None = None
+    _run_insar_product: Path | None = None
+    if project.task and project.run_id:
+        _run_layout = RunLayout(
+            output_root=project.output_root,
+            task=project.task,
+            run_id=project.run_id,
+        )
+        _run_root_path = _run_layout.run_root
+        _run_insar_product = _run_layout.insar_product_dir
     if project.engine == "isce3":
-        candidate_files.extend(sorted(workspace_root.glob("*.h5")))
+        _isce3_search_root = _run_insar_product or workspace_root
+        candidate_files.extend(sorted(_isce3_search_root.glob("*.h5")))
     if project.engine == "isce2":
+        _isce2_search_root = _run_root_path or workspace_root
         candidate_dirs.extend(
             [
-                workspace_root / "merged",
-                workspace_root / "reference",
-                workspace_root / "secondary",
-                workspace_root / "geom_reference",
-                workspace_root / "fine_interferogram",
-                workspace_root / "fine_coreg",
+                _isce2_search_root / "merged",
+                _isce2_search_root / "reference",
+                _isce2_search_root / "secondary",
+                _isce2_search_root / "geom_reference",
+                _isce2_search_root / "fine_interferogram",
+                _isce2_search_root / "fine_coreg",
             ]
         )
 
