@@ -58,7 +58,9 @@ workflow skill can resolve through a valid default.
 Before routing to any processing workflow, confirm two inputs exist; if either is
 missing, STOP and ask the user — do not invent paths:
 
-1. **Workspace root** — the top-level workspace directory. All outputs land under it.
+1. **`output_root`** — the single top-level directory passed to `insar_create_project`.
+   Shared prepare inputs (DEM, SAFE, orbits, RSLC) land under `<output_root>/prepare/` and are
+   **reused across runs** — a present DEM/SAFE is not re-downloaded.
 2. **Input data paths** — whatever the user has (RSLC / SAFE / burst / zip / DEM).
    Inputs may be incomplete: if a required input (DEM, precise orbits) is missing,
    auto-complete it by calling the matching tool (e.g. `insar_download_dem`) rather
@@ -66,9 +68,16 @@ missing, STOP and ask the user — do not invent paths:
 
 Output location is OPTIONAL: if the user gives one, the product tools validate it
 stays inside the workspace run root; if not, tools derive the default run directory.
-After this gate the user is not asked about paths again — every product for the task
-lands under `outputs/<run_id>/` (use the `run_root` returned by the tools), and
-project metadata lands under `.insar_agent/`.
+After this gate the user is not asked about paths again. Layout:
+- Shared inputs: `<output_root>/prepare/{dem,safe,orbits,rslc}/`
+- Per-run products: `<output_root>/<task>_<timestamp>/insar_product/<subdir>/`
+- Agent state + Layer-1 progress: `<run_root>/.insar_agent/progress.log`
+- Raw engine logs (Layer-2): `<run_root>/insar_product/logs/`
+
+Long tasks (≥2 scenes, DEM/orbit download, stack processing) auto-background:
+tool returns `{job_id, status:"running", poll, monitor, log_path}`.
+Always relay the `monitor` command to the user so they can watch Layer-1 progress live.
+Poll with `insar_get_job` at minute-level intervals — NOT a tight while-true loop.
 
 ## Workflow Routing
 

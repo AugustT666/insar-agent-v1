@@ -119,7 +119,7 @@ subagent 用自己的只读工具自取证据（都留在它自己的上下文�
 时序任务再确认：`base_runconfig` 是否传播整条 stack/network、stack 场景数/时间跨度/参考景、
 network 模式（`tbase` / `conn` / 自定义 pair list）、偏"稳定 coherence"还是"单对分辨率/锐利度"。
 
-subagent 完成后用 `insar_record_param_advice` **自行落盘**为 `<run_root>/param_advisor/recommendation.json`，
+subagent 完成后用 `insar_record_param_advice` **自行落盘**为 `<run_root>/.insar_agent/recommendation.json`，
 只回传精简摘要 + 该路径。落盘内容至少应包含：
 
 - `summary`
@@ -152,9 +152,10 @@ subagent 返回后，主会话先**全读**它落盘的 `recommendation.json`（
 2. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 3. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 4. **落盘（防重复调优）：**
-   - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<current_run_root>/param_tuned")`
-     → `<current_run_root>` 必须来自本轮 `insar_run_workflow(project_id, dry_run=True)` 返回的 `run_root`，或当前 runconfig 的 product/scratch/log 路径反推出的 run-root
-     → 保存到该 run 的 param_tuned 目录下（以工具返回的 run_root 为准）；不得写到 run 目录之外
+   - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<current_run_root>/insar_product/param_tuned")`
+     → `<current_run_root>` 必须来自本轮 `insar_run_workflow(project_id, dry_run=True)` 返回的 `run_root`
+       （格式为 `<output_root>/<task>_<timestamp>`），或当前 runconfig 的 product 路径反推出的 run-root
+     → 保存到该 run 的 `insar_product/param_tuned` 目录下（以工具返回的 run_root 为准）；不得写到 run 目录之外
      → 此后 `insar_run_workflow(dry_run=True)` 返回 `param_tuned_found: true` 和 `param_tuned_config` 路径
    - **ISCE3 Path B**：将 subagent 输出的完整调优 YAML 写入 `<data_dir>/base_runconfig_param_tuned.yaml`
      → 此后 `insar_prepare_stack` / `insar_prepare_network` 返回 `param_tuned_found: true`

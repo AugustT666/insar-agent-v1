@@ -51,9 +51,11 @@ If any prerequisite is missing, ask the user or invoke the appropriate preparati
 
 > **Create the project FIRST, then prepare data.** `insar_create_project` is cheap —
 > it just writes `project.json` and pins the run_id. Doing it first means every later
-> step (data-prep, DEM, param-advice, stack, MintPy) passes `workspace_root`+`task_id`
+> step (data-prep, DEM, param-advice, stack, MintPy) passes `project_id`
 > and joins that one pinned run. If you prepare data before the project exists, the
 > prep mints its own run and the task ends up split across two run directories.
+> Shared inputs land under `<output_root>/prepare/` — reused if already present (DEM/SAFE not re-downloaded).
+> Per-run products land under `<run_root> = <output_root>/<task>_<timestamp>/insar_product/`.
 
 ### Step 1 — Create stack project (FIRST — pins the run)
 
@@ -61,7 +63,7 @@ If any prerequisite is missing, ask the user or invoke the appropriate preparati
 insar_create_project(
     engine="isce2",
     workflow="stack",
-    workspace_root=<workspace_root>,
+    output_root=<output_root>,
     name="s1-stack-<region>",
     conda_env=<task/user specified ISCE2 env or "isce2">,   # ALWAYS pass this — see below
     task_id=<task_id>        # auto-derived; drives the run-root layout
@@ -70,7 +72,7 @@ insar_create_project(
 
 **One project, one run — do NOT re-create the project to fix a recoverable error.**
 `insar_create_project` pins the run_id once; every later step (data-prep, DEM,
-param-advice, workflow) joins that same run when given `workspace_root`+`task_id`.
+param-advice, workflow) joins that same run when given `project_id`.
 Re-creating the project mints a NEW run_id and splits the task across two run directories.
 
 - **Always pass `conda_env="isce2"` at creation.** If you forgot it (or the workflow fails
@@ -88,11 +90,11 @@ Re-creating the project mints a NEW run_id and splits the task across two run di
 ### Step 2 — Ensure Sentinel data is prepared (joins the pinned run)
 
 If the user only has raw SAFE ZIP / SAFE / burst inputs, invoke `data-prep`, passing the
-same `workspace_root` and `task_id` from Step 1 so the prepared inputs land under this
-project's run (`outputs/<run_id>/prep/`):
+same `project_id` from Step 1 so the prepared inputs land under
+`<output_root>/prepare/` (shared, reused across runs):
 
 ```
-data-prep   # with workspace_root=<workspace_root>, task_id=<task_id>
+data-prep   # with project_id=<project_id>
 ```
 
 Use one returned grouped SAFE directory plus the returned `dem_path` and `orbit_dir` as the handoff for this skill. For burst-derived SAFE inputs, require `data-prep` to return `isce2_import_validation.status == "passed"`; if it fails, stop and report the failed scene messages/logs instead of running stackSentinel.
@@ -198,9 +200,10 @@ Returns `job_id`, `log_path`, `pid`, and `run_root`.
 For multi-hour stack jobs, rely on the background job returned by `insar_run_workflow`. Always return:
 
 - the job id
-- the absolute log path (`<run_root>/logs/<job_id>.log`)
-- the `run_root` (use it for MintPy: `mintpy_work_dir=<run_root>/mintpy`)
+- the Layer-1 progress monitor command (`tail -f <run_root>/.insar_agent/progress.log`) — relay to user
+- the `run_root` (use it for MintPy: `mintpy_work_dir=<run_root>/insar_product/mintpy`)
 - the exact `insar_get_job` polling call
+- Layer-2 raw engine logs at `<run_root>/insar_product/logs/`
 
 Monitor only with `insar_get_job(job_id=job_id, project_id=project_id)`.
 
@@ -224,8 +227,8 @@ After stack processing completes, delegate to the unified **mintpy** skill with 
 ```
 Invoke the /insar-agent:mintpy skill
 - engine: isce2
-- stack_work_dir: <run_root>/stack   (returned by insar_run_workflow as run_root + "/stack")
-- mintpy_work_dir: <run_root>/mintpy  (recommended run-root layout)
+- stack_work_dir: <run_root>/insar_product/stack   (returned by insar_run_workflow)
+- mintpy_work_dir: <run_root>/insar_product/mintpy  (canonical run-root layout)
 - conda_env: the task/user specified MintPy env, or "isce2" if none was specified
 - interaction_mode: interactive (default) or auto
 ```
@@ -264,10 +267,10 @@ baseline text products inside the stack work directory or continue through the u
 ```
 insar_list_outputs(project_id=project_id)
 
-# Export velocity map — velocity.h5 is at <run_root>/mintpy/velocity.h5
+# Export velocity map — velocity.h5 is at <run_root>/insar_product/mintpy/velocity.h5
 insar_export_geotiff(
-    h5_path="<run_root>/mintpy/velocity.h5",
-    output_dir="<run_root>"
+    h5_path="<run_root>/insar_product/mintpy/velocity.h5",
+    output_dir="<run_root>/insar_product/exports"
 )
 ```
 

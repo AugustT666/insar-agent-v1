@@ -33,15 +33,17 @@ Each option generates shell scripts that can be launched manually or through `in
 - `base_runconfig`: base ISCE3 insar runconfig YAML (template). If omitted, uses the built-in default `insar` template.
 - `isce3_conda_env`: conda env that contains ISCE3. Use the task/user specified value when provided; if missing or unclear, inspect environment availability and choose an available ISCE3-compatible env before launch.
 - DEM path (`.tif`) — if missing, invoke `data-prep` first. If `insar_download_dem`
-  times out, check `<workspace>/<task_id>/dem/` for an existing DEM from a prior run
+  times out, check `<output_root>/prepare/dem/` for an existing DEM from a prior run
   before retrying; if one exists and is non-zero, use it directly.
 - Which option(s) to run: Stack only, Network only, or both
 - Output directory (one per option if running both)
-  - **Run-root layout**: use `<run_root>/stack` for stack and `<run_root>/network` for network;
+  - **Run-root layout**: per-run products land under `<run_root>/insar_product/`.
+    Use `<run_root>/insar_product/stack` for stack and `<run_root>/insar_product/network` for network;
     use the `run_root` the tool returns, don't hand-assemble the path.
     Do NOT pass the workspace root or a task subdirectory directly as a run_root.
+  - Layer-1 concise progress: `<run_root>/.insar_agent/progress.log` — relay `monitor` to user.
   - After batch completes, invoke the `mintpy` skill via `Skill(insar-agent-plugin:mintpy)`.
-    Use `<run_root>/mintpy` as `mintpy_work_dir`. Do not read the mintpy skill file directly
+    Use `<run_root>/insar_product/mintpy` as `mintpy_work_dir`. Do not read the mintpy skill file directly
     with the Read tool — always use the Skill tool.
 - Network mode (only if running Option B): `tbase`, `conn`, or custom pair list (see `references/network-modes.md`)
 - Number of parallel jobs (`N`) for the shell scripts
@@ -127,14 +129,16 @@ insar_run_batch(
     interaction_mode=<interactive|auto>
 )
 ```
-Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_logs=True` while polling — only use it once if the job fails.
+Relay the `monitor` command from the response to the user:
+  `tail -f <run_root>/.insar_agent/progress.log` (Layer-1 concise progress).
+Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_logs=True` while polling — only use it once if the job fails.
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
+Layer-2 raw engine logs at `<run_root>/insar_product/logs/`.
 
-**轮询纪律:** 多小时批处理,**勿秒级紧凑轮询**(会撑爆数据 agent 上下文,长跑会话曾因此崩)。每次 `insar_get_job` 之间用 `sleep <N>`/`ScheduleWakeup` 拉开到分钟级(N 随阶段自定,长跑 ~20–40min),醒来只查一次 status 再决定继续睡或收口;绝不用不退出的 `while true`。与开发 agent 的"睡-醒-判断"监控一致。
+**轮询纪律 (sleep-wake discipline):** 多小时批处理,**勿秒级紧凑轮询**(会撑爆 agent 上下文)。每次 `insar_get_job` 之间用 `sleep <N>`/`ScheduleWakeup` 拉开到分钟级(N 随阶段自定,长跑 ~20–40min),醒来只查一次 status 再决定继续睡或收口;**绝不用不退出的 `while true`**。
 
-Progress: monitor `tail -f <log_path>` in a terminal for real-time engine output.
-`insar_get_job` reports `num_pairs` (total) and `status` (running/done/failed) but
-does not attempt to parse per-pair progress from the engine log.
+Progress: relay `monitor` command so user watches Layer-1 live in terminal.
+`insar_get_job` returns `progress` (Layer-1 tail) + `status` (running/done/failed).
 
 ### Option B — Short-baseline network
 
@@ -167,8 +171,9 @@ insar_run_batch(
     interaction_mode=<interactive|auto>
 )
 ```
-Tell the user: `tail -f <log_path>` to monitor. Poll `insar_get_job(batch_dir=...)` until done
-(同 Option A 的**轮询纪律**:睡醒式、分钟级间隔、绝不 `while true`,避免数据 agent 上下文饱和)。
+Relay `monitor` command to user (`tail -f <run_root>/.insar_agent/progress.log`).
+Poll `insar_get_job(batch_dir=...)` until done
+(同 Option A 的**轮询纪律**:睡醒式、分钟级间隔、绝不 `while true`,避免 agent 上下文饱和)。
 Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>`
 
 ## Output requirements (report after each completed option)
@@ -176,7 +181,7 @@ Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_
 - Base runconfig source path, and whether `param-advisor (engine=isce3)` was used
 - If Option A ran: number of secondary scenes, reference date, `run_command`
 - If Option B ran: network mode, number of pairs, pair list path, `run_command`
-- Final GUNW output: `<output_dir>/runs/<date1>_<date2>/products/GUNW_*.h5`
+- Final GUNW output: `<run_root>/insar_product/network/runs/<date1>_<date2>/products/GUNW_*.h5`
 - In `interactive` mode, treat MCP handoff points as mandatory user review windows.
 
 ## Practical notes

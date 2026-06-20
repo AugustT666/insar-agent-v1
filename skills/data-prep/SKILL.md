@@ -34,7 +34,7 @@ to engine-specific implementations based on the detected or selected engine:
 | 场景元数据检查 | `insar_describe_rslc` | `insar_describe_s1` |
 | DEM 下载 | `insar_download_dem`（独立 Part B） | `insar_download_dem` 直调或 `insar_prepare_sentinel_data(download_dem=True)` |
 | 辅助数据 | N/A（state vectors 在 HDF 内） | orbits via `insar_prepare_sentinel_data(download_orbits=True)` |
-| 目录约定 | `<project>/rslc/`, `<project>/dem/` | `<project>/safe/`, `<project>/dem/`, `<project>/orbits/` |
+| 目录约定 | `<output_root>/prepare/rslc/`, `<output_root>/prepare/dem/` | `<output_root>/prepare/safe/`, `<output_root>/prepare/dem/`, `<output_root>/prepare/orbits/` |
 | 服务器资源建议 | `nproc` + `free -h` + `df -h` | 同样先做 `nproc` + `free -h` + `df -h` |
 
 ## Unified Workflow
@@ -52,7 +52,8 @@ Ask the user (if not already clear):
    - SAFE directories or SAFE ZIP files or burst manifest (Sentinel-1)
    - AOI file (`.shp`, `.geojson`, `.kml`) or bbox
    - DEM path (optional; will be prepared if not provided)
-   - Workspace / project root directory
+   - `output_root` — the single root passed to `insar_create_project`
+     (shared prepare inputs land under `<output_root>/prepare/`; reused across runs)
 
 ### Step 2 — Delegate to Engine-Specific Skill
 
@@ -82,16 +83,20 @@ If engine is Sentinel-1:
 Invoke `data-prep-sentinel` with:
 - SAFE directories, SAFE ZIPs, or burst manifest
 - AOI path or bbox
-- Project root
+- project_id (from insar_create_project, so prep joins the pinned run)
 - DEM download flag (optional)
 - Orbit download flag (optional)
 - Proxy settings (if needed)
 ```
 
 Expected outputs:
-- Grouped SAFE paths under `safe_root`
-- DEM at `dem_path` (if prepared)
-- Orbits at `orbit_dir` (if prepared)
+- Grouped SAFE paths under `<output_root>/prepare/safe/`
+- DEM at `<output_root>/prepare/dem/` (if prepared)
+- Orbits at `<output_root>/prepare/orbits/` (if prepared)
+
+Long tasks auto-background: tool returns `{job_id, status:"running", poll, monitor, log_path}`.
+Relay the `monitor` command (`tail -f <run>/.insar_agent/progress.log`) to the user.
+Poll with `insar_get_job` at minute-level intervals — NOT a tight while-true loop.
 
 ### Step 3 — Return Prepared Data Paths
 

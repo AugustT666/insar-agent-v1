@@ -87,7 +87,7 @@ The user still needs to provide:
 insar_create_project(
     engine="isce2",
     workflow="tops",
-    workspace_root=<workspace_root>,
+    output_root=<output_root>,
     name="s1-dinsar-<region>-<date>",
     conda_env="isce2",       # ALWAYS pass — do not re-create the project to fix it later
     task_id=<task_id>        # auto-derived; drives the run-root layout
@@ -101,6 +101,9 @@ conda_env="isce2")`. On any failure, retry within the same `project_id`; create 
 only when abandoning the run entirely.
 
 Returns `project_id` and `required_fields` list.
+Per-run products land under `<run_root> = <output_root>/<task>_<timestamp>/insar_product/`.
+Agent state and Layer-1 progress log: `<run_root>/.insar_agent/progress.log`.
+Raw engine logs (Layer-2): `<run_root>/insar_product/logs/`.
 
 ---
 
@@ -186,14 +189,15 @@ insar_get_job(job_id=job_id, project_id=project_id)
 ```
 
 Typical runtime: 30–120 minutes depending on scene size and number of swaths.
+Poll at minute-level intervals — NOT a tight while-true loop (that exhausts context).
+Each response includes `progress` (Layer-1 concise tail from `.insar_agent/progress.log`).
 
-If the run is expected to take a long time, prefer launching it in the background rather than blocking the main session. Always provide the job id or PID plus the absolute log path so the user can inspect progress independently.
-
-Show the user the log path for real-time monitoring:
+Relay the `monitor` command from the `insar_run_workflow` response to the user:
 ```bash
-tail -f <log_path>
+tail -f <run_root>/.insar_agent/progress.log
 ```
-Plugin-controlled launcher logs are written under `<run_root>/logs/` (returned as `log_path` in the response).
+This is the Layer-1 concise progress log (what the user watches in their terminal).
+Layer-2 raw ISCE2 engine logs are at `<run_root>/insar_product/logs/`.
 
 ---
 
@@ -299,9 +303,9 @@ Key output files (located under `<run_root>/` returned by `insar_run_workflow`):
 
 **Solutions**:
 1. **Check Job Status**: Run `insar_get_job(job_id=...)` to see if job is `failed`, `timeout`, or still `running`.
-2. **Inspect Raw Logs**: View full topsApp output at the log path from Step 6:
+2. **Inspect Raw Logs**: View full topsApp output at Layer-2 log path:
    ```bash
-   tail -200 <run_root>/logs/isce2_*.log
+   tail -200 <run_root>/insar_product/logs/isce2_*.log
    ```
 3. **Validate Inputs**: Verify both SAFE/ZIP paths exist and contain valid manifest files:
    ```bash
@@ -337,18 +341,24 @@ For reference (Intel i7 with 32 GB RAM, NVMe storage):
 
 ## Log Inspection
 
-All processing logs are saved under `<run_root>/logs/` (run_root is returned by `insar_run_workflow`):
+Two-layer logging:
+- **Layer-1 concise progress** at `<run_root>/.insar_agent/progress.log` — relay `monitor` command to user.
+- **Layer-2 raw engine output** at `<run_root>/insar_product/logs/`:
+  - `isce2_<job_id>.log` — Main ISCE2 process output (text format)
+  - `sentinel_prep_<job_id>.log` — Data preparation log (if data-prep was used)
+  - `sentinel_orbit_<job_id>.log` — Orbit download log with retry messages
 
-- `isce2_<job_id>.log` — Main ISCE2 process output (text format)
-- `sentinel_prep_<job_id>.log` — Data preparation log (if data-prep was used)
-- `sentinel_orbit_<job_id>.log` — Orbit download log with retry messages
-
-To stream logs in real time during processing:
+To watch Layer-1 live (relay this to the user):
 ```bash
-tail -f <run_root>/logs/isce2_*.log
+tail -f <run_root>/.insar_agent/progress.log
 ```
 
-To search for error patterns:
+To inspect raw Layer-2 ISCE2 output:
 ```bash
-grep -i "error\|failed\|exception" <run_root>/logs/*.log
+tail -200 <run_root>/insar_product/logs/isce2_*.log
+```
+
+To search for error patterns in Layer-2:
+```bash
+grep -i "error\|failed\|exception" <run_root>/insar_product/logs/*.log
 ```

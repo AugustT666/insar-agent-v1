@@ -40,16 +40,17 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
 
 1. Create project:
    insar_create_project(engine="isce3", workflow="insar",
-       workspace_root="{out}", conda_env="{env}")
-   → save the returned project_id
+       output_root="{out}", conda_env="{env}")
+   → save the returned project_id (+ run_root).
+   Shared inputs land under {out}/prepare/{{dem,rslc}} — reused across runs.
+   Per-run products land under {out}/<task>_<timestamp>/insar_product/<subdir>.
 
 2. Set required path fields (call insar_set_runconfig_value once per field):
    - runconfig.groups.input_file_group.reference_rslc_file  = "{ref}"
    - runconfig.groups.input_file_group.secondary_rslc_file  = "{sec}"
    - runconfig.groups.dynamic_ancillary_file_group.dem_file = "{dem_p}"
-   - runconfig.groups.product_path_group.product_path       = "{out}/outputs"
-   - runconfig.groups.product_path_group.scratch_path       = "{out}/scratch"
-   - runconfig.groups.product_path_group.sas_output_file    = "GUNW_product.h5"
+   Path fields for product_path / scratch_path / sas_output_file are set
+   automatically under the run root — do NOT hand-assemble these.
 
 2.5. Optional parameter tuning:
    If the user asks about multilook, filtering, unwrapping, ionosphere/troposphere
@@ -64,14 +65,17 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
 
 3. Launch workflow:
    insar_run_workflow(project_id)
-   → auto-validates, exports the YAML, and returns job_id + poll hint
+   → auto-validates, exports the YAML, and returns job_id + poll hint + monitor
 
-4. Poll until done:
+4. Poll until done (sleep-wake discipline — minute-level intervals, NOT tight loop):
    insar_get_job(job_id, project_id)
-   → repeat until status is 'done' or 'failed'
+   → repeat until status is 'done' or 'failed'. The response includes a Layer-1
+   concise progress tail from <run>/.insar_agent/progress.log.
+   Relay the monitor command from the response to the user so they can watch live.
 
 5. On failure — read logs inline:
    insar_get_job(job_id, project_id, include_logs=True)
+   Raw engine logs are at <run>/insar_product/logs/.
 
 6. On success — list products:
    insar_list_outputs(job_id, project_id)
@@ -81,6 +85,8 @@ Process a NISAR RSLC pair using the insar-agent MCP tools. Follow these steps ex
 - Whitelist-controlled processing parameters should flow through param-advisor (engine=isce3)
 - For skill-aware clients, parameter advice should come from param-advisor plus its project-level subagent
 - Do NOT modify the runconfig YAML manually for path fields — use insar_set_runconfig_value
+- Two-layer logs: Layer-1 concise progress at <run>/.insar_agent/progress.log;
+  Layer-2 raw engine output at <run>/insar_product/logs/
 """
 
 
@@ -176,33 +182,51 @@ Or execute in terminal:
 When using insar_run_batch, poll with:
   insar_get_job(job_id="<returned_job_id>", batch_dir="{out}/isce3_network")
 
-## What the tools produce
+## Output layout
+
+insar_create_project(output_root="{out}", ...) pins a single output_root.
+Shared prepare inputs land under:
+  {out}/prepare/rslc/          RSLC files (reused across runs)
+  {out}/prepare/dem/           DEM (reused across runs)
+
+Per-run products under <run_root> = {out}/<task>_<timestamp>:
+  <run_root>/insar_product/stack/   (Option A — stack runconfigs + scripts)
+  <run_root>/insar_product/network/ (Option B — network runconfigs + scripts)
+  <run_root>/.insar_agent/progress.log   Layer-1 concise progress (poll/monitor this)
+  <run_root>/insar_product/logs/         Layer-2 raw engine output
 
 insar_prepare_stack →
-  {out}/isce3_stack/runconfigs/         one YAML per secondary scene
-  {out}/isce3_stack/run_parallel.sh     parallel batch runner
-  {out}/isce3_stack/run_all.sh          serial batch runner
-  {out}/isce3_stack/stack_manifest.csv  reference/secondary/runconfig index
-  {out}/isce3_stack/reference_date.txt  selected reference date
+  <run_root>/insar_product/stack/runconfigs/         one YAML per secondary scene
+  <run_root>/insar_product/stack/run_parallel.sh     parallel batch runner
+  <run_root>/insar_product/stack/run_all.sh          serial batch runner
+  <run_root>/insar_product/stack/stack_manifest.csv  reference/secondary/runconfig index
+  <run_root>/insar_product/stack/reference_date.txt  selected reference date
 
 insar_prepare_network →
-  {out}/isce3_network/runconfigs/                    one YAML per pair
-  {out}/isce3_network/run_parallel.sh               parallel batch runner
-  {out}/isce3_network/run_all.sh                    serial batch runner
-  {out}/isce3_network/pair_lists/pairs_selected.txt  pair list
-  {out}/isce3_network/stack_manifest.csv
+  <run_root>/insar_product/network/runconfigs/                    one YAML per pair
+  <run_root>/insar_product/network/run_parallel.sh               parallel batch runner
+  <run_root>/insar_product/network/run_all.sh                    serial batch runner
+  <run_root>/insar_product/network/pair_lists/pairs_selected.txt  pair list
+  <run_root>/insar_product/network/stack_manifest.csv
 
 ## After execution
 The GUNW products land in:
-  {out}/isce3_network/runs/<date1>_<date2>/products/*.h5
+  <run_root>/insar_product/network/runs/<date1>_<date2>/products/*.h5
 
 These are the inputs for MintPy time-series analysis via insar_run_mintpy.
 In interactive mode, stop at prepare/baseline checkpoints whenever the tool
 returns handoff_required=true so the user can review intermediate products.
+
+Long tasks (≥2 scenes or DEM/orbit download) auto-run in the background:
+the tool returns immediately with {{job_id, status:"running", poll, monitor, log_path}}.
+Relay the monitor command (tail -f <run>/.insar_agent/progress.log) to the user.
+Poll with insar_get_job at minute-level intervals — NOT a tight while-true loop.
 
 ## Constraints reminder
 - reference="auto" selects the earliest acquisition to avoid negative temporal baselines
 - If insar_prepare_stack/network returns error: invalid_input, check that all RSLC
   filenames contain _YYYYMMDDTHHMMSS_ date stamps
 - Do not hand-edit generated runconfigs — re-run the prepare tool with corrected inputs
+- Two-layer logs: Layer-1 concise at <run>/.insar_agent/progress.log;
+  Layer-2 raw engine output at <run>/insar_product/logs/
 """
