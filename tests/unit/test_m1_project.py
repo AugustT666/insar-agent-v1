@@ -362,29 +362,21 @@ def test_export_runconfig_custom_dir(insar_project, tmp_path):
 
 def test_export_runconfig_rejects_workspace_root_sibling_for_task_project(insar_project, workspace):
     pid = insar_project["project_id"]
-
+    # New layout: workspace/<task>_<run_id> is the run_root.
+    # A path that is a sibling of the run root (directly under workspace) must be rejected.
     result = insar_export_runconfig(pid, output_dir=str(Path(workspace) / "param_tuned"))
 
     assert result["error"] == "invalid_input"
-    assert "outputs/<run_id>" in result["message"]
+    assert "run root" in result["message"]
     assert not (Path(workspace) / "param_tuned").exists()
 
 
 def test_export_runconfig_accepts_current_run_root_param_tuned_dir(insar_project, workspace):
     pid = insar_project["project_id"]
-    # The project pins a run_id at creation; that pinned run is the project's
-    # current run. Anchor the test to it so output_dir under the pinned run root
-    # is accepted (the run_id is now authoritative over runconfig product_path).
+    # New layout: run_root is <workspace>/<task>_<run_id>.
+    # output_dir inside the run root must be accepted.
     project = Project.load(pid)
-    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / project.run_id
-    set_path(project.runconfig, "runconfig.groups.product_path_group.product_path", str(run_root / "products"))
-    set_path(project.runconfig, "runconfig.groups.product_path_group.scratch_path", str(run_root / "scratch"))
-    set_path(
-        project.runconfig,
-        "runconfig.groups.product_path_group.sas_output_file",
-        str(run_root / "products" / f"{project.run_id}_GUNW.h5"),
-    )
-    project.save()
+    run_root = project.run_root()
 
     result = insar_export_runconfig(pid, output_dir=str(run_root / "param_tuned"))
 
@@ -395,17 +387,14 @@ def test_export_runconfig_accepts_current_run_root_param_tuned_dir(insar_project
 
 def test_export_runconfig_default_dir_reuses_current_run_root(insar_project, workspace):
     pid = insar_project["project_id"]
-    # Default export (no output_dir) lands in the project's current run-root
-    # configs dir. The current run is the run_id pinned at project creation.
+    # New layout: default export lands in <run_root>/insar_product/configs/.
     project = Project.load(pid)
-    run_root = Path(workspace) / "d-insar-isce3" / "outputs" / project.run_id
-    set_path(project.runconfig, "runconfig.groups.product_path_group.product_path", str(run_root / "products"))
-    project.save()
+    run_root = project.run_root()
 
     result = insar_export_runconfig(pid)
 
     assert "error" not in result
-    assert Path(result["yaml_path"]).parent == run_root / "configs"
+    assert Path(result["yaml_path"]).parent == run_root / "insar_product" / "configs"
 
 
 def test_export_runconfig_records_path_on_project(insar_project):

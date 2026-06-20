@@ -284,14 +284,21 @@ def insar_export_runconfig(project_id: str, output_dir: str = "") -> dict:
         run_id=project.run_id,
     )
     dest_dir = Path(output_dir.strip()) if output_dir.strip() else rl.configs_dir
-    if output_dir.strip() and project.task_id:
-        # Legacy-layout containment check (task_id-gated for backward compatibility).
-        # For new-layout projects (task_id=None), no containment check is applied here.
-        run_layout = _resolve_run_layout(project)
-        if run_layout is not None:
-            output_root_path = Path(project.output_root).expanduser().resolve()
-            resolved_dest = dest_dir.expanduser().resolve()
-            if resolved_dest.is_relative_to(output_root_path) and not resolved_dest.is_relative_to(run_layout.run_root.resolve()):
+    if output_dir.strip():
+        output_root_path = Path(project.output_root).expanduser().resolve()
+        resolved_dest = dest_dir.expanduser().resolve()
+        # New-layout: containment check against run_root (insar_product/ boundary).
+        if project.task:
+            run_root_resolved = rl.run_root.resolve()
+            if resolved_dest.is_relative_to(output_root_path) and not resolved_dest.is_relative_to(run_root_resolved):
+                return {
+                    "error": "invalid_input",
+                    "message": "output_dir must be inside the run root",
+                }
+        elif project.task_id:
+            # Legacy-layout containment check.
+            run_layout = _resolve_run_layout(project)
+            if run_layout is not None and resolved_dest.is_relative_to(output_root_path) and not resolved_dest.is_relative_to(run_layout.run_root.resolve()):
                 return {
                     "error": "invalid_input",
                     "message": "output_dir must be inside the run root",
