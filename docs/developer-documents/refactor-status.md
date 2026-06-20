@@ -80,16 +80,22 @@ server.py 4642→1467+包。
 
 ---
 
-## 第二轮交付：统一输出落点 + 用户交互契约（本分支，2026-06-01）
+## 第二轮交付：统一输出落点 + 用户交互契约（本分支，2026-06-01；已超越，见下）
 
 对应 spec/plan：`docs/superpowers/specs/2026-06-01-unified-output-and-interaction-design.md`、
 `docs/superpowers/plans/2026-06-01-unified-output-and-interaction.md`。
+
+> **注意：** 本轮 spec 中的 "run_root/logs/" 后续进一步精确化为 `<run>/insar_product/logs/`（Layer-2），
+> 并新增了 `<run>/.insar_agent/progress.log`（Layer-1 简洁进度）。`output_root` 取代
+> `workspace_root` 作为正式字段，运行目录命名为 `<task>_<timestamp>` 而非旧的 `<task_id>/outputs/<run_id>/`。
+> 当前规范文档反映这些最终定稿，本节保留作历史追溯。
 
 **动因**：首轮重构只搭好输出统一"地基"（仅 `insar_download_dem` 接了 `resolve_output`），
 日志仍写 `<workspace>/.insar_logs/`、越界仅警告、skills 到处复述内部目录树。本轮补完。
 
 ### 交付结果（spec 验收 1–7 全过）
-- **日志归位**：`Project.logs_dir()` 与所有引擎/mcp 日志改落 `<run_root>/logs/`；
+- **日志归位**：`Project.logs_dir()` 与所有引擎/mcp 日志改落 `<run_root>/insar_product/logs/`（Layer-2）；
+  Layer-1 简洁进度新增 `<run>/.insar_agent/progress.log`（`core/progress.py`）；
   `.insar_logs` 机制连同 `plugin_logs_dir`/`resolve_plugin_logs_dir`/`discover_workspace_root`/
   `_WORKSPACE_MARKERS` 整套删净。
 - **单入口收敛**：产物工具（prepare/run）统一经 `resolve_output`；删 `_resolve_prepare_output_dir`、
@@ -130,3 +136,32 @@ server.py 4642→1467+包。
   `_WORKSPACE_MARKERS`/`infer_run_root` import 全成死代码，一并清掉才算"重构非补丁"。
 - **Pyright 星号导入误报**：mcp 包 `from _app import *` 全程触发 reportMissingImports/
   未定义假阳性（pytest 经 `pythonpath=src` 正常）；以 `pytest`+`ruff` 为准，勿被诊断带偏。
+
+---
+
+## 当前规范输出布局（2026-06-01 spec 定稿后的最终模型）
+
+以下是 `refactor/output-layout-and-modularization` 分支上代码实现的最终布局，也是所有文档的参照基准：
+
+```
+<output_root>/
+  prepare/
+    dem/          # 跨 run 复用 DEM
+    safe/         # 跨 run 复用 Sentinel-1 SAFE/ZIP
+    orbits/       # 跨 run 复用 orbit 文件
+    rslc/         # 跨 run 复用 NISAR RSLC
+  <task>_<timestamp>/              # 每次 insar_run_workflow/prepare_stack 独立 run
+    .insar_agent/
+      project.json
+      jobs/
+      progress.log                 # Layer-1 简洁进度（tail -f 监控）
+    insar_product/
+      products/
+      scratch/
+      configs/
+      logs/                        # Layer-2 原始引擎日志
+      stack/ / network/ / mintpy/ / exports/ / param_advisor/ / troposphere/
+```
+
+**关键变量名**：`output_root`（顶层）、`task`（工作流任务标识）、`run_id`（时间戳形式）、
+`run_root = <output_root>/<task>_<run_id>`。`workspace_root` 为只读向后兼容 shim，等价于 `output_root`。

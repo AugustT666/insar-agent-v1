@@ -2,7 +2,8 @@
 
 > 接入新引擎（GAMMA/GMTSAR 等）请先读 [engine-onboarding.md](./engine-onboarding.md)
 > ——三层接入模型 + 流程清单。输出目录统一机制见 `core/output_resolver.py`：所有产物
-> 必须经 `resolve_output` 落到 `workspace/<task_id>/outputs/<run_id>/`，不得泄漏到树外。
+> 必须经 `resolve_output` 落到 `<output_root>/<task>_<timestamp>/insar_product/<subdir>/`，
+> 不得泄漏到树外。
 
 ## 系统总览
 
@@ -38,7 +39,7 @@ Layer 3: Engine execution and products
 - 交互层只表达任务意图、工作流路由和人工确认门控；不得绕过 MCP 直接执行处理命令。
 - MCP 编排层是稳定公共契约面：工具注册、资源约束、项目状态、job 跟踪、路径安全和统一输出落点都在这里闭合。
 - 引擎执行层只处理已验证输入；引擎差异被限制在 `engines/<engine>/` 与 `EngineAdapter` 插槽内。
-- 所有任务产物必须经 `core/output_resolver.py::resolve_output` 落到 `workspace/<task_id>/outputs/<run_id>/`；输入/下载路径按当前交互契约可由用户显式指定。
+- 所有任务产物必须经 `core/output_resolver.py::resolve_output` 落到 `<output_root>/<task>_<timestamp>/insar_product/<subdir>/`；共享输入/下载数据落在 `<output_root>/prepare/<kind>/`，按交互契约可由用户显式指定路径。
 
 ---
 
@@ -46,25 +47,33 @@ Layer 3: Engine execution and products
 
 ### Project
 
-持久化路径：`{workspace_root}/.insar_agent/project.json`
+持久化路径：`<output_root>/<task>_<timestamp>/.insar_agent/project.json`
+
+`insar_create_project(output_root=...)` 返回唯一的 `project_id`，作为所有后续工具的单一句柄。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `project_id` | UUID str | 全局唯一标识 |
+| `project_id` | UUID str | 全局唯一标识（所有工具的单一句柄） |
 | `engine` | str | `"isce3"` 或 `"isce2"` |
 | `workflow` | str | `"insar"` / `"gslc"` (isce3) 或 `"tops"` / `"stack"` (isce2) |
-| `workspace_root` | str | 绝对路径 |
+| `output_root` | str | 顶层输出目录绝对路径（包含所有 run 目录及 prepare/ 共享输入） |
+| `task` | str | 工作流派生的任务标识，如 `"d-insar-isce3"` |
+| `run_id` | str | 时间戳形式的 run 标识，如 `"20260620T010203Z"` |
 | `conda_env` | str | conda 环境名 |
-| `task_id` | str | 由 engine+workflow 推导，如 `"d-insar-isce3"` |
 | `runconfig` | dict | 当前活动配置（ISCE3 YAML 结构或 ISCE2 平坦参数字典） |
 | `runconfig_template` | dict | 未修改的模板副本，用于重置和差分 |
 | `runconfig_exported_path` | str | 最后一次导出的 YAML 路径 |
+
+> 向后兼容：`workspace_root` 属性为只读 shim，等价于 `output_root`；旧 `task_id` 字段在
+> `task` 未设置时作为降级回退。
 
 ISCE3 runconfig 是嵌套 YAML 结构（`runconfig.groups.*`）。ISCE2 是平坦键值字典（`reference_safe`, `dem_file`, `do_esd` 等）。
 
 ### Job
 
-持久化路径：`{workspace_root}/{task_id}/.insar_agent/jobs/{job_id}.json`
+持久化路径：`<output_root>/<task>_<run_id>/.insar_agent/jobs/{job_id}.json`
+
+长时任务（`insar_run_workflow`、`insar_run_batch`、`insar_run_mintpy*`、`insar_download_*`）自动后台化，通过 `insar_get_job(project_id, job_id)` 轮询，实行睡眠-唤醒纪律（避免忙轮询）。
 
 | 字段 | 说明 |
 |------|------|
@@ -72,8 +81,8 @@ ISCE3 runconfig 是嵌套 YAML 结构（`runconfig.groups.*`）。ISCE2 是平�
 | `status` | `running` / `done` / `failed` |
 | `pid` | 后台进程 PID |
 | `exit_code` | shell 退出码（由 `.exitcode` 文件读取） |
-| `log_path` | `{logs_dir}/{job_id}.log` |
-| `exit_code_path` | `{logs_dir}/{job_id}.exitcode` |
+| `log_path` | `<run>/insar_product/logs/{job_id}.log` |
+| `exit_code_path` | `<run>/insar_product/logs/{job_id}.exitcode` |
 | `task_id`, `run_id`, `run_root` | 运行布局感知字段 |
 | `submitted_at`, `started_at`, `finished_at` | ISO 8601 时间戳 |
 
@@ -85,7 +94,7 @@ ISCE3 runconfig 是嵌套 YAML 结构（`runconfig.groups.*`）。ISCE2 是平�
 
 ### DownloadJob
 
-持久化路径：`{workspace}/{task_id}/.insar_agent/jobs/{job_id}.json`
+持久化路径：`<output_root>/<task>_<run_id>/.insar_agent/jobs/{job_id}.json`
 
 跟踪后台下载/数据准备任务（RSLC、DEM、Sentinel-1 场景）。
 
@@ -93,42 +102,90 @@ ISCE3 runconfig 是嵌套 YAML 结构（`runconfig.groups.*`）。ISCE2 是平�
 
 ## 工作区布局
 
+`insar_create_project(output_root=<path>)` 将 `<path>` 作为顶层目录。共享输入数据（跨 run 复用）
+落在 `<output_root>/prepare/`；每次运行的产物落在独立的 `<output_root>/<task>_<timestamp>/`。
+
+### 顶层目录树
+
+```
+<output_root>/
+  prepare/
+    dem/                              # DEM（跨 run 复用）
+    safe/                             # Sentinel-1 SAFE/ZIP（跨 run 复用）
+    orbits/                           # orbit 文件（跨 run 复用）
+    rslc/                             # NISAR RSLC（跨 run 复用）
+  <task>_<timestamp>/                 # 每次 insar_run_workflow/prepare_stack 一个，如 d-insar-isce3_20260620T010203Z
+    .insar_agent/                     # agent 状态目录
+      project.json
+      jobs/                           # Job JSON 文件
+      progress.log                    # Layer-1 简洁进度日志（watch: tail -f progress.log）
+    insar_product/                    # 所有处理产物
+      products/                       # GUNW .h5 等核心产品
+      scratch/                        # ISCE3/ISCE2 临时文件
+      configs/                        # 导出的 runconfig.yaml
+      logs/                           # Layer-2 原始引擎日志（{job_id}.log, {job_id}.exitcode）
+      stack/                          # stack 批处理 runconfigs + 脚本（Path B）
+      network/                        # network 批处理 runconfigs + 脚本（Path B）
+      mintpy/                         # MintPy 时序输出
+      exports/                        # GeoTIFF 等导出产物
+      param_advisor/                  # param-advisor 建议快照
+      troposphere/                    # ISCE2 对流层改正产物
+```
+
+### 日志两层模型
+
+| 层级 | 路径 | 内容 | 用途 |
+|------|------|------|------|
+| Layer-1 | `<run>/.insar_agent/progress.log` | 简洁时间戳进度条目 | agent/用户监控：`tail -f progress.log` |
+| Layer-2 | `<run>/insar_product/logs/` | 引擎原始输出 | 调试：`{job_id}.log`, `{job_id}.exitcode` |
+
 ### 单对 D-InSAR（Path A）
 
 ```
-{workspace_root}/
-  .insar_agent/
-    project.json
-  {task_id}/                          # e.g. d-insar-isce3, d-insar-isce2
+<output_root>/
+  prepare/
+    dem/                              # DEM（复用）
+    safe/ 或 rslc/                    # 输入数据（复用）
+  d-insar-isce3_20260620T010203Z/    # 任务运行目录
     .insar_agent/
-      jobs/                           # Job JSON 文件
-    outputs/
-      {run_id}/                       # 自动生成的 UUID，每次 insar_run_workflow 一个
-        configs/                      # 导出的 runconfig.yaml
-        products/                     # GUNW .h5 等产品
-        scratch/                      # ISCE3 临时文件
-        logs/                         # {job_id}.log, {job_id}.exitcode
-        qa/
-        param_tuned/                  # param-advisor 输出快照
-        metrics/
+      project.json
+      jobs/
+      progress.log                    # Layer-1 简洁进度（tail -f 监控）
+    insar_product/
+      products/                       # GUNW .h5 等产品
+      scratch/                        # ISCE3 临时文件
+      configs/                        # runconfig.yaml
+      logs/                           # Layer-2 原始引擎日志
+      param_advisor/                  # param-advisor 输出快照
 ```
 
 ### 批处理 Stack + Network（Path B）
 
 ```
-{output_dir}/                         # batch_dir
-  runconfigs/                         # 每个干涉对一个 YAML
-  runs/{date1}_{date2}/
-    products/
-    scratch/
-    logs/
-  run_all.sh                          # 串行执行脚本
-  run_parallel.sh                     # 并行执行脚本
-  stack_manifest.csv                  # reference/secondary/runconfig 索引
-  pair_lists/
-    pairs_selected.txt                # YYYYMMDD_YYYYMMDD，每行一个
-  .insar_agent/
-    jobs/                             # BatchJob JSON 文件
+<output_root>/
+  prepare/
+    dem/
+    rslc/
+  stack-insar-isce3_20260620T010203Z/
+    .insar_agent/
+      project.json
+      jobs/
+      progress.log
+    insar_product/
+      stack/
+        runconfigs/                   # 每个 secondary 景一个 YAML
+        run_all.sh
+        run_parallel.sh
+        stack_manifest.csv
+        reference_date.txt
+      network/
+        runconfigs/                   # 每个干涉对一个 YAML
+        run_all.sh
+        run_parallel.sh
+        pair_lists/pairs_selected.txt
+        stack_manifest.csv
+        runs/{date1}_{date2}/products/*.h5
+      logs/                           # Layer-2 批处理日志
 ```
 
 ---

@@ -13,7 +13,7 @@ The system exposes a rich MCP and plugin surface tailored for automated workflow
 - **2 MCP Prompts**: Pre-built instructions for single-pair and batch processing.
 - **11 Plugin Skills**: Providing the main `insar-agent` entry router plus domain guidance for data preparation, parameter advisory, environment setup, and path execution.
 - **Dual-Engine Execution**: Native support for both `isce3` (NISAR) and `isce2` (Sentinel-1) processing graphs.
-- **Runtime Support Layer**: Abstracted workspace layout, logging, and Conda environment orchestration.
+- **Runtime Support Layer**: Unified output layout (`output_root/<task>_<timestamp>/insar_product/`), two-layer logging (Layer-1 progress + Layer-2 raw engine logs), and Conda environment orchestration.
 
 Note: the source FastMCP registration surface and the `--describe` CLI summary currently report 28 tools.
 
@@ -60,16 +60,38 @@ and routes through the main `insar-agent` skill. The entry skill then routes to 
 engine-specific workflow skills and delegates parameter tuning to the `param-advisor`
 skill and `agents/param-advisor.md` subagent.
 
+## Output Layout
+
+`insar_create_project(output_root=<path>)` returns a single `project_id`. All subsequent
+tools use this handle.
+
+```
+<output_root>/
+  prepare/{dem,safe,orbits,rslc}/   shared inputs reused across runs
+  <task>_<timestamp>/               one directory per run
+    .insar_agent/
+      project.json
+      jobs/
+      progress.log                  Layer-1 concise progress (tail -f to monitor)
+    insar_product/
+      products/ scratch/ configs/
+      logs/                         Layer-2 raw engine output
+      stack/ network/ mintpy/ exports/ param_advisor/ troposphere/
+```
+
+Long-running tasks auto-background. Poll with `insar_get_job(project_id, job_id)`.
+Monitor progress: `tail -f <run_root>/.insar_agent/progress.log`.
+
 ## Typical Workflows
 
 ### D-InSAR (Path A)
 
-1. Create a project with `insar_create_project`.
+1. Create a project with `insar_create_project(output_root=...)` → get `project_id`.
 2. Fill required path fields with `insar_set_runconfig_value`.
-3. If parameter tuning is needed, enter `param-advisor` to review metadata (`insar_describe_rslc` or `insar_describe_s1`).
+3. Run `param-advisor` to review metadata (`insar_describe_rslc` or `insar_describe_s1`) — mandatory before execution.
 4. Apply approved whitelist-controlled changes through `insar_set_processing_param`.
-5. Launch with `insar_run_workflow`.
-6. Poll completion with `insar_get_job`.
+5. Launch with `insar_run_workflow` — task auto-backgrounds, returns `job_id`.
+6. Poll completion with `insar_get_job(project_id, job_id)`.
 7. Verify generated products with `insar_list_outputs`.
 
 ### Stack InSAR (Path B)

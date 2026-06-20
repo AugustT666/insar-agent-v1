@@ -5,6 +5,11 @@
 系统整体分层、数据模型与工作区布局请见 [architecture.md](../architecture.md)。
 每个工具的完整参数规范请见 [MCP-tools.md](MCP-tools.md)。
 
+**输出布局：** 产物统一落在 `<output_root>/<task>_<timestamp>/insar_product/<subdir>/`；
+Layer-1 进度在 `<run>/.insar_agent/progress.log`，Layer-2 原始日志在 `<run>/insar_product/logs/`。
+长时任务（`insar_run_workflow`、`insar_run_batch`、`insar_run_mintpy*`、`insar_download_*`）
+自动后台化，通过 `insar_get_job(project_id, job_id)` 轮询（睡眠-唤醒纪律，避免忙轮询）。
+
 ---
 
 ## MCP Server 注册面
@@ -145,9 +150,12 @@ done / failed
 
 ## 工作区污染防护
 
-`insar_run_workflow` 和 `insar_prepare_stack/network` 通过 `RunLayout` 将所有输出限制在 `<task_id>/outputs/<run_id>/` 子目录下。
+`insar_run_workflow` 和 `insar_prepare_stack/network` 通过 `RunLayout` 将所有输出限制在
+`<output_root>/<task>_<timestamp>/insar_product/<subdir>/` 子目录下。越界时 `OutputEscapeError`
+以 `{"error":"output_escape"}` 返回（默认严格；`INSAR_STRICT_OUTPUT=0` 降级为警告）。
 
-`_task_root_pollution()` 检测 task root 下的非托管文件，若存在则在工具结果中附加 `task_root_pollution` 警告，指导 agent 清理。合法的管理目录为：`.insar_agent/`、`sessions/`、`outputs/`。
+`_task_root_pollution()` 检测 task run 根目录下的非托管文件，若存在则在工具结果中附加
+`task_root_pollution` 警告，指导 agent 清理。合法的管理目录为：`.insar_agent/`、`insar_product/`。
 
 ---
 

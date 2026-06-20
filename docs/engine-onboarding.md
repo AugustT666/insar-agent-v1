@@ -16,14 +16,16 @@
 引擎无关的能力，新引擎只要遵守约定就自动获得，**不用写代码**：
 
 - 统一项目模型（`core/project.py` 的 `Project`）。
-- 统一输出目录树 `workspace/<task_id>/outputs/<run_id>/`（`core/output_resolver.py`
+- 统一输出目录树 `<output_root>/<task>_<timestamp>/insar_product/<subdir>/`（`core/output_resolver.py`
   的 `resolve_output`）。**只要新引擎所有产物都经 `resolve_output` 落盘**，就自动落在
-  规范目录里，永不泄漏。
+  规范目录里，永不泄漏。共享输入（DEM/orbits/SAFE/RSLC）可复用 `<output_root>/prepare/<kind>/`。
 - 统一 job 跟踪与通用 MCP 工具：`insar_discover`、`insar_get_project`、
   `insar_list_outputs`、`insar_get_job`。
+- 两层日志体系：Layer-1 简洁进度写 `<run>/.insar_agent/progress.log`（`core/progress.py`）；
+  Layer-2 原始引擎日志写 `<run>/insar_product/logs/`（`resolve_output` 或 `run_logs_dir`）。
 
 **对新引擎的要求**：输出一律走 `resolve_output`，不要自己拼 `output_dir`；job 元数据
-写到 task 级 `.insar_agent/jobs/`。
+写到 run 级 `.insar_agent/jobs/`；进度更新调 `core/progress.py`。
 
 ### 第 2 层 · 写引擎代码，但不动 MCP 工具体（适配器插槽）
 
@@ -63,7 +65,8 @@ skill。**要求**：在 PR 中说明"为什么现有工具表达不了这个概
 3. **注册适配器**：在 `engines/__init__.py` 的 `_ensure_builtin()` 中加入
    `_REGISTRY["<engine>"] = <Engine>Adapter()`（或运行时 `register_adapter(...)`）。
 4. **输出走统一机制**：引擎所有写盘路径都经 `core.output_resolver.resolve_output`
-   获取，绝不自拼 `output_dir`。→ 自动继承**第 1 层**。
+   获取，落到 `<output_root>/<task>_<timestamp>/insar_product/<subdir>/`，绝不自拼 `output_dir`。
+   调 `core/progress.py` 写 Layer-1 进度，日志落 `run_logs_dir()`。→ 自动继承**第 1 层**。
 5. **仅在必要时**新增 MCP 工具 / skill，并在 PR 说明理由。→ 仅当触及**第 3 层**。
 6. **验证合规**：运行 `pytest tests/unit/test_engine_adapter_contract.py` 与
    `pytest tests/unit/test_output_containment.py`。
@@ -76,7 +79,7 @@ skill。**要求**：在 PR 中说明"为什么现有工具表达不了这个概
   Protocol；并用一个临时第三适配器（GAMMA 占位）证明**零 `mcp/` 改动**即可注册并列出
   工作流。新引擎接入后把它加入该测试参数化即可纳入守护。
 - `tests/unit/test_output_containment.py`：结构性断言——驱动各处理路径后，没有任何
-  文件落在 `workspace/<task_id>/outputs/<run_id>/` 之外。
+  文件落在 `<output_root>/<task>_<run_id>/insar_product/` 之外。
 
 ---
 

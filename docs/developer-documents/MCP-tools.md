@@ -5,6 +5,13 @@
 系统整体架构、数据模型与工作区布局请见 [architecture.md](../architecture.md)。
 MCP 层设计与引擎调用机制请见 [MCP-architechture.md](MCP-architechture.md)。
 
+**输出布局（2026-06-01 起）：** `insar_create_project(output_root=...)` 返回单一 `project_id`；
+共享输入在 `<output_root>/prepare/{dem,safe,orbits,rslc}/`（跨 run 复用）；每次运行产物在
+`<output_root>/<task>_<timestamp>/insar_product/<subdir>/`；agent 状态在 `<run>/.insar_agent/`；
+Layer-1 简洁进度在 `<run>/.insar_agent/progress.log`（`tail -f` 监控），Layer-2 原始日志在
+`<run>/insar_product/logs/`；长时任务自动后台化，通过 `insar_get_job(project_id, job_id)` 轮询；
+param-advisor 在执行前强制要求。
+
 ---
 
 ## 资源（Resources）
@@ -136,7 +143,7 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 {
   "project_id": "...", "name": "my-insar-run",
   "engine": "isce3", "workflow": "insar",
-  "workspace_root": "/data/workspace",
+  "output_root": "/data/workspace",
   "conda_env": "isce3gpu",
   "created_at": "2026-03-24T10:00:00Z",
   "updated_at": "2026-03-24T10:05:00Z",
@@ -153,7 +160,9 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 
 ### `insar_create_project`
 
-创建新项目、初始化工作空间，并为所选工作流加载默认 runconfig 模板。
+创建新项目、初始化工作空间，并为所选工作流加载默认 runconfig 模板。返回 `project_id` 作为所有后续工具的单一句柄。
+
+每次运行的产物目录由工具自动生成为 `<output_root>/<task>_<timestamp>/`；共享输入（DEM/SAFE/orbits/RSLC）复用 `<output_root>/prepare/<kind>/`。
 
 **参数：**
 
@@ -161,10 +170,12 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 |---|---|---|---|
 | `engine` | string | 是 | `"isce3"` 或 `"isce2"` |
 | `workflow` | string | 是 | `"insar"` / `"gslc"` (isce3) 或 `"tops"` / `"stack"` (isce2) |
-| `workspace_root` | string | 是 | 绝对路径，不存在时自动创建 |
+| `output_root` | string | 是 | 顶层输出目录绝对路径，不存在时自动创建；所有 run 和 prepare 目录均在此下 |
 | `name` | string | 否 | 人类可读名称（默认自动生成） |
 | `conda_env` | string | 否 | conda 环境名 |
 | `task_id` | string | 否 | 覆盖自动推导的 task_id（通常省略） |
+
+> `workspace_root` 为向后兼容别名，等价于 `output_root`。
 
 **返回：**
 ```json
@@ -172,7 +183,7 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
   "project_id": "a1b2c3d4-...",
   "name": "isce3-insar-workspace",
   "engine": "isce3", "workflow": "insar",
-  "workspace_root": "/data/workspace",
+  "output_root": "/data/workspace",
   "conda_env": "isce3gpu",
   "created_at": "2026-03-24T10:00:00Z",
   "required_fields": ["runconfig.groups.input_file_group.reference_rslc_file", "..."],
@@ -180,9 +191,9 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 }
 ```
 
-`guidance` 字段是给 skill-aware 客户端的一次性提醒，指示参数调优应通过 `param-advisor` skill 流转。
+`guidance` 字段是给 skill-aware 客户端的一次性提醒，指示参数调优应通过 `param-advisor` skill 流转（param-advisor 在执行前强制要求）。
 
-**错误：** `engine_not_found`、`workflow_not_found`、`workspace_not_writable`、`template_not_found`
+**错误：** `engine_not_found`、`workflow_not_found`、`output_root_not_writable`、`template_not_found`
 
 **实现位置：** `core/project.py`、`engines/isce3/defaults.py`、`engines/isce2/defaults.py`
 
@@ -247,9 +258,9 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 ```json
 {
   "project_id": "...",
-  "advice_dir": "/workspace/d-insar-isce3/outputs/run_id/param_tuned/",
-  "recommendation_json": "/workspace/.../param_tuned/recommendation.json",
-  "recommendation_markdown": "/workspace/.../param_tuned/recommendation.md",
+  "advice_dir": "/data/workspace/d-insar-isce3_20260620T010203Z/insar_product/param_advisor/",
+  "recommendation_json": ".../insar_product/param_advisor/recommendation.json",
+  "recommendation_markdown": ".../insar_product/param_advisor/recommendation.md",
   "format_version": "param-advisor.v1"
 }
 ```
@@ -332,6 +343,9 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 | `project_id` | string | 是 | 项目 UUID |
 | `dry_run` | boolean | 否 | `true` 时只校验并导出，不真正启动（默认 false） |
 
+长时任务自动后台化，立即返回 `job_id`；用 `insar_get_job(project_id=..., job_id=...)` 轮询，
+实行睡眠-唤醒纪律（避免忙轮询）。
+
 **返回：**
 ```json
 {
@@ -339,14 +353,17 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
   "command": ["conda","run","-n","isce3gpu","python","-m","nisar.workflows.insar","..."],
   "status": "running", "pid": 12345,
   "submitted_at": "2026-03-24T10:10:00Z",
-  "log_path": "/workspace/d-insar-isce3/outputs/run_id/logs/j-001.log",
+  "run_root": "/data/workspace/d-insar-isce3_20260620T010203Z",
+  "log_path": "/data/workspace/d-insar-isce3_20260620T010203Z/insar_product/logs/j-001.log",
   "dry_run": false,
   "param_tuned_found": false,
   "poll": "insar_get_job(job_id='j-001', project_id='...')"
 }
 ```
 
-`run_root`、`products_dir`、`scratch_dir`、`configs_dir`、`expected_output` 在 run-layout 模式下附加返回。
+附加返回字段（run-layout 模式）：`run_root`、`products_dir`、`scratch_dir`、`configs_dir`、`expected_output`。
+
+用户可监控简洁进度：`tail -f <run_root>/.insar_agent/progress.log`（Layer-1）；原始引擎日志在 `<run_root>/insar_product/logs/`（Layer-2）。
 
 **错误：** `project_not_found`、`runconfig_invalid`、`params_invalid`（ISCE2）、`export_failed`、`launch_failed`、`workflow_not_runnable`（ISCE3 stack）
 
@@ -403,15 +420,15 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 ```json
 {
   "job_id": "j-001", "status": "done",
-  "task_id": "d-insar-isce3", "run_id": "...", "run_root": "...",
+  "task_id": "d-insar-isce3", "run_id": "20260620T010203Z", "run_root": "...",
   "outputs": [
     {
-      "path": "/workspace/.../products/GUNW_product.h5",
+      "path": "/data/workspace/d-insar-isce3_20260620T010203Z/insar_product/products/GUNW_product.h5",
       "artifact_type": "hdf5",
       "description": "NISAR science product",
       "recommended_viewer": "h5py / QGIS",
-      "relative_path": "d-insar-isce3/outputs/run_id/products/GUNW_product.h5",
-      "task_id": "d-insar-isce3", "run_id": "...", "run_root": "..."
+      "relative_path": "d-insar-isce3_20260620T010203Z/insar_product/products/GUNW_product.h5",
+      "task_id": "d-insar-isce3", "run_id": "20260620T010203Z", "run_root": "..."
     }
   ]
 }
@@ -667,13 +684,13 @@ Resources 是只读文档，AI 客户端在处理任务前加载。
 
 | 名称 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `project_root` | string | 是 | 输出根目录 |
+| `project_root` | string | 是 | 输出根目录（建议指向 `<output_root>/prepare/` 或其子目录以复用跨 run 输入） |
 | `source_paths` | list[string] | 否 | SAFE/ZIP 路径列表 |
 | `bbox` / `aoi_path` | float[]\|string | 否 | 区域范围（二选一） |
-| `dem_path` | string | 否 | 已有 DEM 路径 |
+| `dem_path` | string | 否 | 已有 DEM 路径（可复用 `<output_root>/prepare/dem/`） |
 | `download_dem` | boolean | 否 | 是否下载 DEM |
 | `download_orbits` | boolean | 否 | 是否下载 orbit |
-| `orbit_dir` | string | 否 | orbit 输出/复用目录 |
+| `orbit_dir` | string | 否 | orbit 输出/复用目录（可复用 `<output_root>/prepare/orbits/`） |
 | `include_pair` / `include_stack` | boolean | 否 | 单对 / stack 路径输出 |
 | `resume` | boolean | 否 | 复用已有准备结果 |
 
