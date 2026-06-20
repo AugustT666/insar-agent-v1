@@ -460,13 +460,15 @@ def test_mcp_insar_prepare_stack_derives_run_root_from_workspace(tmp_path):
 
     assert "error" not in result
     run_root = Path(result["run_root"])
+    stack_dir = Path(result["stack_dir"])
     output_dir = Path(result["output_dir"])
     assert result["task_id"] == "stack-insar-isce3"
-    assert result["run_id"].startswith("stack-insar-isce3_")
-    assert run_root == workspace / "stack-insar-isce3" / "outputs" / result["run_id"]
-    assert output_dir.is_relative_to(run_root)
-    assert not (workspace / "stack-insar-isce3" / "stack").exists()
-    assert not (workspace / "stack-insar-isce3" / "configs").exists()
+    # New layout: run_root is workspace/<task>_<run_id>
+    assert run_root.parent == workspace
+    assert run_root.name.startswith("stack-insar-isce3_")
+    # stack_dir must be run_root/insar_product/stack
+    assert stack_dir == run_root / "insar_product" / "stack"
+    assert output_dir == stack_dir
 
 
 def test_mcp_insar_prepare_network_derives_run_root_from_workspace(tmp_path):
@@ -489,13 +491,15 @@ def test_mcp_insar_prepare_network_derives_run_root_from_workspace(tmp_path):
 
     assert "error" not in result
     run_root = Path(result["run_root"])
+    network_dir = Path(result["network_dir"])
     output_dir = Path(result["output_dir"])
     assert result["task_id"] == "stack-insar-isce3"
-    assert result["run_id"].startswith("stack-insar-isce3_")
-    assert run_root == workspace / "stack-insar-isce3" / "outputs" / result["run_id"]
-    assert output_dir.is_relative_to(run_root)
-    assert not (workspace / "stack-insar-isce3" / "network").exists()
-    assert not (workspace / "stack-insar-isce3" / "configs").exists()
+    # New layout: run_root is workspace/<task>_<run_id>
+    assert run_root.parent == workspace
+    assert run_root.name.startswith("stack-insar-isce3_")
+    # network_dir must be run_root/insar_product/network
+    assert network_dir == run_root / "insar_product" / "network"
+    assert output_dir == network_dir
 
 
 def test_mcp_insar_prepare_stack_success(tmp_path):

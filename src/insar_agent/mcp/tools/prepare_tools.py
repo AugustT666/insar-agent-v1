@@ -7,12 +7,35 @@ from insar_agent.mcp._helpers import *  # noqa: F403  (shared helpers)
 from insar_agent.core.output_resolver import OutputEscapeError, resolve_output
 
 
+def _resolve_prepare_layout(
+    *,
+    project_id: str,
+    workspace_root: str,
+    task_id: str,
+    run_id: str,
+) -> RunLayout:
+    """Return a RunLayout from either project_id or workspace_root/task_id."""
+    if project_id:
+        project = Project.load(project_id)
+        return RunLayout(
+            output_root=project.output_root,
+            task=project.task or task_id or "stack-insar-isce3",
+            run_id=project.run_id or run_id or None,
+        )
+    return RunLayout(
+        output_root=workspace_root or ".",
+        task=task_id or "stack-insar-isce3",
+        run_id=run_id or None,
+    )
+
+
 @mcp.tool()
 def insar_prepare_stack(
     data_dir: str,
     base_runconfig: str = "",
     *,
     dem: str,
+    project_id: str = "",
     output_dir: str = "",
     workspace_root: str = "",
     task_id: str = "stack-insar-isce3",
@@ -32,25 +55,33 @@ def insar_prepare_stack(
         base_runconfig: Optional path to a template ISCE3 runconfig YAML.
             When omitted, use the built-in default `insar` template.
         dem: Path to the DEM file to inject into each runconfig.
-        output_dir: Directory where runconfigs and runner scripts will be written.
-            If omitted, workspace_root is required and the output directory is derived
-            under workspace_root/task_id/outputs/run_id.
-        workspace_root: Top-level workspace used to derive output_dir when output_dir is empty.
-        task_id: Task directory name for derived output_dir; defaults to stack-insar-isce3.
+        project_id: Project identifier (preferred). Derives output_root, task, and run_id
+            from the saved project. When supplied, workspace_root/task_id/run_id are ignored.
+        output_dir: Explicit output directory override. When supplied, overrides all
+            layout derivation.
+        workspace_root: Top-level workspace used to derive output when project_id is absent.
+        task_id: Task directory name; defaults to stack-insar-isce3.
         run_id: Optional run id. Pass the same value to stack and network prepare to share a run root.
         reference: Reference scene selector — 'auto' (earliest date), a YYYYMMDD
                    string, or an absolute RSLC file path.
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
-        _res = resolve_output(
-            output_dir=output_dir or None,
-            workspace_root=workspace_root or None,
-            task_id=task_id or "stack-insar-isce3",
-            run_id=run_id or None,
-            subdir="stack",
-        )
-        resolved_output_dir, run_layout = str(_res.target), _res.layout
+        if output_dir:
+            resolved_output_dir = output_dir
+            run_layout = RunLayout(
+                output_root=Path(output_dir).parent.parent.parent,
+                task=task_id or "stack-insar-isce3",
+                run_id=run_id or None,
+            )
+        else:
+            run_layout = _resolve_prepare_layout(
+                project_id=project_id,
+                workspace_root=workspace_root,
+                task_id=task_id,
+                run_id=run_id,
+            )
+            resolved_output_dir = str(resolve_output(run_layout.run_root, "stack"))
         result = prepare_stack(
             data_dir=data_dir,
             base_runconfig=base_runconfig or None,
@@ -59,7 +90,7 @@ def insar_prepare_stack(
             reference=reference,
         )
         result.update({
-            "task_id": run_layout.task_id,
+            "task_id": run_layout.task,
             "run_id": run_layout.run_id,
             "run_root": str(run_layout.run_root),
             "stack_dir": str(run_layout.stack_dir),
@@ -101,6 +132,7 @@ def insar_prepare_network(
     base_runconfig: str = "",
     *,
     dem: str,
+    project_id: str = "",
     output_dir: str = "",
     workspace_root: str = "",
     task_id: str = "stack-insar-isce3",
@@ -124,11 +156,11 @@ def insar_prepare_network(
         base_runconfig: Optional path to a template ISCE3 runconfig YAML.
             When omitted, use the built-in default `insar` template.
         dem: Path to the DEM file.
-        output_dir: Directory where runconfigs and runner scripts will be written.
-            If omitted, workspace_root is required and the output directory is derived
-            under workspace_root/task_id/outputs/run_id.
-        workspace_root: Top-level workspace used to derive output_dir when output_dir is empty.
-        task_id: Task directory name for derived output_dir; defaults to stack-insar-isce3.
+        project_id: Project identifier (preferred). Derives output_root, task, and run_id
+            from the saved project. When supplied, workspace_root/task_id/run_id are ignored.
+        output_dir: Explicit output directory override.
+        workspace_root: Top-level workspace used to derive output when project_id is absent.
+        task_id: Task directory name; defaults to stack-insar-isce3.
         run_id: Optional run id. Pass the same value to stack and network prepare to share a run root.
         network_mode: 'tbase' — connect pairs within a temporal baseline threshold
                       (uses max_temporal_baseline_days); 'conn' — connect each date
@@ -140,14 +172,21 @@ def insar_prepare_network(
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
-        _res = resolve_output(
-            output_dir=output_dir or None,
-            workspace_root=workspace_root or None,
-            task_id=task_id or "stack-insar-isce3",
-            run_id=run_id or None,
-            subdir="network",
-        )
-        resolved_output_dir, run_layout = str(_res.target), _res.layout
+        if output_dir:
+            resolved_output_dir = output_dir
+            run_layout = RunLayout(
+                output_root=Path(output_dir).parent.parent.parent,
+                task=task_id or "stack-insar-isce3",
+                run_id=run_id or None,
+            )
+        else:
+            run_layout = _resolve_prepare_layout(
+                project_id=project_id,
+                workspace_root=workspace_root,
+                task_id=task_id,
+                run_id=run_id,
+            )
+            resolved_output_dir = str(resolve_output(run_layout.run_root, "network"))
         result = prepare_network(
             data_dir=data_dir,
             base_runconfig=base_runconfig or None,
@@ -159,7 +198,7 @@ def insar_prepare_network(
             pair_list=pair_list or None,
         )
         result.update({
-            "task_id": run_layout.task_id,
+            "task_id": run_layout.task,
             "run_id": run_layout.run_id,
             "run_root": str(run_layout.run_root),
             "network_dir": str(run_layout.network_dir),
