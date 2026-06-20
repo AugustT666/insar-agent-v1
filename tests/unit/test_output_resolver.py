@@ -11,6 +11,7 @@ from insar_agent.core.output_resolver import (
     _layout_from_run_root,
     enforce_inside_run,
     param_advice_output_dir,
+    prepare_input_dir,
     resolve_output,
     resolve_run_layout,
     run_logs_dir,
@@ -239,3 +240,12 @@ def test_param_advice_output_dir_outside_workspace_raises(output_root, tmp_path)
     outside = tmp_path / "outside"
     with pytest.raises(ValueError, match="outside workspace_root"):
         param_advice_output_dir(proj, output_dir=str(outside), task_id="d-insar-isce2")
+
+
+# ---------------------------------------------------------------------------
+# prepare_input_dir: shared prepare/ input resolver
+# ---------------------------------------------------------------------------
+
+def test_prepare_input_dir(tmp_path):
+    assert prepare_input_dir(tmp_path, "dem") == tmp_path / "prepare" / "dem"
+    assert prepare_input_dir(tmp_path, "safe") == tmp_path / "prepare" / "safe"

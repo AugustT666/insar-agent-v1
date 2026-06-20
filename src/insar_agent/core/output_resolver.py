@@ -290,3 +290,25 @@ def run_logs_dir(
     Thin convenience over RunLayout — the single place to get a run's log dir.
     """
     return RunLayout(output_root=output_root, task=task, run_id=run_id).logs_dir
+
+
+def prepare_input_dir(output_root: str | Path, kind: str) -> Path:
+    """Return the prepare input directory for a shared data kind.
+
+    Shared input data (DEM, orbits, SAFE scenes, RSLCs) live under
+    ``<output_root>/prepare/<kind>`` so they can be reused across runs.
+
+    Parameters
+    ----------
+    output_root:
+        The root output directory (containing all runs).
+    kind:
+        Data kind: ``"dem"``, ``"orbits"``, ``"safe"``, or ``"rslc"``.
+
+    Returns
+    -------
+    Path
+        ``output_root / "prepare" / kind`` — NOT yet created on disk.
+        Callers that need the directory to exist must call ``.mkdir()`` themselves.
+    """
+    return Path(output_root) / "prepare" / kind
