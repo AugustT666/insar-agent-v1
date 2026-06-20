@@ -299,6 +299,7 @@ def test_prepare_sentinel_data_organizes_safe_inputs(tmp_path):
         project_root=str(project_root),
         source_paths=[str(safe_dir), str(safe_zip)],
         dem_path=str(dem_path),
+        background=False,  # test sync path: SAFE organization, not dispatch
     )
 
     assert "error" not in result
@@ -1335,6 +1336,7 @@ def test_prepare_sentinel_data_can_prepare_dem_and_orbits(tmp_path, monkeypatch)
         orbit_dir=str(project_root / "orbits"),
         orbit_username="user@example.com",
         orbit_password="secret-pass",
+        background=False,  # test sync path: DEM+orbit integration, not dispatch
     )
 
     assert "error" not in result
@@ -1374,6 +1376,7 @@ def test_prepare_sentinel_data_fails_fast_without_orbit_credentials(tmp_path, mo
         source_paths=[str(safe_dir)],
         download_orbits=True,
         orbit_dir=str(project_root / "orbits"),
+        background=False,  # test sync path: fail-fast on missing credentials, not dispatch
     )
 
     assert result["error"] == "invalid_input"

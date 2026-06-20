@@ -965,6 +965,20 @@ except Exception as _exc:
 
     job.pid = proc.pid
     job.save(Path(job_context["jobs_dir"]))
+
+    # Layer-1 progress log: concise SYNTHESIZE/DEM/ORBIT entries the user watches.
+    # Derive from run_root if available; fall back to workspace_root + task + run_id.
+    _run_root_str = job_context.get("run_root") or ""
+    if not _run_root_str:
+        _ws = str(job_context.get("workspace_root") or "")
+        _task = str(job_context.get("task_id") or "")
+        _rid = str(job_context.get("run_id") or "")
+        if _ws and _task and _rid:
+            _run_root_str = str(Path(_ws) / f"{_task}_{_rid}")
+        elif _ws and _task:
+            _run_root_str = str(Path(_ws) / _task)
+    progress_log = str(Path(_run_root_str) / ".insar_agent" / "progress.log") if _run_root_str else ""
+
     return {
         "job_id": job.job_id,
         "status": "running",
@@ -972,7 +986,7 @@ except Exception as _exc:
         "output_dir": str(root),
         "n_files": job.n_files,
         "log_path": str(log_path),
-        "monitor": f"tail -f {log_path}",
+        "monitor": f"tail -f {progress_log}" if progress_log else f"tail -f {log_path}",
         "params_path": str(params_path),
         "workspace_root": job_context.get("workspace_root"),
         "task_id": job_context.get("task_id"),

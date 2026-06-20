@@ -288,6 +288,7 @@ def test_prepare_sentinel_task_root_dem_output_is_honored(tmp_path):
             source_paths=[],
             download_dem=True,
             dem_output_path=str(requested_dem),
+            background=False,  # test sync path: DEM honored routing, not dispatch
         )
 
     honored_dem = Path(mock_prepare.call_args.kwargs["dem_output_path"])
@@ -323,6 +324,7 @@ def test_prepare_sentinel_reports_task_root_pollution(tmp_path):
             source_paths=[],
             download_dem=True,
             dem_output_path=str(task_root / "outputs" / "prep-run" / "dem" / "copernicus_30.tif"),
+            background=False,  # test sync path: pollution detection, not dispatch
         )
 
     assert result["error"] == "task_root_pollution"
@@ -355,6 +357,7 @@ def test_prepare_sentinel_allows_task_root_management_dir(tmp_path):
             source_paths=[],
             download_dem=True,
             dem_output_path=str(task_root / "outputs" / "prep-run" / "dem" / "copernicus_30.tif"),
+            background=False,  # test sync path: management-dir allowed, not dispatch
         )
 
     assert "error" not in result
@@ -413,6 +416,7 @@ def test_task_root_pollution_downgraded_to_warning_when_not_strict(tmp_path, mon
             source_paths=[],
             download_dem=True,
             dem_output_path=str(task_root / "outputs" / "prep-run" / "dem" / "copernicus_30.tif"),
+            background=False,  # test sync path: pollution downgrade, not dispatch
         )
 
     assert "error" not in result, f"Expected no error key, got: {result}"

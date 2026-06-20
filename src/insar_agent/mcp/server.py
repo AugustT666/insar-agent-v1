@@ -1421,7 +1421,7 @@ def insar_prepare_sentinel_data(
     include_stack: bool = True,
     resume: bool = True,
     validate_isce2_import: bool = False,
-    background: bool = False,
+    background: bool | None = None,
 ) -> dict:
     """
     Organize Sentinel-1 SAFE inputs into grouped SAFE paths for later ISCE2 use.
@@ -1517,7 +1517,18 @@ def insar_prepare_sentinel_data(
         "resume": resume,
         "validate_isce2_import": validate_isce2_import,
     }
-    if background:
+    # Auto-background heuristic: scene_count > 1 OR download_dem OR download_orbits
+    # signals a long-running job that risks the ~600s MCP call timeout.
+    # background=True  → always background.
+    # background=False → caller explicitly opts out; honor sync even for long jobs.
+    # background=None  → auto: use heuristic to decide.
+    _is_long = (
+        len(source_paths or []) > 1
+        or download_dem
+        or download_orbits
+    )
+    _run_background = background is True or (background is None and _is_long)
+    if _run_background:
         return _launch_sentinel_prepare_background(params)
 
     try:
