@@ -849,6 +849,7 @@ def _launch_dem_download_background(params: dict) -> dict:
     params_path.write_text(json.dumps(params_for_disk, indent=2, ensure_ascii=False), encoding="utf-8")
 
     _dem_run_root_str = str(job_context.get("run_root") or "")
+    _dem_job_file_str = str(Path(job_context["jobs_dir"]) / f"{job.job_id}.json")
 
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
@@ -861,6 +862,29 @@ from insar_agent.mcp.server import insar_download_dem
 from insar_agent.core.progress import append_progress
 
 _progress_run_root = {_dem_run_root_str!r}
+_job_file = {_dem_job_file_str!r}
+
+def _utc_now_iso():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+def _eager_write_job_status(status, exit_code, result=None, failure_reason=None):
+    \"\"\"Eagerly push terminal status to the job JSON (F3). Never raises.\"\"\"
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _jf = _Path(_job_file)
+        _data = _json.loads(_jf.read_text()) if _jf.exists() else {{}}
+        _data["status"] = status
+        _data["exit_code"] = exit_code
+        _data["finished_at"] = _utc_now_iso()
+        if result is not None:
+            _data["result"] = result
+        if failure_reason is not None:
+            _data["failure_reason"] = failure_reason
+        _jf.write_text(_json.dumps(_data, indent=2))
+    except Exception:
+        pass  # defensive: job-write failure must never crash the worker
 
 with open({str(params_path)!r}, encoding="utf-8") as _f:
     _params = json.load(_f)
@@ -881,6 +905,7 @@ try:
         if _progress_run_root:
             _out = _result.get("output_path") if isinstance(_result, dict) else ""
             append_progress(_progress_run_root, f"DEM download done: {{_out}}")
+        _eager_write_job_status("done", 0, result=_result)
         print(json.dumps({{"status": "done", "result": _result}}, ensure_ascii=False), flush=True)
 except Exception as _exc:
     if _progress_run_root:
@@ -888,6 +913,7 @@ except Exception as _exc:
             append_progress(_progress_run_root, f"DEM download failed: {{_exc}}")
         except Exception:
             pass
+    _eager_write_job_status("failed", 1, failure_reason=str(_exc))
     print(json.dumps({{"status": "failed", "error": str(_exc), "traceback": traceback.format_exc()}}, ensure_ascii=False), flush=True)
 """
     runner_path.write_text(runner_script, encoding="utf-8")
@@ -1015,6 +1041,7 @@ def _launch_sentinel_prepare_background(params: dict) -> dict:
         _dem_dir_override = str(_pid_fn(_output_root_for_prepare, "dem"))
         _orbit_dir_override = str(_pid_fn(_output_root_for_prepare, "orbits"))
 
+    _prep_job_file_str = str(Path(job_context["jobs_dir"]) / f"{job.job_id}.json")
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
 import json
@@ -1024,6 +1051,30 @@ import traceback
 sys.path.insert(0, {src_dir!r})
 from insar_agent.engines.isce2.sentinel_prep import prepare_sentinel_data
 from insar_agent.mcp.server import insar_download_dem
+
+_job_file = {_prep_job_file_str!r}
+
+def _utc_now_iso():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+def _eager_write_job_status(status, exit_code, result=None, failure_reason=None):
+    \"\"\"Eagerly push terminal status to the job JSON (F3). Never raises.\"\"\"
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _jf = _Path(_job_file)
+        _data = _json.loads(_jf.read_text()) if _jf.exists() else {{}}
+        _data["status"] = status
+        _data["exit_code"] = exit_code
+        _data["finished_at"] = _utc_now_iso()
+        if result is not None:
+            _data["result"] = result
+        if failure_reason is not None:
+            _data["failure_reason"] = failure_reason
+        _jf.write_text(_json.dumps(_data, indent=2))
+    except Exception:
+        pass  # defensive: job-write failure must never crash the worker
 
 with open({str(params_path)!r}, encoding="utf-8") as _f:
     _params = json.load(_f)
@@ -1051,8 +1102,10 @@ if _progress_run_root:
 
 try:
     _result = prepare_sentinel_data(**_params, dem_downloader=insar_download_dem)
+    _eager_write_job_status("done", 0, result=_result)
     print(json.dumps({{"status": "done", "result": _result}}, ensure_ascii=False), flush=True)
 except Exception as _exc:
+    _eager_write_job_status("failed", 1, failure_reason=str(_exc))
     print(json.dumps({{"status": "failed", "error": str(_exc), "traceback": traceback.format_exc()}}, ensure_ascii=False), flush=True)
 """
     runner_path.write_text(runner_script, encoding="utf-8")

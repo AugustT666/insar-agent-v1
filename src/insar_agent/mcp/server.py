@@ -1059,6 +1059,7 @@ def insar_download_rslc(
     dl_job.params_path = params_file
 
     _rslc_run_root_str = str(job_context.get("run_root") or "")
+    _rslc_job_file_str = str(Path(job_context["jobs_dir"]) / f"{dl_job.job_id}.json")
     src_dir = str(Path(__file__).resolve().parent.parent.parent)
     runner_script = f"""\
 import sys, json, traceback
@@ -1067,6 +1068,29 @@ from insar_agent.engines.isce3.download import download_rslc_stack
 from insar_agent.core.progress import append_progress
 
 _progress_run_root = {_rslc_run_root_str!r}
+_job_file = {_rslc_job_file_str!r}
+
+def _utc_now_iso():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+def _eager_write_job_status(status, exit_code, result=None, failure_reason=None):
+    \"\"\"Eagerly push terminal status to the job JSON (F3). Never raises.\"\"\"
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _jf = _Path(_job_file)
+        _data = _json.loads(_jf.read_text()) if _jf.exists() else {{}}
+        _data["status"] = status
+        _data["exit_code"] = exit_code
+        _data["finished_at"] = _utc_now_iso()
+        if result is not None:
+            _data["result"] = result
+        if failure_reason is not None:
+            _data["failure_reason"] = failure_reason
+        _jf.write_text(_json.dumps(_data, indent=2))
+    except Exception:
+        pass  # defensive: job-write failure must never crash the worker
 
 def _on_progress(msg):
     print(msg, flush=True)
@@ -1091,6 +1115,7 @@ try:
         _ok = len(_result.get("ok", []))
         _fail = len(_result.get("failed", []))
         append_progress(_progress_run_root, f"RSLC download done: ok={{_ok}} failed={{_fail}}")
+    _eager_write_job_status("done", 0, result=_result)
     print(json.dumps({{"status": "done", "result": _result}}), flush=True)
 except Exception as _e:
     if _progress_run_root:
@@ -1098,6 +1123,7 @@ except Exception as _e:
             append_progress(_progress_run_root, f"RSLC download failed: {{_e}}")
         except Exception:
             pass
+    _eager_write_job_status("failed", 1, failure_reason=str(_e))
     print(json.dumps({{"status": "failed", "error": str(_e), "traceback": traceback.format_exc()}}), flush=True)
 """
     with open(runner_file, "w") as f:
