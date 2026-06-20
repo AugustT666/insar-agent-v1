@@ -204,7 +204,21 @@ class Project:
 
     @classmethod
     def load_for_task(cls, workspace_root: str | Path, task_id: str) -> "Project | None":
-        pf = Path(workspace_root) / task_id / ".insar_agent" / "project.json"
+        """Load a project by searching for task-scoped project.json.
+
+        Supports both the new layout (``<workspace>/<task>_<run_id>/.insar_agent/project.json``)
+        and the legacy layout (``<workspace>/<task_id>/.insar_agent/project.json``).
+        """
+        base = Path(workspace_root)
+        # New layout: scan for <task>_*/.insar_agent/project.json
+        for run_dir in sorted(base.glob(f"{task_id}_*")):
+            pf = run_dir / ".insar_agent" / "project.json"
+            if pf.exists():
+                data = json.loads(pf.read_text())
+                known = {f.name for f in cls.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+                return cls(**{k: v for k, v in data.items() if k in known})
+        # Legacy layout fallback
+        pf = base / task_id / ".insar_agent" / "project.json"
         if not pf.exists():
             return None
         data = json.loads(pf.read_text())

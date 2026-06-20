@@ -43,9 +43,15 @@ def insar_get_job(
             return _project_error(project_id)
 
         _jobs_dir = _project.jobs_dir()
-        # Try as DownloadJob first
+        # Try as DownloadJob first — only if the raw JSON looks like a download job
+        # (workflow jobs also load without error, so we discriminate by job_type).
         try:
             dl_job = DownloadJob.load(job_id, _jobs_dir)
+            # DownloadJob types end in _download, _prepare, or similar;
+            # workflow jobs (e.g. "isce3_insar_workflow") must fall through to Job branch.
+            _dl_job_types = ("download", "prepare", "sentinel")
+            if dl_job.job_type and not any(t in dl_job.job_type for t in _dl_job_types):
+                dl_job = None  # treat as workflow job
         except ValueError as exc:
             return {"error": "invalid_job_id", "message": str(exc)}
         except FileNotFoundError:

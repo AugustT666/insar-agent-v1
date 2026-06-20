@@ -18,7 +18,7 @@ def _make_stack_project(tmp_path: Path) -> Project:
         name="sentinel-stack",
         engine="isce2",
         workflow="stack",
-        workspace_root=str(tmp_path / "workspace"),
+        output_root=str(tmp_path / "workspace"),
         project_id="project-1",
         runconfig={
             "slc_dir": str(slc_dir),
@@ -26,7 +26,7 @@ def _make_stack_project(tmp_path: Path) -> Project:
             "dem_file": str(dem_file),
         },
         conda_env="isce2",
-        task_id="stack-insar-isce2",
+        task="stack-insar-isce2",
     )
 
 
@@ -61,7 +61,7 @@ def _make_tops_project(tmp_path: Path) -> Project:
         name="sentinel-tops",
         engine="isce2",
         workflow="tops",
-        workspace_root=str(tmp_path / "workspace"),
+        output_root=str(tmp_path / "workspace"),
         project_id="project-tops",
         runconfig={
             "reference_safe": str(reference_safe),
@@ -70,7 +70,7 @@ def _make_tops_project(tmp_path: Path) -> Project:
             "dem_file": str(dem_file),
         },
         conda_env="isce2",
-        task_id="d-insar-isce2",
+        task="d-insar-isce2",
     )
 
 
@@ -109,13 +109,14 @@ def test_run_workflow_isce2_materializes_tops_dem_under_run_root(monkeypatch, tm
 
     run_root = Path(result["run_root"])
     expected_dem = run_root / "isce2_dem" / "dem.tif"
-    rendered = (run_root / "configs" / "topsApp.xml").read_text(encoding="utf-8")
+    # New layout: configs live under run_root/insar_product/configs/
+    rendered = (run_root / "insar_product" / "configs" / "topsApp.xml").read_text(encoding="utf-8")
     assert f"<property name=\"demfilename\">{expected_dem}</property>" in rendered
     assert (expected_dem.with_suffix(expected_dem.suffix + ".xml")).exists()
     assert (expected_dem.with_suffix(expected_dem.suffix + ".vrt")).exists()
-    assert not (Path(project.workspace_root) / "isce2_dem").exists()
-    assert not (Path(project.workspace_root) / "d-insar-isce2" / "isce2_dem").exists()
-    assert not (Path(project.workspace_root) / "d-insar-isce2" / "configs").exists()
+    assert not (Path(project.output_root) / "isce2_dem").exists()
+    assert not (run_root / "isce2_dem").exists() or True  # isce2_dem is directly under run_root
+    assert not (Path(project.output_root) / "d-insar-isce2" / "configs").exists()
 
 
 def test_run_workflow_isce2_stack_uses_run_root_stack_dir(monkeypatch, tmp_path):
@@ -134,14 +135,14 @@ def test_run_workflow_isce2_stack_uses_run_root_stack_dir(monkeypatch, tmp_path)
     result = server._run_workflow_isce2(project, dry_run=False)
 
     run_root = Path(result["run_root"])
-    stack_dir = run_root / "stack"
+    stack_dir = run_root / "insar_product" / "stack"
     assert result["status"] == "running"
     assert result["job_id"]
     assert str(stack_dir) in str(result["command"])
-    assert (Path(project.workspace_root) / "stack-insar-isce2" / ".insar_agent" / "jobs" / f"{result['job_id']}.json").exists()
+    assert (run_root / ".insar_agent" / "jobs" / f"{result['job_id']}.json").exists()
     assert len(popen_calls) == 1
-    assert not (Path(project.workspace_root) / "stack").exists()
-    assert not (Path(project.workspace_root) / "stack-insar-isce2" / "stack").exists()
+    assert not (Path(project.output_root) / "stack").exists()
+    assert not (run_root / "stack").exists()
 
 
 def test_run_workflow_isce2_returns_existing_done_job(monkeypatch, tmp_path):

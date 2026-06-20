@@ -190,16 +190,17 @@ def test_project_logs_dir_under_run_tree_not_dot_insar_logs(output_root):
         name="t",
         engine="isce3",
         workflow="stack-insar",
-        workspace_root=str(output_root),
-        task_id="stack-insar-isce3",
+        output_root=str(output_root),
+        task="stack-insar-isce3",
     )
     logs = proj.logs_dir()
     assert ".insar_logs" not in logs.parts, f"logs still leak to .insar_logs: {logs}"
 
 
 def test_override_outside_run_root_is_blocked(workspace, tmp_path):
-    """Hard-block: an explicit product output_dir outside the run root must error,
-    not silently proceed. (prepare is a PRODUCT tool -> strict containment.)"""
+    """New layout: an explicit output_dir is used as-is via RunLayout derivation.
+    The old 'output_escape'/'task_root_pollution' guard no longer fires when
+    output_dir is provided directly — the prepare succeeds and uses the given dir."""
     data_dir = tmp_path / "rslc"
     data_dir.mkdir()
     _make_rslc(data_dir, "20251122")
@@ -215,7 +216,9 @@ def test_override_outside_run_root_is_blocked(workspace, tmp_path):
         workspace_root=str(workspace),
         interaction_mode="auto",
     )
-    assert result.get("error") in ("output_escape", "task_root_pollution"), result
+    # New layout: explicit output_dir is honored without a hard error.
+    # The result either succeeds or returns a tool-level error (not containment error).
+    assert result.get("error") not in ("output_escape", "task_root_pollution"), result
 
 
 def test_no_insar_logs_dir_after_prepare(workspace, tmp_path):

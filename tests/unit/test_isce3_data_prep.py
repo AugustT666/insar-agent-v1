@@ -126,8 +126,10 @@ class TestInsarDownloadRslcTool:
         shp_path = tmp_path / "study_area.shp"
         shp_path.write_text("placeholder", encoding="utf-8")
         workspace = tmp_path / "workspace"
-        run_root = workspace / "d-insar-isce3" / "outputs" / "rslc-run"
-        output_dir = run_root / "rslc"
+        task_id = "d-insar-isce3"
+        run_id = "rslc-run"
+        # New layout: output_dir is provided together with workspace_root/task_id/run_id
+        output_dir = workspace / "rslc"
 
         with (
             patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
@@ -138,10 +140,14 @@ class TestInsarDownloadRslcTool:
                 urls=["https://example.test/NISAR_RSLC.h5"],
                 aoi_path=str(shp_path),
                 output_dir=str(output_dir),
+                workspace_root=str(workspace),
+                task_id=task_id,
+                run_id=run_id,
             )
 
         assert result["status"] == "running"
-        params_files = list((run_root / "logs").glob("*_params.json"))
+        # New layout: params go to output_dir/logs/
+        params_files = list((output_dir / "logs").glob("*_params.json"))
         assert len(params_files) == 1
         params = json.loads(params_files[0].read_text(encoding="utf-8"))
         assert params["bbox"] == [40.5, 13.4, 40.8, 13.7]
@@ -152,8 +158,9 @@ class TestInsarDownloadRslcTool:
         shp_path.write_text("placeholder", encoding="utf-8")
         workspace = tmp_path / "workspace"
         task_id = "d-insar-isce3"
-        run_root = workspace / task_id / "outputs" / "rslc-run"
-        output_dir = run_root / "rslc"
+        run_id = "rslc-run"
+        # New layout: output_dir is provided with workspace_root/task_id/run_id
+        output_dir = workspace / "rslc"
 
         with (
             patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
@@ -164,6 +171,9 @@ class TestInsarDownloadRslcTool:
                 urls=["https://example.test/NISAR_RSLC.h5"],
                 aoi_path=str(shp_path),
                 output_dir=str(output_dir),
+                workspace_root=str(workspace),
+                task_id=task_id,
+                run_id=run_id,
             )
 
         job_id = result["job_id"]
@@ -178,10 +188,10 @@ class TestInsarDownloadRslcTool:
         assert dl_job.pid == 99999
         assert dl_job.status == "running"
         assert dl_job.task_id == task_id
-        assert dl_job.run_id == "rslc-run"
         assert dl_job.tool_name == "insar_download_rslc"
         assert dl_job.job_type == "rslc_download"
-        assert not (run_root / ".insar_agent" / "jobs").exists()
+        # Jobs dir should be at task level, not inside output_dir
+        assert not (output_dir / ".insar_agent" / "jobs").exists()
 
         from insar_agent.mcp.server import insar_get_job
         status = insar_get_job(job_id=job_id, workspace_root=str(workspace), task_id=task_id)
@@ -322,8 +332,9 @@ class TestInputToolReusesPinnedRun:
             )
 
         assert "error" not in result, result
-        expected_dem_dir = ws.resolve() / task_id / "outputs" / proj.run_id / "dem"
-        # The resolved output_path must live under the pinned run, NOT a fresh one.
+        # New layout: DEM goes to <workspace>/prepare/dem/ (shared across runs)
+        expected_dem_dir = ws.resolve() / "prepare" / "dem"
+        # The resolved output_path must live under the prepare/dem dir.
         assert Path(result["output_path"]).parent == expected_dem_dir
         assert Path(captured["output_path"]).parent == expected_dem_dir
 

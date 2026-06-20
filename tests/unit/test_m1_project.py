@@ -99,12 +99,15 @@ def test_create_project_writes_task_scoped_project_json(workspace, engine, workf
     assert "error" not in result
 
     project = Project.load(result["project_id"])
-    assert project.task_id == expected_task_id
+    # New layout uses `task` field; `task_id` is legacy/None
+    assert project.task == expected_task_id
 
-    project_file = Path(workspace) / expected_task_id / ".insar_agent" / "project.json"
+    # New layout: run_root is <workspace>/<task>_<run_id>/.insar_agent/project.json
+    run_root = project.run_root()
+    project_file = run_root / ".insar_agent" / "project.json"
     data = json.loads(project_file.read_text())
     assert data["project_id"] == result["project_id"]
-    assert data["task_id"] == expected_task_id
+    assert data["task"] == expected_task_id
     assert not (Path(workspace) / ".insar_agent" / "project.json").exists()
 
 
@@ -114,13 +117,15 @@ def test_project_task_scoped_management_dirs_stay_under_task_root(workspace):
         engine="isce2",
         workflow="tops",
         workspace_root=workspace,
-        task_id="d-insar-isce2",
+        task="d-insar-isce2",
     )
 
-    assert project.insar_dir() == Path(workspace) / "d-insar-isce2" / ".insar_agent"
-    assert project.outputs_dir() == Path(workspace) / "d-insar-isce2" / "outputs"
-    assert project.jobs_dir() == Path(workspace) / "d-insar-isce2" / ".insar_agent" / "jobs"
-    assert project.configs_dir().is_relative_to(Path(workspace) / "d-insar-isce2" / "outputs")
+    # New layout: run_root is <workspace>/<task>_<run_id>/
+    run_root = project.run_root()
+    assert project.insar_dir() == run_root / ".insar_agent"
+    assert project.outputs_dir() == run_root / "insar_product"
+    assert project.jobs_dir() == run_root / ".insar_agent" / "jobs"
+    assert project.configs_dir().is_relative_to(run_root / "insar_product")
 
 
 def test_isce3_stack_project_is_not_runnable_with_run_workflow(workspace):
@@ -231,7 +236,8 @@ def test_project_logs_dir_points_to_run_dir(workspace):
     logs = project.logs_dir()
     assert ".insar_logs" not in logs.parts, f"logs still leak to .insar_logs: {logs}"
     assert logs.name == "logs"
-    assert "outputs" in logs.parts
+    # New layout: logs are under <workspace>/<task>_<run_id>/insar_product/logs/
+    assert "insar_product" in logs.parts
     assert logs.is_relative_to(Path(workspace).resolve())
 
 
@@ -519,7 +525,8 @@ class TestGetProject:
         result = insar_get_project(pid)
         assert result["engine"] == insar_project["engine"]
         assert result["workflow"] == insar_project["workflow"]
-        assert result["workspace_root"] == insar_project["workspace_root"]
+        # insar_create_project returns output_root; insar_get_project returns workspace_root (alias)
+        assert result["workspace_root"] == insar_project["output_root"]
 
 
 # ── insar_list_outputs ────────────────────────────────────────────────────────
@@ -638,13 +645,13 @@ class TestListOutputs:
         # New layout: run_root is returned in the result
         assert "run_root" in result
         run_root = Path(result["run_root"])
-        # New layout: run_root is workspace/<task_id>/outputs/<run_id>
+        # New layout: run_root is workspace/<task>_<run_id>/
         assert run_root.is_relative_to(workspace)
-        assert "outputs" in run_root.parts
-        # sas_output_file is now inside run_root/products/
+        assert "insar_product" in (run_root / "insar_product").parts
+        # sas_output_file is now inside run_root/insar_product/products/
         updated = Project.load(pid)
         sas = get_path(updated.runconfig, "runconfig.groups.product_path_group.sas_output_file")
-        assert Path(sas).parent == run_root / "products"
+        assert Path(sas).parent == run_root / "insar_product" / "products"
         assert Path(sas).suffix == ".h5"
 
     def test_job_not_done_returns_error(self, insar_project):

@@ -30,9 +30,10 @@ def test_download_dem_default_path_stays_under_outputs(tmp_path):
 
     output_path = Path(result["output_path"])
     log_path = Path(result["log_path"])
-    run_root = workspace / "d-insar-isce3" / "outputs" / "dem-run"
-    assert output_path.is_relative_to(run_root)
-    assert log_path.is_relative_to(run_root)
+    # New layout: DEM goes to <workspace>/prepare/dem/
+    prepare_dem_dir = workspace / "prepare" / "dem"
+    assert output_path.is_relative_to(prepare_dem_dir)
+    assert log_path.is_relative_to(prepare_dem_dir)
     assert not (workspace / "d-insar-isce3" / "dem").exists()
     assert not (workspace / "d-insar-isce3" / ".insar_logs").exists()
 
@@ -140,14 +141,15 @@ def test_background_download_dem_returns_pollable_job_under_outputs(tmp_path):
             background=True,
         )
 
-    run_root = workspace / "d-insar-isce3" / "outputs" / "dem-run"
+    # New layout: DEM artifacts go to <workspace>/prepare/dem/
+    prepare_dem_dir = workspace / "prepare" / "dem"
     task_jobs_dir = workspace / "d-insar-isce3" / ".insar_agent" / "jobs"
     assert result["status"] == "running"
-    assert Path(result["output_path"]).is_relative_to(run_root)
-    assert Path(result["output_dir"]) == run_root
-    assert Path(result["log_path"]).is_relative_to(run_root / "logs")
+    assert Path(result["output_path"]).is_relative_to(prepare_dem_dir)
+    assert Path(result["output_dir"]) == prepare_dem_dir
+    assert Path(result["log_path"]).is_relative_to(prepare_dem_dir)
     assert (task_jobs_dir / f"{result['job_id']}.json").exists()
-    assert not (run_root / ".insar_agent" / "jobs").exists()
+    assert not (prepare_dem_dir / ".insar_agent" / "jobs").exists()
     job_text = (task_jobs_dir / f"{result['job_id']}.json").read_text(encoding="utf-8")
     assert "insar_download_dem" in job_text
     assert "dem_download" in job_text
@@ -212,9 +214,10 @@ def test_prepare_sentinel_default_project_root_stays_under_outputs(tmp_path):
 
     output_dir = Path(result["project_root"])
     log_path = Path(result["prep_log_path"])
-    run_root = workspace / "d-insar-isce2" / "outputs" / "prep-run"
-    assert output_dir.is_relative_to(run_root)
-    assert log_path.is_relative_to(run_root)
+    # New layout: sentinel data goes to <workspace>/prepare/safe/
+    prepare_safe_dir = workspace / "prepare" / "safe"
+    assert output_dir.is_relative_to(prepare_safe_dir)
+    assert log_path.is_relative_to(prepare_safe_dir)
     assert not (workspace / "d-insar-isce2" / "prep").exists()
     assert not (workspace / "d-insar-isce2" / ".insar_logs").exists()
 
@@ -224,17 +227,20 @@ def test_prepare_sentinel_run_root_logs_win_over_task_markers(tmp_path):
     task_id = "stack-insar-isce2"
     task_root = workspace / task_id
     (task_root / ".insar_agent").mkdir(parents=True)
-    run_root = task_root / "outputs" / "prep-run"
+    # New layout: run_root is <workspace>/<task>_<run_id>/
+    run_root = workspace / f"{task_id}_prep-run"
+    project_root = run_root / "insar_product" / "prep"
 
     result = insar_prepare_sentinel_data(
-        project_root=str(run_root / "prep"),
+        project_root=str(project_root),
         workspace_root=str(workspace),
         task_id=task_id,
         source_paths=[],
     )
 
     assert "error" not in result
-    assert Path(result["prep_log_path"]).parent == run_root / "logs"
+    # Logs go to project_root/logs/ when project_root is explicit
+    assert Path(result["prep_log_path"]).is_relative_to(project_root)
     assert not (task_root / ".insar_logs").exists()
 
 
@@ -352,7 +358,8 @@ def test_prepare_sentinel_allows_task_root_management_dir(tmp_path):
         )
 
     assert "error" not in result
-    assert result["project_root"] == str(task_root / "outputs" / "prep-run" / "prep")
+    # New layout: sentinel data goes to <workspace>/prepare/safe/
+    assert result["project_root"] == str(workspace / "prepare" / "safe")
 
 
 def test_prepare_sentinel_custom_output_keeps_task_root_clean(tmp_path):

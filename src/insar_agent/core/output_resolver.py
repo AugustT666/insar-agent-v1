@@ -149,7 +149,7 @@ def resolve_run_layout(project: "Project") -> RunLayout | None:
     except (ValueError, AttributeError):
         return None
 
-    task = project.task_id or getattr(project, "name", None) or getattr(project, "project_id", "")
+    task = getattr(project, "task", None) or project.task_id or getattr(project, "name", None) or getattr(project, "project_id", "")
     pinned = getattr(project, "run_id", None)
     if pinned:
         try:
