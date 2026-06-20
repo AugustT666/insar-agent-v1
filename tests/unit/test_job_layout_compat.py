@@ -142,3 +142,60 @@ def test_batch_job_load_legacy(tmp_path):
     bj = BatchJob.load("bj-001", tmp_path)
     assert bj.job_id == "bj-001"
     assert bj.batch_type == "stack"
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2: jobs_dir_for_run + progress_path field + old JSON back-compat
+# ---------------------------------------------------------------------------
+
+def test_jobs_dir_inside_run_and_progress(tmp_path):
+    from insar_agent.core.jobs import DownloadJob
+    assert DownloadJob.jobs_dir_for_run(tmp_path) == tmp_path / ".insar_agent" / "jobs"
+    d = DownloadJob(job_id="j", output_dir=str(tmp_path), progress_path=str(tmp_path / ".insar_agent/progress.log"))
+    assert d.progress_path.endswith("progress.log")
+
+
+def test_old_job_json_tolerated(tmp_path):
+    from insar_agent.core.jobs import DownloadJob
+    (tmp_path / "j.json").write_text('{"job_id":"j","run_root":"/old/ws/t/outputs/r","legacy":1}')
+    assert DownloadJob.load("j", tmp_path).job_id == "j"
+
+
+def test_job_progress_path_field(tmp_path):
+    from insar_agent.core.jobs import Job
+    jobs_dir = tmp_path / "jobs"
+    progress = str(tmp_path / ".insar_agent" / "progress.log")
+    job = Job(
+        project_id="p",
+        engine="isce3",
+        workflow="insar",
+        job_id="j-pp",
+        progress_path=progress,
+    )
+    job.save(jobs_dir)
+    loaded = Job.load("j-pp", jobs_dir)
+    assert loaded.progress_path == progress
+
+
+def test_batch_job_progress_path_field(tmp_path):
+    from insar_agent.core.jobs import BatchJob
+    progress = str(tmp_path / ".insar_agent" / "progress.log")
+    bj = BatchJob(
+        batch_dir=str(tmp_path),
+        batch_type="stack",
+        num_pairs=2,
+        run_parallel_sh="run.sh",
+        max_jobs=1,
+        job_id="bj-pp",
+        progress_path=progress,
+    )
+    bj.save()
+    loaded = BatchJob.load("bj-pp", tmp_path)
+    assert loaded.progress_path == progress
+
+
+def test_jobs_dir_for_task_still_works(tmp_path):
+    """Deprecated alias jobs_dir_for_task must still return correct path."""
+    from insar_agent.core.jobs import DownloadJob
+    result = DownloadJob.jobs_dir_for_task(tmp_path, "E1")
+    assert result == tmp_path / "E1" / ".insar_agent" / "jobs"
