@@ -7,6 +7,7 @@ which declares ``__all__`` covering the underscore-prefixed constants.
 from __future__ import annotations
 
 from insar_agent.mcp._app import *  # noqa: F403  (foundation: imports + constants + mcp)
+from insar_agent.core.jobs import pid_alive
 
 
 def _conda_safe_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
@@ -424,21 +425,7 @@ def _refresh_workflow_job_status(job: Job, jobs_dir: Path) -> Job:
     if job.pid is None:
         return job
 
-    alive = True
-    try:
-        os.kill(job.pid, 0)
-        state_line = next(
-            (ln for ln in Path(f"/proc/{job.pid}/status").read_text().splitlines() if ln.startswith("State:")),
-            "",
-        )
-        if "Z" in state_line:
-            alive = False
-    except PermissionError:
-        return job
-    except (ProcessLookupError, FileNotFoundError):
-        alive = False
-
-    if not alive:
+    if not pid_alive(job.pid):
         log_tail = _read_log_tail(job.log_path, n=WORKFLOW_LOG_TAIL_LINES)
         if (
             _read_exit_code(job.exit_code_path) is not None
@@ -446,9 +433,20 @@ def _refresh_workflow_job_status(job: Job, jobs_dir: Path) -> Job:
             or _workflow_log_has_success(log_tail)
         ):
             _finalize_job_status_from_artifacts(job, jobs_dir)
-        # else: exitcode file not yet flushed, no clear outcome in log;
-        # keep status as running so the next poll can read the exitcode file
+        else:
+            # pid is dead, no exitcode file, no clear log outcome:
+            # the process crashed without writing terminal status (F2).
+            _mark_job_crashed(job, jobs_dir)
+
     return job
+
+
+def _mark_job_crashed(job: Job, jobs_dir: Path) -> None:
+    """Mark a job as crashed when its pid died without writing terminal status."""
+    job.status = "failed"
+    job.finished_at = _utc_now()
+    job.failure_reason = f"process {job.pid} died without writing terminal status"
+    job.save(jobs_dir)
 
 
 def _find_reusable_workflow_job(project: Project) -> Job | None:
@@ -477,6 +475,43 @@ def _find_reusable_workflow_job(project: Project) -> Job | None:
         reverse=True,
     )
     return candidates[0] if candidates else None
+
+
+def _find_live_running_workflow_job(project: Project) -> str | None:
+    """Return the job_id of any live running workflow job for this project, or None.
+
+    A job is considered live if its status is 'running', it has a pid, and that
+    pid is still alive. Jobs with dead pids (crashed without writing terminal status)
+    do NOT count as live — they will be reclassified by F2 on next get_job poll.
+
+    Used by the F1 concurrency guard in insar_run_workflow.
+    """
+    jobs_dir = project.jobs_dir()
+    if not jobs_dir.exists():
+        return None
+
+    for job_file in jobs_dir.glob("*.json"):
+        try:
+            job = Job.load(job_file.stem, jobs_dir)
+        except (FileNotFoundError, json.JSONDecodeError, TypeError):
+            continue
+
+        if job.status != "running":
+            continue
+
+        # Only consider jobs that are workflow jobs (tool_name or job_type match).
+        is_workflow = (
+            job.tool_name == "insar_run_workflow"
+            or (job.job_type is not None and job.job_type.endswith("_workflow"))
+        )
+        if not is_workflow:
+            continue
+
+        # Must have a live pid to block a new launch.
+        if job.pid is not None and pid_alive(job.pid):
+            return job.job_id
+
+    return None
 
 
 def _safe_get_path(runconfig: dict, key: str) -> object:
@@ -1113,6 +1148,9 @@ __all__ = [
     '_job_result',
     '_refresh_workflow_job_status',
     '_find_reusable_workflow_job',
+    '_find_live_running_workflow_job',
+    '_mark_job_crashed',
+    'pid_alive',
     '_safe_get_path',
     '_engine_error',
     '_project_error',

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, UTC
 from pathlib import Path
@@ -9,6 +10,40 @@ from uuid import uuid4
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def pid_alive(pid: int | None) -> bool:
+    """Return True if a process with the given pid is alive and not a zombie.
+
+    Uses os.kill(pid, 0) to probe existence, then /proc/<pid>/status to filter
+    out zombie processes (state "Z"). Treats pid<=0 or None as not-alive.
+
+    PermissionError means the process exists but we can't signal it — still alive.
+    ProcessLookupError means it is gone.
+    FileNotFoundError means /proc/<pid>/status is gone (process exited between
+    the kill(0) and the /proc read) — treat as not-alive.
+    """
+    if pid is None or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        # Process exists, we just lack permission to signal it.
+        return True
+    except ProcessLookupError:
+        return False
+
+    # Process exists — check for zombie state via /proc
+    try:
+        status_text = Path(f"/proc/{pid}/status").read_text()
+        for line in status_text.splitlines():
+            if line.startswith("State:"):
+                return "Z" not in line
+        # No State: line found — assume alive
+        return True
+    except (FileNotFoundError, PermissionError):
+        # Process disappeared between kill(0) and /proc read, or unreadable.
+        return False
 
 
 def _job_file_for(jobs_dir: Path, job_id: str) -> Path:
@@ -51,6 +86,7 @@ class Job:
     metrics_path: str | None = None
     tool_name: str | None = None
     job_type: str | None = None
+    failure_reason: str | None = None
 
     def save(self, jobs_dir: Path) -> None:
         jobs_dir.mkdir(parents=True, exist_ok=True)

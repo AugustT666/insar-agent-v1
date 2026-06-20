@@ -12,6 +12,7 @@ from __future__ import annotations
 from insar_agent.mcp._app import *  # noqa: F403  (foundation: imports + constants + mcp)
 from insar_agent.mcp._app import mcp  # noqa: F401  (explicit: shared FastMCP instance)
 from insar_agent.mcp._helpers import *  # noqa: F403  (shared helpers)
+from insar_agent.core.jobs import pid_alive as _pid_alive
 
 # Importing these registers their @mcp.resource / @mcp.prompt / @mcp.tool
 # decorators on the shared ``mcp`` instance.  The names are re-exported below so
@@ -365,6 +366,19 @@ def insar_run_workflow(project_id: str, dry_run: bool = False, conda_env: str = 
             project.save()
         except Exception:
             pass  # in-memory override still applies to this run
+
+    # F1: same-run concurrency guard (skip for dry_run — it is read-only).
+    if not dry_run:
+        live_job_id = _find_live_running_workflow_job(project)
+        if live_job_id is not None:
+            return {
+                "status": "error",
+                "error": (
+                    f"a workflow is already running for this run (job {live_job_id}); "
+                    f"wait for it (poll insar_get_job) or cancel it before launching another"
+                ),
+                "running_job_id": live_job_id,
+            }
 
     # Dispatch to engine-specific run logic
     if project.engine == "isce2":

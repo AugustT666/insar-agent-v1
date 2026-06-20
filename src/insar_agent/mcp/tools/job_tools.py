@@ -137,6 +137,8 @@ def insar_get_job(
             "runconfig_path": job.runconfig_path,
             "progress": read_progress_tail(_project.run_root()),
         }
+        if job.failure_reason is not None:
+            result["failure_reason"] = job.failure_reason
         if include_logs:
             if job.log_path and Path(job.log_path).exists():
                 result["log_content"] = Path(job.log_path).read_text(errors="replace")
@@ -350,6 +352,8 @@ def insar_get_job(
         "runconfig_path": job.runconfig_path,
         "progress": read_progress_tail(project.run_root()),
     }
+    if job.failure_reason is not None:
+        result["failure_reason"] = job.failure_reason
     if include_logs:
         if job.log_path and Path(job.log_path).exists():
             result["log_content"] = Path(job.log_path).read_text(errors="replace")

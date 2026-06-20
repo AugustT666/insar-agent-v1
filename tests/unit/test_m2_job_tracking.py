@@ -159,13 +159,13 @@ class TestGetJobStatusLiveness:
         assert result["exit_code"] == 0
         assert result["finished_at"] is not None
 
-    def test_dead_pid_no_exitcode_no_failure_stays_running(self, ready_project, tmp_path):
-        """Process just exited, exitcode not yet flushed, no failure marker → stays running.
+    def test_dead_pid_no_exitcode_no_failure_is_crashed(self, ready_project, tmp_path):
+        """Process died with no exitcode file and no clear log outcome → crashed (F2).
 
-        This covers the race window where the shell wrapper (printf '%s' > exitcode; exit)
-        exits before insar_get_job polls. Re-polling after the file appears will finalize
-        correctly. This prevents the false-positive 'failed' that occurred in E2 when
-        topsApp exit_code=0 but the exitcode file wasn't readable at poll time.
+        Previously (pre-F2) this kept status as 'running' to handle a race window
+        where the exitcode file was not yet flushed. F2 changed the behaviour:
+        a dead pid with no exit_code and no finished_at is now classified as crashed
+        ('failed') with a failure_reason field, so it never polls forever.
         """
         job_id = self._launch_job(ready_project, pid=77778)
 
@@ -175,13 +175,13 @@ class TestGetJobStatusLiveness:
         log_path = Path(data["log_path"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text("Running topo...\nAPI open (WR): geom_reference/IW2/shadowMask_01.rdr\n")
-        # exitcode file intentionally absent to simulate race window
+        # exitcode file intentionally absent
 
         with patch("insar_agent.mcp.server.os.kill", side_effect=ProcessLookupError):
             result = insar_get_job_status(job_id, ready_project)
 
-        assert result["status"] == "running", (
-            "Job must stay running when process is dead but exitcode file not yet written"
+        assert result["status"] == "failed", (
+            "Dead pid with no exitcode must be classified as crashed (F2), not kept as 'running'"
         )
 
     def test_dead_pid_error_in_log_returns_failed(self, ready_project, tmp_path):
