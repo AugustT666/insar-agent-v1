@@ -55,8 +55,8 @@ Default template summary:
 - `coregistration = NESD`
 - `esd_coherence_threshold = 0.85`
 - `filter_strength = 0.5`
-- `range_looks = 9`
-- `azimuth_looks = 3`
+- `range_looks = 10`
+- `azimuth_looks = 2`
 - `do_unwrap = true`
 - `unwrap_method = snaphu`
 - `num_proc = 1`
@@ -70,7 +70,7 @@ Heuristics:
 - Switch `coregistration` to `geometry` only when overlap/NESD behavior is unreliable or the user explicitly prioritizes speed.
 - Keep `do_unwrap = true` and `unwrap_method = snaphu` for production stack products unless the user explicitly asks for a faster validation-only path without unwrapped outputs.
 - Treat `num_proc` as an execution-resource parameter, not a science parameter. Use the runtime/hardware evidence profile to compare current `num_proc` with logical CPU count and memory.
-- For ISCE2 stack runs, recommend raising `num_proc` above 1 when logical CPU count and memory support it, but keep the recommendation conservative because topo/ESD stages can increase RAM and I/O pressure. Prefer the profile's `suggested_num_proc_upper_bound` over hand-picked values.
+- For ISCE2 stack runs, keep `num_proc` CONSERVATIVE. **`num_proc > 1` can SILENTLY DROP per-(date,swath) coregistration tasks** in stackSentinel's parallel run-steps (fullBurst geo2rdr/resample), leaving an incomplete `coreg_secondarys/<date>/IW*.xml` that later crashes `extractCommonValidRegion` with a bare `FileNotFoundError` — the dropping step logs no error and still exits 0. **Empirically observed (E1 142A, 31 scenes): `num_proc=8` silently dropped a secondary's IW2 resample (run failed); `num_proc=2` and `num_proc=1` completed coregistration cleanly.** This is a parallelism race, NOT a RAM/IO-pressure issue — ample CPU/memory does NOT prevent it. Do NOT scale `num_proc` to the logical CPU count and do NOT blindly adopt `suggested_num_proc_upper_bound`; recommend a small value (1–2; up to ~4 only with explicit caution) and verify coregistration completeness afterward (every secondary has `IW*.xml` for all swaths). Never describe a higher `num_proc` as "no correctness risk".
 
 ## Default vs Change Guidance
 
