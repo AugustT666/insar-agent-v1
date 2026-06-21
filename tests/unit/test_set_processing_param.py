@@ -288,13 +288,27 @@ def test_set_processing_param_out_of_range(insar_project):
 
 def test_set_processing_param_invalid_type(insar_project):
     pid = insar_project["project_id"]
+    # Non-numeric string cannot be coerced to int — must return invalid_type
+    result = insar_set_processing_param(
+        project_id=pid,
+        key="runconfig.groups.processing.crossmul.range_looks",
+        value="not_a_number",
+        justification="城市区希望减小多视数",
+    )
+    assert result["error"] == "invalid_type"
+
+
+def test_set_processing_param_string_int_coercion(insar_project):
+    pid = insar_project["project_id"]
+    # Numeric string "5" must be coerced to int 5 and accepted
     result = insar_set_processing_param(
         project_id=pid,
         key="runconfig.groups.processing.crossmul.range_looks",
         value="5",
         justification="城市区希望减小多视数",
     )
-    assert result["error"] == "invalid_type"
+    assert "error" not in result
+    assert result["new_value"] == 5
 
 
 def test_set_processing_param_invalid_list_shape(insar_project):

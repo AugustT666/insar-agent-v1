@@ -536,12 +536,24 @@ def _job_error(job_id: str) -> dict:
 
 
 def _coerce_processing_param_value(value: object, meta: dict) -> object:
-    if meta.get("type") == "bool" and isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized == "true":
-            return True
-        if normalized == "false":
-            return False
+    expected_type = meta.get("type")
+    if isinstance(value, str):
+        if expected_type == "bool":
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized == "false":
+                return False
+        elif expected_type == "int":
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                pass
+        elif expected_type == "float":
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                pass
     return value
 
 
