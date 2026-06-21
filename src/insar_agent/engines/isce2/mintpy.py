@@ -133,9 +133,15 @@ def run_mintpy_isce2_stack(
 
     work_dir.mkdir(parents=True, exist_ok=True)
     from insar_agent.core.output_resolver import resolve_output
-    jobs_dir = work_dir / ".insar_agent" / "jobs"
+    from insar_agent.core.layout import find_run_root
+    # Job state and logs belong at the RUN ROOT (<run_root>/.insar_agent/jobs and
+    # <run_root>/insar_product/logs), not under work_dir — otherwise, when work_dir
+    # is <run_root>/insar_product/mintpy, a second insar_product/ gets nested under
+    # mintpy/. Fall back to work_dir when no run-root marker is present.
+    run_root = find_run_root(work_dir) or work_dir
+    jobs_dir = run_root / ".insar_agent" / "jobs"
     jobs_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir = resolve_output(work_dir, "logs")
+    logs_dir = resolve_output(run_root, "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = Path(mintpy_config) if mintpy_config else _write_default_template(work_dir, stack_dir, baseline_dir)

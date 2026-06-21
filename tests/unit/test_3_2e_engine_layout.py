@@ -332,3 +332,106 @@ class TestISCE3MintpyRunLayout:
         assert not legacy_jobs_dir.exists(), (
             f"isce3 mintpy must NOT use legacy .jobs dir {legacy_jobs_dir}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 4. mintpy_work_dir nested at <run_root>/insar_product/mintpy (the real layout):
+#    jobs/logs must resolve to the RUN ROOT, NOT nest a second insar_product/
+#    under mintpy/.  Regression for E1 (stack-insar-isce2) where the mintpy job
+#    wrote logs to mintpy/insar_product/logs and state to mintpy/.insar_agent.
+# ---------------------------------------------------------------------------
+
+def _make_run_root_marker(run_root: Path, task: str, run_id: str) -> None:
+    """Create the .insar_agent/project.json marker that find_run_root keys on."""
+    marker = run_root / ".insar_agent" / "project.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        json.dumps({"output_root": str(run_root.parent), "task": task, "run_id": run_id}),
+        encoding="utf-8",
+    )
+
+
+class TestMintpyDeepWorkDirResolvesRunRoot:
+    def test_isce2_jobs_and_logs_land_at_run_root(self, tmp_path: Path) -> None:
+        from insar_agent.engines.isce2.mintpy import run_mintpy_isce2_stack
+        from insar_agent.engines.isce3.mintpy import get_mintpy_status
+
+        run_root = tmp_path / "e1" / "stack-insar-isce2_run1"
+        _make_run_root_marker(run_root, "stack-insar-isce2", "stack-insar-isce2_run1")
+        mintpy_work_dir = run_root / "insar_product" / "mintpy"
+        stack = _make_stack_root(tmp_path / "stack")
+        fake_script = tmp_path / "fake_mintpy.sh"
+        fake_script.write_text("#!/bin/bash\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 4321
+
+        with (
+            patch("insar_agent.engines.isce2.mintpy._SCRIPT", fake_script),
+            patch("subprocess.Popen", return_value=mock_proc),
+        ):
+            result = run_mintpy_isce2_stack(
+                mintpy_work_dir=str(mintpy_work_dir),
+                stack_work_dir=str(stack),
+                conda_env="isce2",
+            )
+
+        job_id = result["job_id"]
+        log_path = Path(result["log_path"])
+        assert log_path.parent == (run_root / "insar_product" / "logs"), (
+            f"log must be at <run_root>/insar_product/logs, got {log_path}"
+        )
+        assert "mintpy/insar_product" not in log_path.as_posix(), (
+            f"log must NOT nest insar_product under mintpy/, got {log_path}"
+        )
+        job_file = run_root / ".insar_agent" / "jobs" / f"{job_id}.json"
+        assert job_file.exists(), (
+            f"job JSON must be at <run_root>/.insar_agent/jobs, expected {job_file}"
+        )
+        assert not (mintpy_work_dir / ".insar_agent").exists(), (
+            "must NOT create .insar_agent under mintpy_work_dir"
+        )
+        # write/read consistency: status reader finds the job from the same work_dir
+        status = get_mintpy_status(job_id=job_id, mintpy_work_dir=str(mintpy_work_dir))
+        assert status["job_id"] == job_id
+
+    def test_isce3_jobs_and_logs_land_at_run_root(self, tmp_path: Path) -> None:
+        from insar_agent.engines.isce3.mintpy import run_mintpy, get_mintpy_status
+
+        run_root = tmp_path / "e3" / "d-insar-isce3_run1"
+        _make_run_root_marker(run_root, "d-insar-isce3", "d-insar-isce3_run1")
+        mintpy_work_dir = run_root / "insar_product" / "mintpy"
+        dem = _make_fake_dem(tmp_path)
+        fake_script = tmp_path / "fake_mintpy3.sh"
+        fake_script.write_text("#!/bin/bash\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 8765
+
+        with (
+            patch("insar_agent.engines.isce3.mintpy._SCRIPT", fake_script),
+            patch("subprocess.Popen", return_value=mock_proc),
+        ):
+            result = run_mintpy(
+                mintpy_work_dir=str(mintpy_work_dir),
+                gunw_glob="/fake/path/*.h5",
+                mintpy_config=None,
+                dem_path=str(dem),
+                conda_env="isce3",
+            )
+
+        job_id = result["job_id"]
+        log_path = Path(result["log_path"])
+        assert log_path.parent == (run_root / "insar_product" / "logs"), (
+            f"log must be at <run_root>/insar_product/logs, got {log_path}"
+        )
+        assert "mintpy/insar_product" not in log_path.as_posix(), (
+            f"log must NOT nest insar_product under mintpy/, got {log_path}"
+        )
+        job_file = run_root / ".insar_agent" / "jobs" / f"{job_id}.json"
+        assert job_file.exists(), (
+            f"job JSON must be at <run_root>/.insar_agent/jobs, expected {job_file}"
+        )
+        assert not (mintpy_work_dir / ".insar_agent").exists(), (
+            "must NOT create .insar_agent under mintpy_work_dir"
+        )
+        status = get_mintpy_status(job_id=job_id, mintpy_work_dir=str(mintpy_work_dir))
+        assert status["job_id"] == job_id

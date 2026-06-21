@@ -152,7 +152,7 @@ insar_prepare_sentinel_data(
 > **多景 stack（≥2 景）或含 DEM/轨道下载时自动后台运行（关键）。** 31 景级的 SAFE 合成 + DEM + 轨道
 > 同步跑会超过 MCP 客户端单次工具调用上限(~600s)而超时。长任务立即返回
 > `{job_id, status:"running", poll, monitor, log_path}`,真正的 prep 在后台 detached 进程里跑;之后按
-> **自定节奏睡-醒轮询**(间隔分钟级,**勿秒级紧凑 loop、勿 `while true`**):
+> **自定节奏睡-醒轮询**(间隔分钟级,**勿秒级紧凑 loop、勿 `while true`**;data-prep 通常几分钟完成,**每次唤醒间隔 ≤5 分钟、严禁排小时级 ScheduleWakeup**——否则任务早已完成你还在睡):
 >
 > ```python
 > insar_get_job(job_id=<job_id>, project_id=<project_id>)

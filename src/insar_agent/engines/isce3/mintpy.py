@@ -49,9 +49,9 @@ def run_mintpy(
 
     Runs run_mintpy_nisar_stack.sh inside the given conda environment via
     ``conda run``.  stdout and stderr are redirected to a log file under
-    ``<mintpy_work_dir>/logs/<job_id>.log``.  Job metadata is persisted to
-    ``<mintpy_work_dir>/.jobs/<job_id>.json`` so status can be polled across
-    tool calls.
+    ``<run_root>/insar_product/logs/<job_id>.log``.  Job metadata is persisted to
+    ``<run_root>/.insar_agent/jobs/<job_id>.json`` so status can be polled across
+    tool calls (the run root is resolved from ``mintpy_work_dir``).
 
     Args:
         mintpy_work_dir: Output directory for MintPy results.
@@ -87,9 +87,15 @@ def run_mintpy(
 
     work_dir.mkdir(parents=True, exist_ok=True)
     from insar_agent.core.output_resolver import resolve_output
-    jobs_dir = work_dir / ".insar_agent" / "jobs"
+    from insar_agent.core.layout import find_run_root
+    # Job state and logs belong at the RUN ROOT (<run_root>/.insar_agent/jobs and
+    # <run_root>/insar_product/logs), not under work_dir — otherwise, when work_dir
+    # is <run_root>/insar_product/mintpy, a second insar_product/ gets nested under
+    # mintpy/. Fall back to work_dir when no run-root marker is present.
+    run_root = find_run_root(work_dir) or work_dir
+    jobs_dir = run_root / ".insar_agent" / "jobs"
     jobs_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir = resolve_output(work_dir, "logs")
+    logs_dir = resolve_output(run_root, "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = str(uuid4())
@@ -132,7 +138,8 @@ def run_mintpy(
 def get_mintpy_status(job_id: str, mintpy_work_dir: str | Path) -> dict[str, object]:
     """Return the current status of a MintPy job.
 
-    Reads the job JSON from ``<mintpy_work_dir>/.jobs/<job_id>.json``.
+    Reads the job JSON from ``<run_root>/.insar_agent/jobs/<job_id>.json``
+    (the run root is resolved from ``mintpy_work_dir``).
     If the job was last seen as ``running``, checks whether the process is
     still alive via ``os.kill(pid, 0)``.  If the process has exited, the
     log tail is inspected to distinguish ``done`` from ``failed``, and the
@@ -145,7 +152,11 @@ def get_mintpy_status(job_id: str, mintpy_work_dir: str | Path) -> dict[str, obj
     Returns:
         dict with keys: job_id, pid, status, log_path, submitted_at, finished_at
     """
-    jobs_dir = Path(mintpy_work_dir) / ".insar_agent" / "jobs"
+    # Mirror the writer: resolve the run root so we read job state from
+    # <run_root>/.insar_agent/jobs (falling back to work_dir without a marker).
+    from insar_agent.core.layout import find_run_root
+    run_root = find_run_root(mintpy_work_dir) or Path(mintpy_work_dir)
+    jobs_dir = run_root / ".insar_agent" / "jobs"
     job_file = jobs_dir / f"{job_id}.json"
     if not job_file.exists():
         raise FileNotFoundError(job_file)
