@@ -36,12 +36,16 @@ insar_check_env()
 ```
 
 The tool returns:
-- `envs`: status of each conda environment (ok / missing / version)
+- `discovered_envs`: all ACTUAL local conda envs keyed by real env name, each with `isce2`/`isce3`/`mintpy` version or null
+- `capable`: dict mapping capability → list of real env names that have it (e.g. `capable.isce2 = ["s1_isce"]`)
+- `envs`: legacy status of well-known env names (ok / missing / version) — informational only
 - `mcp`: whether the MCP server is registered in Claude Code
 - `skills`: which skills are installed / missing
-- `install_hints`: one-line conda commands for any missing env
+- `install_hints`: one-line conda create commands for capabilities with **no** capable env discovered
 
 Read the result and proceed only with the steps needed for the missing components.
+
+> **Key signal**: use `capable.isce2` to find the real ISCE2-capable env name — do NOT assume it is literally named "isce2". Pass the discovered env name (or a user-specified override) as `conda_env` to `insar_create_project`.
 
 ---
 
@@ -138,9 +142,11 @@ If any remain missing, use the `install_hints` value from the result.
 
 - Use `-c conda-forge` consistently — do not mix with the defaults channel.
 - Conda env names must match what is passed to `insar_create_project(conda_env=...)`.
+  Read `capable.isce2` from `insar_check_env()` to discover the ACTUAL env name —
+  do NOT assume the env is literally named "isce2".
 - MintPy must be in a separate env from ISCE3 (numpy version conflict).
 - ISCE2 scripts use `$ISCE_HOME` and `$ISCE_STACK` vars set by the conda activation
-  script. Always invoke via `conda run -n isce2` or with the env activated.
+  script. Always invoke via `conda run -n <discovered_env_name>` or with the env activated.
 
 ---
 

@@ -73,6 +73,8 @@ def test_insar_check_env_tracks_router_skill(monkeypatch) -> None:
     listed_skills = "\n".join(sorted(EXPECTED_SKILLS - {"insar-agent"}))
 
     def fake_run(cmd, **kwargs):
+        if list(cmd[:4]) == ["conda", "env", "list", "--json"]:
+            return SimpleNamespace(returncode=0, stdout='{"envs": []}', stderr="")
         if cmd[:2] == ["conda", "run"]:
             return SimpleNamespace(returncode=0, stdout="1.0\n", stderr="")
         if cmd == ["claude", "mcp", "list"]:

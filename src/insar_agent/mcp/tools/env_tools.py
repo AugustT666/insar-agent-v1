@@ -32,23 +32,137 @@ def insar_probe_host() -> dict:
         return {"error": "probe_failed", "message": str(exc)}
 
 
+def _discover_conda_envs() -> list[tuple[str, str]]:
+    """Return list of (env_name, env_path) for all local conda envs.
+
+    Runs ``conda env list --json`` and parses the ``envs`` paths.
+    The base/root env (whose path has no ``envs/<name>`` suffix) is labeled "base".
+    Returns an empty list if conda is not found or the command fails.
+    """
+    try:
+        result = subprocess.run(
+            ["conda", "env", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+        data = json.loads(result.stdout)
+        envs_paths: list[str] = data.get("envs", [])
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return []
+
+    named: list[tuple[str, str]] = []
+    for path in envs_paths:
+        p = Path(path)
+        # The base/root env path does not contain an "envs" component; its
+        # basename is typically "base", "miniconda3", "anaconda3", etc.
+        # We detect it by checking whether its parent is named "envs".
+        if p.parent.name == "envs":
+            env_name = p.name
+        else:
+            env_name = "base"
+        named.append((env_name, path))
+    return named
+
+
+# Combined probe: one subprocess call per env, avoids multiple conda-run invocations.
+_COMBINED_PROBE = (
+    "import json, sys;"
+    "caps = {'isce2': None, 'isce3': None, 'mintpy': None};"
+    "exec(\"\"\"try:\\n import isce\\n caps['isce2'] = str(getattr(isce, '__version__', 'installed'))\\nexcept Exception: pass\"\"\");"
+    "exec(\"\"\"try:\\n import isce3\\n caps['isce3'] = str(getattr(isce3, '__version__', 'installed'))\\nexcept Exception: pass\"\"\");"
+    "exec(\"\"\"try:\\n import mintpy\\n caps['mintpy'] = str(getattr(mintpy, '__version__', 'installed'))\\nexcept Exception: pass\"\"\");"
+    "print(json.dumps(caps))"
+)
+
+
+def _probe_env_capabilities(env_name: str) -> dict[str, str | None]:
+    """Run the combined capability probe in the given conda env.
+
+    Returns a dict with keys isce2/isce3/mintpy, values are version strings or None.
+    Tolerates all errors (timeout, import failure, bad JSON) → returns all-None.
+    """
+    null_caps: dict[str, str | None] = {"isce2": None, "isce3": None, "mintpy": None}
+    try:
+        result = subprocess.run(
+            ["conda", "run", "-n", env_name, "--no-capture-output",
+             "python", "-c", _COMBINED_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=_conda_safe_env(),
+        )
+        if result.returncode != 0:
+            return null_caps
+        # The probe prints JSON on the last line (conda may emit prefix noise before it).
+        for line in reversed(result.stdout.strip().splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                return json.loads(line)
+        return null_caps
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return null_caps
+
+
 @mcp.tool()
 def insar_check_env() -> dict:
     """
     Check the project environment status: conda envs, MCP registration, and skills.
 
-    Probes each expected conda environment by attempting to import its key package.
-    Also checks MCP server registration and installed Claude Code skills.
+    Discovers ACTUAL local conda environments (not a hardcoded list) and probes
+    each one for ISCE2, ISCE3, and MintPy capabilities in a single subprocess call.
 
     Returns:
         {
-            "envs": {"isce3": {"status": "ok"|"missing", "version": ...}, ...},
+            "envs": {"<env_name>": {"status": "ok"|"missing", "version": ...}, ...},
+            "discovered_envs": {
+                "<real_env_name>": {"isce2": "<ver>"|null, "isce3": ..., "mintpy": ...},
+                ...
+            },
+            "capable": {
+                "isce2": ["<env_names_that_have_isce2>"],
+                "isce3": [...],
+                "mintpy": [...],
+            },
             "mcp": {"registered": bool, "server_name": str},
             "skills": {"installed": [...], "missing": [...]},
-            "install_hints": {env_name: "conda install ..." for missing envs},
+            "install_hints": {cap: "conda create ..." for caps with no capable env},
         }
     """
-    envs_to_check = {
+    # --- Real conda env discovery ---
+    env_list = _discover_conda_envs()
+
+    discovered_envs: dict[str, dict[str, str | None]] = {}
+    capable: dict[str, list[str]] = {"isce2": [], "isce3": [], "mintpy": []}
+
+    for env_name, _env_path in env_list:
+        if env_name == "base":
+            # Skip base env — it typically doesn't have InSAR packages
+            continue
+        caps = _probe_env_capabilities(env_name)
+        discovered_envs[env_name] = caps
+        for cap in ("isce2", "isce3", "mintpy"):
+            if caps.get(cap) is not None:
+                capable[cap].append(env_name)
+
+    # Build install_hints only for capabilities with no capable env.
+    _cap_install_hints = {
+        "isce2": "conda create -n <your_env_name> -c conda-forge isce2 -y",
+        "isce3": "conda create -n <your_env_name> -c conda-forge isce3 -y",
+        "mintpy": "conda create -n <your_env_name> -c conda-forge mintpy -y",
+    }
+    install_hints: dict[str, str] = {
+        cap: hint
+        for cap, hint in _cap_install_hints.items()
+        if not capable.get(cap)
+    }
+
+    # --- Legacy per-env status block (kept for backward compat, based on hardcoded names) ---
+    # These probe the well-known env names that may or may not exist on this machine.
+    # Authoritative signal is discovered_envs / capable above.
+    _legacy_envs_to_check = {
         "isce3gpu": {
             "probe": "import isce3; print(isce3.__version__)",
             "install": "conda create -n isce3gpu -c conda-forge isce3 cudatoolkit -y",
@@ -68,9 +182,8 @@ def insar_check_env() -> dict:
     }
 
     env_results: dict[str, dict] = {}
-    install_hints: dict[str, str] = {}
 
-    for env_name, cfg in envs_to_check.items():
+    for env_name, cfg in _legacy_envs_to_check.items():
         try:
             result = subprocess.run(
                 ["conda", "run", "-n", env_name, "--no-capture-output",
@@ -85,10 +198,8 @@ def insar_check_env() -> dict:
                 env_results[env_name] = {"status": "ok", "version": version}
             else:
                 env_results[env_name] = {"status": "missing", "error": result.stderr.strip()[:200]}
-                install_hints[env_name] = cfg["install"]
         except FileNotFoundError:
             env_results[env_name] = {"status": "missing", "error": "conda not found in PATH"}
-            install_hints[env_name] = cfg["install"]
         except subprocess.TimeoutExpired:
             env_results[env_name] = {"status": "timeout", "error": "probe timed out after 30s"}
 
@@ -195,6 +306,8 @@ def insar_check_env() -> dict:
 
     return {
         "envs": env_results,
+        "discovered_envs": discovered_envs,
+        "capable": capable,
         "mcp": mcp_status,
         "skills": skills_status,
         "install_hints": install_hints,

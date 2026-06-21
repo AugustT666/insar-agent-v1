@@ -20,7 +20,9 @@ version: 0.1.0
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Precise orbit directory (`.orb` files) — if missing, can be downloaded via `data-prep`
 - Workspace / output directory (absolute path)
-- Conda environment name — run `conda env list` and let user choose from isce2-related envs
+- Conda environment name — run `insar_check_env()` first and read `capable.isce2` to
+  discover the ACTUAL ISCE2-capable env name on this machine. Do NOT assume the env is
+  literally named "isce2"; use the discovered name or a user-specified override.
 
 ## Execution modes
 
@@ -36,7 +38,11 @@ version: 0.1.0
 
 ## Prerequisites
 
-Use the task/user specified ISCE2 environment, or default to `isce2` if none is specified. If environment status is missing, unclear, or a tool reports an environment-related error, use `insar_check_env()` or invoke `env-setup` before retrying.
+Run `insar_check_env()` first and read `capable.isce2` to get the real ISCE2-capable env name.
+Use the task/user specified ISCE2 environment if provided, otherwise use the first entry from
+`capable.isce2`. Do NOT assume the env is literally named "isce2". If environment status is
+missing, unclear, or a tool reports an environment-related error, use `insar_check_env()` or
+invoke `env-setup` before retrying.
 
 ---
 
@@ -89,15 +95,18 @@ insar_create_project(
     workflow="tops",
     output_root=<output_root>,
     name="s1-dinsar-<region>-<date>",
-    conda_env="isce2",       # ALWAYS pass — do not re-create the project to fix it later
+    conda_env=<discovered ISCE2-capable env from insar_check_env capable.isce2, or user-specified env>,
     task_id=<task_id>        # auto-derived; drives the run-root layout
 )
 ```
 
+> Before calling this, run `insar_check_env()` and read `capable.isce2` to get the
+> real ISCE2-capable env name on this machine. Do NOT hardcode `conda_env="isce2"`.
+
 **One project, one run.** The run_id is pinned at creation; all later steps join it. Do NOT
 re-create the project to fix a recoverable error (that mints a new run). If the workflow
 fails on a conda/env problem, correct it in place: `insar_run_workflow(project_id,
-conda_env="isce2")`. On any failure, retry within the same `project_id`; create a new project
+conda_env=<discovered_env>)`. On any failure, retry within the same `project_id`; create a new project
 only when abandoning the run entirely.
 
 Returns `project_id` and `required_fields` list.
@@ -227,8 +236,9 @@ Key output files (located under `<run_root>/` returned by `insar_run_workflow`):
 - `data-prep` is expected to prepare grouped SAFE paths, `dem_path`, and `orbit_dir`.
 - `orbit_dir` must contain the correct POEORB files. ISCE2 downloads them
   automatically if `do_download_orbit` is enabled and internet is available.
-- Processing must run inside `conda run -n isce2` — never run `topsApp.py` directly
-  without the isce2 environment active.
+- Processing must run inside `conda run -n <discovered_isce2_env>` — never run `topsApp.py`
+  directly without the correct ISCE2 environment active. Discover the env name via
+  `insar_check_env() capable.isce2`; do NOT assume it is literally named "isce2".
 - `insar_run_workflow` generates `topsApp.xml` automatically from project params.
   Do not edit the XML manually — use `insar_set_processing_param` instead.
 

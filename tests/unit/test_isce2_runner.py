@@ -179,3 +179,79 @@ def test_build_stack_command_sources_run_files_to_preserve_wait_barriers(tmp_pat
     assert 'sync' in inner
     assert 'while IFS= read -r line' not in inner
     assert 'bash -c "$line"' not in inner
+
+
+# ---------------------------------------------------------------------------
+# FIX 2 — ISCE2 import guard in build_stack_command (RED → GREEN)
+# ---------------------------------------------------------------------------
+
+def test_build_stack_command_has_isce_import_guard_before_rm_rf(tmp_path: Path) -> None:
+    """The inner shell string must contain an 'import isce' check BEFORE rm -rf.
+
+    This prevents a wrong-env launch from destroying the stack dir when ISCE2
+    is not importable in the resolved environment.
+    """
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        {
+            "slc_dir": str(slc_dir),
+            "orbit_dir": "/tmp/orbits",
+            "dem_file": "/tmp/dem.tif",
+        },
+        str(tmp_path / "stack"),
+        conda_env="my_isce_env",
+    )
+    inner = command[-1]
+
+    assert "import isce" in inner, (
+        "inner_cmd must contain an 'import isce' guard to verify ISCE2 is importable"
+    )
+    guard_pos = inner.index("import isce")
+    rm_pos = inner.index("rm -rf")
+    assert guard_pos < rm_pos, (
+        f"'import isce' guard (pos={guard_pos}) must appear BEFORE 'rm -rf' (pos={rm_pos})"
+    )
+
+
+def test_build_stack_command_isce_guard_prints_helpful_error(tmp_path: Path) -> None:
+    """The import guard failure message must mention insar_check_env so users know
+    how to discover the correct env name."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        {
+            "slc_dir": str(slc_dir),
+            "orbit_dir": "/tmp/orbits",
+            "dem_file": "/tmp/dem.tif",
+        },
+        str(tmp_path / "stack"),
+        conda_env="my_isce_env",
+    )
+    inner = command[-1]
+
+    assert "insar_check_env" in inner, (
+        "guard error message must mention 'insar_check_env' so users can discover the right env"
+    )
+    assert "exit 3" in inner, "guard must exit with code 3 to signal env mismatch"
+
+
+def test_build_stack_command_bare_bash_also_has_isce_guard(tmp_path: Path) -> None:
+    """Even when conda_env=None (bare bash -c), the guard must be present before rm -rf."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        {
+            "slc_dir": str(slc_dir),
+            "orbit_dir": "/tmp/orbits",
+            "dem_file": "/tmp/dem.tif",
+        },
+        str(tmp_path / "stack"),
+        conda_env=None,
+    )
+    inner = command[-1]
+
+    assert "import isce" in inner
+    guard_pos = inner.index("import isce")
+    rm_pos = inner.index("rm -rf")
+    assert guard_pos < rm_pos

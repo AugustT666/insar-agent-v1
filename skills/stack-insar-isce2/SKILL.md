@@ -20,7 +20,10 @@ version: 0.1.0
 - DEM path (`.tif`) — if missing, invoke `data-prep` first
 - Precise orbit directory — if missing, can be downloaded via `data-prep`
 - Workspace / output directory (absolute path)
-- ISCE2 conda environment override, only if the task/user does not want the default `isce2` environment for Sentinel-1 ISCE2 stack processing.
+- ISCE2 conda environment: run `insar_check_env()` first and read `capable.isce2`
+  to discover the ACTUAL ISCE2-capable env name on this machine. Do NOT assume it
+  is literally named "isce2". Use the user-specified env if provided, otherwise use
+  the first entry from `capable.isce2`.
 
 ## Execution modes
 
@@ -41,7 +44,8 @@ Before launching processing, confirm these inputs are available:
 - grouped SAFE directory
 - DEM file
 - orbit directory or permission to download orbits through `data-prep`
-- ISCE2 conda environment, defaulting to `isce2` unless overridden by the task/user
+- ISCE2 conda environment: the discovered ISCE2-capable env from `insar_check_env() capable.isce2`,
+  or a user-specified env. Do NOT assume it is literally named "isce2".
 
 If any prerequisite is missing, ask the user or invoke the appropriate preparation skill before creating the project.
 
@@ -65,20 +69,23 @@ insar_create_project(
     workflow="stack",
     output_root=<output_root>,
     name="s1-stack-<region>",
-    conda_env=<task/user specified ISCE2 env or "isce2">,   # ALWAYS pass this — see below
+    conda_env=<discovered ISCE2-capable env from insar_check_env capable.isce2, or user-specified env>,
     task_id=<task_id>        # auto-derived; drives the run-root layout
 )
 ```
+
+> Before calling this, run `insar_check_env()` and read `capable.isce2` to get the
+> real ISCE2-capable env name on this machine. Do NOT hardcode `conda_env="isce2"`.
 
 **One project, one run — do NOT re-create the project to fix a recoverable error.**
 `insar_create_project` pins the run_id once; every later step (data-prep, DEM,
 param-advice, workflow) joins that same run when given `project_id`.
 Re-creating the project mints a NEW run_id and splits the task across two run directories.
 
-- **Always pass `conda_env="isce2"` at creation.** If you forgot it (or the workflow fails
-  with a conda/env-resolution error), do NOT rebuild the project. Correct it in place:
-  `insar_run_workflow(project_id, conda_env="isce2")` updates the project's env and re-uses
-  the same run.
+- **Always pass `conda_env` at creation** (using the discovered env name). If you forgot
+  it (or the workflow fails with a conda/env-resolution error), do NOT rebuild the project.
+  Correct it in place: `insar_run_workflow(project_id, conda_env=<discovered_env>)` updates
+  the project's env and re-uses the same run.
 - **On any tool failure, take over / retry within the SAME `project_id`** so follow-up
   products stay in the original run. Only create a new project if you are abandoning the run
   entirely (so the failed run can be deleted wholesale).
@@ -229,7 +236,8 @@ Invoke the /insar-agent:mintpy skill
 - engine: isce2
 - stack_work_dir: <run_root>/insar_product/stack   (returned by insar_run_workflow)
 - mintpy_work_dir: <run_root>/insar_product/mintpy  (canonical run-root layout)
-- conda_env: the task/user specified MintPy env, or "isce2" if none was specified
+- conda_env: the task/user specified MintPy env, or the discovered ISCE2-capable env
+  (from `insar_check_env() capable.isce2`) if none was specified; do NOT assume "isce2"
 - interaction_mode: interactive (default) or auto
 ```
 

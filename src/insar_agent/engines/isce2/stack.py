@@ -96,6 +96,12 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
     args_str = " ".join(args)
     inner_cmd = (
         'set -e && '
+        # Fail fast before any rm -rf if ISCE2 is not importable in this environment.
+        # Prevents destroying the stack directory when the wrong conda env is used.
+        'python -c "import isce" 2>/dev/null || '
+        '{ echo "[insar-agent] ERROR: ISCE2 not importable in this environment — '
+        'pass a conda_env that has ISCE2 (run insar_check_env to discover capable envs)"; '
+        'exit 3; } && '
         f'mkdir -p {shlex.quote(aux_dir)} && '
         "ISCE_PREFIX=\"${CONDA_PREFIX:-$(python -c 'import sys; print(sys.prefix)')}\" && "
         'export ISCE_STACK="${ISCE_STACK:-$ISCE_PREFIX/share/isce2}" && '
