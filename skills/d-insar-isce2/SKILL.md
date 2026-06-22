@@ -144,7 +144,9 @@ Optional parameters (change only if needed):
 | `range_looks` / `azimuth_looks` | 20 / 4 | Adjust for different resolution |
 | `filter_strength` | 0.5 | 0 = no filter, 1 = max filter |
 | `do_esd` | True | Set False if ESD fails in low-coherence |
-| `unwrap_method` | `"snaphu"` | `"icu"` for faster but less robust |
+| `unwrap_method` | 动态发现（见下） | snaphu（稳健默认）/ icu（更快欠稳健）/ 本地其它已装方法 |
+
+**解缠方法动态发现（勿假定静态枚举）：** 执行前调用 `insar_probe_host()` 取 `unwrap_methods`（本地可用方法及来源/GPU 能力）和 `unwrap_recommended`（默认推荐）。**不要写死只有 snaphu/icu**——新装的 GPU 解缠器（如 phunwrap）会自动出现在列表里。把可用方法呈现给用户选择，默认用 `unwrap_recommended`；具体取舍交 param-advisor 按场景（形变梯度、AOI 大小、相干性、是否有 GPU）推荐。snaphu/icu 为 ISCE2 内置（需运行环境装了 ISCE2，见 `insar_check_env` 的 `capable.isce2`）。
 
 ---
 

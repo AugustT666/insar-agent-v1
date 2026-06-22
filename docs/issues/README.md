@@ -39,9 +39,7 @@ fix_ref: ""           # commit hash 或 PR 编号
 
 ### Open
 
-| ID | 标题 | 优先级 | 发现者 | 日期 |
-|----|------|--------|--------|------|
-| [003](open/003-unwrap-method-discovery.md) | 解缠方法动态发现：skill 应探测本地可用工具而非静态枚举 | medium | data-agent | 2026-06-22 |
+_（空）_
 
 ### In Progress
 
@@ -53,4 +51,5 @@ _（空）_
 |----|------|----------|----------|
 | [001](closed/001-monitor-polling-pattern.md) | 统一长任务轮询（Monitor 优先 + 后台 sleep 兜底） | skills/* + integration-tdd | 2026-06-22 |
 | [002](closed/002-workflow-resume-from-step.md) | insar_run_workflow 支持断点续跑（ISCE2 resume_from_run + ISCE3 per-pair） | stack.py + server.py | 2026-06-22 |
+| [003](closed/003-unwrap-method-discovery.md) | 解缠方法动态发现（probe_host unwrap_methods + skills + param-advisor） | host_probe.py + skills | 2026-06-22 |
 | [004](closed/004-mcp-integer-coercion.md) | MCP 工具整数参数序列化 bug（字符串未强转） | `_helpers.py` commit | 2026-06-22 |

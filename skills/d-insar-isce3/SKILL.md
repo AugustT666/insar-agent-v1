@@ -44,6 +44,8 @@ version: 0.1.0
   through `insar_set_runconfig_value`. If the user wants to tune them, this workflow must
   invoke `param-advisor (engine=isce3)` **between Step 3 and Step 5** (after setting paths,
   before launch).
+- 解缠方法（snaphu/icu/GPU 解缠器如 phunwrap 等）由 `param-advisor (engine=isce3)` 按场景推荐，
+  并用 `insar_probe_host()` 的 `unwrap_methods`/`unwrap_recommended` **动态发现**本地可用方法（非静态枚举）。
 - Always start from the default runconfig template — `insar_create_project` loads it automatically.
 - If `insar_set_runconfig_value` returns `key_not_allowed`, do NOT attempt workarounds. Tell the
   user that only whitelist-controlled processing parameters may be changed through

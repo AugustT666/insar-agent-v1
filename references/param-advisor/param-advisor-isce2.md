@@ -72,6 +72,19 @@ Heuristics:
 - Treat `num_proc` as an execution-resource parameter, not a science parameter. Use the runtime/hardware evidence profile to compare current `num_proc` with logical CPU count and memory.
 - For ISCE2 stack runs, keep `num_proc` CONSERVATIVE. **`num_proc > 1` can SILENTLY DROP per-(date,swath) coregistration tasks** in stackSentinel's parallel run-steps (fullBurst geo2rdr/resample), leaving an incomplete `coreg_secondarys/<date>/IW*.xml` that later crashes `extractCommonValidRegion` with a bare `FileNotFoundError` — the dropping step logs no error and still exits 0. **Empirically observed (E1 142A, 31 scenes): `num_proc=8` silently dropped a secondary's IW2 resample (run failed); `num_proc=2` and `num_proc=1` completed coregistration cleanly.** This is a parallelism race, NOT a RAM/IO-pressure issue — ample CPU/memory does NOT prevent it. Do NOT scale `num_proc` to the logical CPU count and do NOT blindly adopt `suggested_num_proc_upper_bound`; recommend a small value (1–2; up to ~4 only with explicit caution) and verify coregistration completeness afterward (every secondary has `IW*.xml` for all swaths). Never describe a higher `num_proc` as "no correctness risk".
 
+## 解缠方法选择（动态发现 + 场景推荐）
+
+**动态发现（勿假定静态枚举）：** 推荐前先调 `insar_probe_host` 读 `unwrap_methods`（本地可用方法及来源/GPU 能力）与 `unwrap_recommended`（默认）。**不要写死只有 snaphu/icu**——新装的 GPU 解缠器（如 phunwrap）会自动出现在 `unwrap_methods` 里。snaphu/icu 为 ISCE2 内置（需运行环境有 ISCE2，见 `insar_check_env` 的 `capable.isce2`）。默认取 `unwrap_recommended`，按场景调整：
+
+| 场景 | 推荐方法 | 原因 |
+|------|---------|------|
+| 城市沉降 / 小形变梯度 | snaphu（DEFO cost） | 稳定、成熟 |
+| 同震 / 大形变梯度 | snaphu（TOPO cost）+ ntiles 分块 | 防相位梯度断裂 |
+| 有 GPU + 大 AOI | GPU 解缠器（如 phunwrap，若 `unwrap_methods` 中 available） | GPU 加速大幅提速 |
+| 低相干区域 | icu（若可用） | 对噪声更鲁棒 |
+
+只推荐 `unwrap_methods` 中 `available` 为真的方法；不可用的（如未装 phunwrap）不要推荐，必要时提示用户安装后再选。
+
 ## Default vs Change Guidance
 
 Prefer defaults when:

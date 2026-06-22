@@ -22,6 +22,18 @@ def insar_probe_host() -> dict:
             "available_memory_gb": float | None,
             "gpus": [{"name": str, "total_vram_gb": float | None}, ...],
             "suggested_num_proc_upper_bound": int,
+            # Locally selectable phase-unwrapping methods (so skills/param-advisor
+            # discover them dynamically instead of hardcoding a static enum).
+            # ISCE2-builtin methods (snaphu/snaphu2stage/icu) are listed as
+            # candidates with a "requires" note (real availability follows ISCE2
+            # in the run env — see insar_check_env capable.isce2); standalone GPU
+            # unwrappers (e.g. phunwrap) are detected on PATH.
+            "unwrap_methods": {
+                "<name>": {"available": bool, "source": "isce2-builtin"|"path",
+                           "gpu": bool, "requires"|"path": str|None},
+                ...
+            },
+            "unwrap_recommended": str,      # GPU-capable method if a GPU is present, else "snaphu"
         }
     """
     from insar_agent.core.host_probe import probe_host

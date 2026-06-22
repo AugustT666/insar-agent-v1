@@ -54,7 +54,8 @@ Each option generates shell scripts that can be launched manually or through `in
 - All ISCE3 operations must go through `insar_*` MCP tools. Do not run conda/python commands directly.
 - If workflow parameters are unclear, ask the user — do not invent them.
 - Core processing parameters in the base runconfig (multilook, unwrapping, etc.) are
-  inherited by all pairs in the batch.
+  inherited by all pairs in the batch. 解缠方法由 `param-advisor (engine=isce3)` 按场景推荐，
+  并用 `insar_probe_host()` 的 `unwrap_methods`/`unwrap_recommended` **动态发现**本地可用方法（非静态枚举）。
 - Do not silently choose a project-specific base runconfig. Use the user-provided template.
   If the user does not provide one, use the built-in default `insar` template exposed by MCP.
 - `param-advisor (engine=isce3)` is the only supported route for processing-parameter changes in

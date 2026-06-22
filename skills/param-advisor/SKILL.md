@@ -113,7 +113,7 @@ subagent 用自己的只读工具自取证据（都留在它自己的上下文�
 
 - `insar_get_runconfig` 读 runconfig 摘要 + whitelist-controlled parameter registry summary
 - ISCE3：`insar_describe_rslc`；ISCE2：`insar_describe_s1`（`relative_orbit`、`pass_direction`、`polarization`、`bbox`、scene count）
-- `insar_probe_host` 取 runtime/hardware resource summary（logical CPU count、可用/总内存、`num_proc` 上限、并行度风险）
+- `insar_probe_host` 取 runtime/hardware resource summary（logical CPU count、可用/总内存、`num_proc` 上限、并行度风险）+ `unwrap_methods`/`unwrap_recommended` 解缠方法动态发现（按场景推荐，勿静态枚举）
 - Read engine-specific reference 文件；WebSearch 补研究区/传感器背景
 
 时序任务再确认：`base_runconfig` 是否传播整条 stack/network、stack 场景数/时间跨度/参考景、

@@ -103,6 +103,17 @@ Default: `no_filter`
 
 Default: `snaphu`
 
+**动态发现（勿假定静态枚举）：** 先调 `insar_probe_host` 读 `unwrap_methods`（本地可用方法及来源/GPU 能力）与 `unwrap_recommended`，据此推荐；不要假定只有 snaphu——新装的 GPU 解缠器（如 phunwrap）会出现在列表里。可用性以 `insar_check_env` 的 `capable` 为准；只推荐 `available` 为真的方法。
+
+按场景推荐（与下方 cost mode / ntiles 协同）：
+
+| 场景 | 推荐 | 原因 |
+|------|------|------|
+| 城市沉降 / 小形变梯度 | snaphu（`defo` cost） | 稳定、成熟 |
+| 同震 / 大形变梯度 | snaphu（`topo` cost）+ `ntiles` 分块 | 防相位梯度断裂 |
+| 有 GPU + 大 AOI | GPU 解缠器（如 phunwrap，若 `unwrap_methods` 中 available） | GPU 加速大幅提速 |
+| 低相干区域 | icu（若可用） | 对噪声更鲁棒 |
+
 - `snaphu` remains the default recommendation for most scenes
 - Faster alternatives are acceptable only for quick-look or clearly high-coherence cases
 

@@ -88,15 +88,62 @@ def _suggest_num_proc_upper_bound(usable_cpus: int, total_memory_gb: float | Non
     return min(by_cpu, 2)
 
 
+# Phase-unwrapping methods, two classes:
+#  - ISCE2-builtin (snaphu, snaphu2stage, icu): ship with ISCE2; their real
+#    availability is tied to ISCE2 being importable in the chosen run conda_env,
+#    which a host-level probe cannot confirm — listed as candidates with the
+#    requirement noted (insar_check_env reports capable.isce2 per env).
+#  - standalone (phunwrap): separate executables; detected on PATH.
+_ISCE2_UNWRAP_REQUIRES = "requires ISCE2 in the run conda_env (see insar_check_env capable.isce2)"
+
+
+def _detect_unwrap_methods() -> dict:
+    """Engine-agnostic catalog of locally selectable phase-unwrapping methods.
+
+    Avoids hardcoding the method list in every workflow skill: skills call
+    insar_probe_host and present whatever is available here.
+    """
+    methods: dict = {
+        name: {"available": True, "source": "isce2-builtin", "gpu": False,
+               "requires": _ISCE2_UNWRAP_REQUIRES}
+        for name in ("snaphu", "snaphu2stage", "icu")
+    }
+    # Standalone GPU-capable unwrapper(s) discovered on PATH.
+    phunwrap = shutil.which("phunwrap")
+    methods["phunwrap"] = {
+        "available": phunwrap is not None,
+        "source": "path",
+        "gpu": True,
+        "path": phunwrap,
+    }
+    return methods
+
+
+def _recommend_unwrap_method(methods: dict, has_gpu: bool) -> str:
+    """Default unwrap method: a GPU-capable available method when a GPU is present,
+    otherwise snaphu (robust, mature default). Scene-specific tuning (cost mode,
+    ntiles, low-coherence robustness) is left to the param-advisor subagent.
+    """
+    if has_gpu:
+        for name, info in methods.items():
+            if info.get("gpu") and info.get("available"):
+                return name
+    return "snaphu"
+
+
 def probe_host() -> dict:
     logical = _logical_cpu_count()
     usable = _usable_cpu_count()
     total_mem = _total_memory_gb()
+    gpus = _detect_gpus()
+    unwrap_methods = _detect_unwrap_methods()
     return {
         "logical_cpu_count": logical,
         "usable_cpu_count": usable,
         "total_memory_gb": total_mem,
         "available_memory_gb": _available_memory_gb(),
-        "gpus": _detect_gpus(),
+        "gpus": gpus,
         "suggested_num_proc_upper_bound": _suggest_num_proc_upper_bound(usable, total_mem),
+        "unwrap_methods": unwrap_methods,
+        "unwrap_recommended": _recommend_unwrap_method(unwrap_methods, has_gpu=bool(gpus)),
     }

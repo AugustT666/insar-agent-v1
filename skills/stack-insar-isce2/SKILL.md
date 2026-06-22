@@ -153,8 +153,10 @@ Key optional parameters:
 | `coregistration` | `"NESD"` | ESD-based; use `"geometry"` if the user chooses geometry-only coregistration |
 | `range_looks` / `azimuth_looks` | 9 / 3 | Multilook factors (~90 m pixel) |
 | `filter_strength` | 0.5 | Goldstein filter strength |
-| `unwrap_method` | `"snaphu"` | Unwrapping algorithm |
+| `unwrap_method` | 动态发现（见下） | 解缠算法：snaphu（稳健默认）/ icu / 本地其它已装方法 |
 | `do_unwrap` | `true` | Set false only when the user explicitly wants to skip unwrapping |
+
+**解缠方法动态发现（勿假定静态枚举）：** 执行前调用 `insar_probe_host()` 取 `unwrap_methods`（本地可用方法及来源/GPU 能力）和 `unwrap_recommended`（默认推荐）。**不要写死只有 snaphu/icu**——新装的 GPU 解缠器（如 phunwrap）会自动出现在列表里。把可用方法呈现给用户选择，默认用 `unwrap_recommended`；具体取舍交 param-advisor 按场景（形变梯度、AOI 大小、相干性、是否有 GPU）推荐。snaphu/icu 为 ISCE2 内置（需运行环境装了 ISCE2，见 `insar_check_env` 的 `capable.isce2`）。
 
 ---
 
