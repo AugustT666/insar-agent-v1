@@ -20,10 +20,25 @@ ERA5_PRESSURE_LEVELS = [
 ]
 
 
-def round_snwe(w: float, s: float, e: float, n: float) -> tuple[int, int, int, int]:
-    """Integer bounding box: floor S/W, ceil N/E (pyaps3 autoget.py:47-53)."""
-    return (int(math.floor(s)), int(math.ceil(n)),
-            int(math.floor(w)), int(math.ceil(e)))
+def round_snwe(w: float, s: float, e: float, n: float,
+               min_buffer: int = 2, step: int = 10) -> tuple[int, int, int, int]:
+    """Match MintPy ``tropo_pyaps3.get_snwe`` (tropo_pyaps3.py:291): pad the bbox by
+    ``min_buffer`` deg, then round OUTWARD to a multiple of ``step`` deg
+    (defaults 2 deg buffer, 10 deg grid). This is the snwe MintPy embeds in the GRIB
+    filename it looks for, so pre-downloaded files are reused, not re-downloaded.
+    NOTE: this is coarser than pyaps3's integer rounding; MintPy's value governs."""
+    s_lat, n_lat = min(s, n), max(s, n)
+    w_lon, e_lon = min(w, e), max(w, e)
+    S = math.floor(s_lat - min_buffer)
+    N = math.ceil(n_lat + min_buffer)
+    W = math.floor(w_lon - min_buffer)
+    E = math.ceil(e_lon + min_buffer)
+    if step > 1:
+        S -= S % step            # floor to multiple of step
+        W -= W % step
+        N += (-N) % step         # ceil to multiple of step
+        E += (-E) % step
+    return (int(S), int(N), int(W), int(E))
 
 
 def snwe2str(snwe: tuple[int, int, int, int]) -> str:

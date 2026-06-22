@@ -10,9 +10,35 @@ def test_snwe2str_matches_mintpy_convention():
     assert era5.snwe2str((-2, 3, -120, -110)) == "_S2_N3_W120_W110"
 
 
-def test_round_snwe_floor_south_west_ceil_north_east():
-    # pyaps3 autoget.py:47-53
-    assert era5.round_snwe(w=115.19, s=39.45, e=117.27, n=40.29) == (39, 41, 115, 118)
+def test_round_snwe_matches_mintpy_get_snwe_buffer2_step10():
+    # CONTRACT: MintPy tropo_pyaps3.get_snwe applies min_buffer=2 deg then rounds
+    # OUTWARD to a multiple of step=10 deg (NOT plain integer floor/ceil).
+    # Beijing scene lat 39.45-40.29, lon 115.19-117.27 -> (S30,N50,W110,E120).
+    assert era5.round_snwe(w=115.19, s=39.45, e=117.27, n=40.29) == (30, 50, 110, 120)
+    # negative / cross-equator case
+    assert era5.round_snwe(w=-3.0, s=-1.0, e=2.0, n=4.0) == (-10, 10, -10, 10)
+
+
+def test_round_snwe_and_gribname_cross_check_real_mintpy():
+    # NON-MOCKED contract check: era5 must agree with the installed MintPy
+    # get_snwe / get_grib_filenames. Skips where MintPy is absent (base env);
+    # runs in the isce2/mintpy env where smallbaselineApp actually runs.
+    import pytest
+    tp = pytest.importorskip("mintpy.tropo_pyaps3")
+    meta = {
+        "LENGTH": "2756", "WIDTH": "6050",
+        "Y_FIRST": "40.285975", "X_FIRST": "115.188717",
+        "Y_STEP": "-0.000302601", "X_STEP": "0.000344043",
+    }
+    lat0 = float(meta["Y_FIRST"])
+    lon0 = float(meta["X_FIRST"])
+    lat1 = lat0 + float(meta["Y_STEP"]) * (int(meta["LENGTH"]) - 1)
+    lon1 = lon0 + float(meta["X_STEP"]) * (int(meta["WIDTH"]) - 1)
+    ours = era5.round_snwe(w=min(lon0, lon1), s=min(lat0, lat1),
+                           e=max(lon0, lon1), n=max(lat0, lat1))
+    assert ours == tp.get_snwe(meta)
+    their_name = Path(tp.get_grib_filenames(["20200105"], "10", "ERA5", "/tmp", snwe=ours)[0]).name
+    assert era5.grib_filename(ours, "20200105", "10") == their_name
 
 
 def test_closest_era5_hour_nearest_integer_hour():
@@ -124,7 +150,7 @@ def test_download_era5_dry_run_returns_plan_without_network(monkeypatch, tmp_pat
     assert res["dry_run"] is True
     assert res["n_requests"] == 1
     assert called["retrieve"] == 0
-    assert any("ERA5_N39_N41_E115_E118_20200105_10.grb" in p for p in res["file_plan"])
+    assert any("ERA5_N30_N50_E110_E120_20200105_10.grb" in p for p in res["file_plan"])
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +181,7 @@ def test_download_era5_writes_named_files(monkeypatch, tmp_path):
                                  bbox=[115.19, 39.45, 117.27, 40.29],
                                  output_dir=str(tmp_path), hour="10")
     assert res["n_requests"] == 1
-    assert "ERA5_N39_N41_E115_E118_20200105_10.grb" in res["grib_files"]
+    assert "ERA5_N30_N50_E110_E120_20200105_10.grb" in res["grib_files"]
     assert set(res["dates_covered"]) == {"20200105", "20200117"}
 
 
@@ -163,9 +189,10 @@ def test_download_era5_reused_short_circuit(monkeypatch, tmp_path):
     import insar_agent.mcp.tools.weather_tools as wt
     (tmp_path / ".cdsapirc").write_text("url: https://x/api\nkey: SECRET\n")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    gd = tmp_path / "ERA5"; gd.mkdir()
+    gd = tmp_path / "ERA5"
+    gd.mkdir()
     for d in ("20200105", "20200117"):
-        (gd / f"ERA5_N39_N41_E115_E118_{d}_10.grb").write_bytes(b"x")
+        (gd / f"ERA5_N30_N50_E110_E120_{d}_10.grb").write_bytes(b"x")
     called = {"n": 0}
     monkeypatch.setattr(wt, "_cdsapi_retrieve", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
     res = wt.insar_download_era5(dates=["20200105", "20200117"],
