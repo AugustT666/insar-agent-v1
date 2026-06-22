@@ -173,3 +173,20 @@ def test_download_era5_reused_short_circuit(monkeypatch, tmp_path):
                                  output_dir=str(tmp_path), hour="10")
     assert res["reused"] is True
     assert called["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 6: background job + tool registration
+# ---------------------------------------------------------------------------
+
+def test_download_era5_background_returns_job(monkeypatch, tmp_path):
+    import insar_agent.mcp.tools.weather_tools as wt
+    (tmp_path / ".cdsapirc").write_text("url: https://x/api\nkey: S\n")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    captured = {}
+    monkeypatch.setattr(wt, "_launch_era5_download_background",
+                        lambda params: captured.update(params) or {"job_id": "J", "status": "running"})
+    res = wt.insar_download_era5(dates=["20200105"], bbox=[115.19, 39.45, 117.27, 40.29],
+                                 output_dir=str(tmp_path), hour="10", background=True)
+    assert res == {"job_id": "J", "status": "running"}
+    assert captured["hour"] == "10"

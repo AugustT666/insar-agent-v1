@@ -1722,6 +1722,7 @@ def build_server_description() -> dict:
             "insar_run_batch",
             "insar_download_rslc",
             "insar_download_dem",
+            "insar_download_era5",
             "insar_export_geotiff",
             "insar_geocode_runw",
             "insar_apply_troposphere_isce2",

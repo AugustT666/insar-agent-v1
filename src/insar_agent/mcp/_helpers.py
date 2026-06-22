@@ -1159,6 +1159,203 @@ except Exception as _exc:
     }
 
 
+def _resolve_bbox_input(
+    *,
+    bbox: list[float] | None,
+    aoi_path: str,
+) -> tuple[float, float, float, float]:
+    """Resolve bbox from either a list or an AOI file path (W, S, E, N)."""
+    has_bbox = bbox is not None
+    has_aoi = bool(aoi_path.strip())
+
+    if has_bbox == has_aoi:
+        raise ValueError("Provide exactly one of bbox or aoi_path")
+
+    if has_bbox:
+        assert bbox is not None
+        if len(bbox) != 4:
+            raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat]")
+        values = tuple(float(value) for value in bbox)
+        if values[0] >= values[2] or values[1] >= values[3]:
+            raise ValueError("bbox must satisfy min_lon < max_lon and min_lat < max_lat")
+        return values  # type: ignore[return-value]
+
+    path = Path(aoi_path)
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+    return resolve_aoi_bbox(path)
+
+
+def _launch_era5_download_background(params: dict) -> dict:
+    grib_dir = Path(params["output_dir"]).expanduser().resolve() / "ERA5"
+    grib_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = grib_dir.parent  # weather_dir
+
+    _pid = str(params.get("project_id") or "").strip()
+    if _pid:
+        try:
+            _proj = Project.load(_pid)
+        except (KeyError, FileNotFoundError):
+            return {"error": "project_not_found", "message": f"Project {_pid!r} not found"}
+        _jobs_dir = _proj.jobs_dir()
+        _proj_run_root_str = str(_proj.run_root()) if hasattr(_proj, "run_root") else ""
+        job_context = {
+            "workspace_root": _proj.output_root,
+            "task_id": _proj.task or _proj.task_id or "",
+            "run_id": _proj.run_id or "",
+            "run_root": _proj_run_root_str,
+            "jobs_dir": _jobs_dir,
+        }
+    else:
+        job_context = _task_job_context(
+            workspace_root=str(params.get("workspace_root") or ""),
+            task_id=str(params.get("task_id") or ""),
+            path=output_dir,
+        )
+        if job_context is None:
+            return {
+                "error": "missing_task_context",
+                "message": (
+                    "Background ERA5 downloads must be associated with a project_id or "
+                    "<workspace>/<task_id>; provide project_id or output_dir under a run root."
+                ),
+            }
+
+    logs_dir = output_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    job = DownloadJob(
+        output_dir=str(output_dir),
+        n_files=len(params.get("dates") or []),
+        task_id=job_context.get("task_id"),
+        run_id=job_context.get("run_id"),
+        run_root=job_context.get("run_root"),
+        tool_name="insar_download_era5",
+        job_type="era5_download",
+        output_path=str(grib_dir),
+    )
+    log_path = logs_dir / f"era5_{job.job_id}.log"
+    params_path = logs_dir / f"era5_{job.job_id}_params.json"
+    runner_path = logs_dir / f"era5_{job.job_id}_run.py"
+
+    # Never write the CDS key to disk
+    params_for_disk = {
+        k: v for k, v in params.items() if k not in {"cds_rc_path"}
+    }
+    params_for_disk["background"] = False
+    params_path.write_text(json.dumps(params_for_disk, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    _run_root_str = str(job_context.get("run_root") or "")
+    _job_file_str = str(Path(job_context["jobs_dir"]) / f"{job.job_id}.json")
+    src_dir = str(Path(__file__).resolve().parent.parent.parent)
+
+    runner_script = f"""\
+import json
+import sys
+import traceback
+sys.path.insert(0, {src_dir!r})
+from insar_agent.mcp.tools.weather_tools import insar_download_era5
+from insar_agent.core.progress import append_progress
+
+_progress_run_root = {_run_root_str!r}
+_job_file = {_job_file_str!r}
+
+def _utc_now_iso():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+def _eager_write_job_status(status, exit_code, result=None, failure_reason=None):
+    \"\"\"Eagerly push terminal status to the job JSON. Never raises.\"\"\"
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _jf = _Path(_job_file)
+        _data = _json.loads(_jf.read_text()) if _jf.exists() else {{}}
+        _data["status"] = status
+        _data["exit_code"] = exit_code
+        _data["finished_at"] = _utc_now_iso()
+        if result is not None:
+            _data["result"] = result
+        if failure_reason is not None:
+            _data["failure_reason"] = failure_reason
+        _jf.write_text(_json.dumps(_data, indent=2))
+    except Exception:
+        pass
+
+with open({str(params_path)!r}, encoding="utf-8") as _f:
+    _params = json.load(_f)
+
+if _progress_run_root:
+    append_progress(_progress_run_root, f"ERA5 download started: {{_params.get('output_dir')}}")
+
+try:
+    _result = insar_download_era5(**_params)
+    if isinstance(_result, dict) and _result.get("error"):
+        if _progress_run_root:
+            append_progress(_progress_run_root, f"ERA5 download failed: {{_result.get('message')}}")
+        print("ERROR: " + json.dumps(_result, ensure_ascii=False), flush=True)
+    else:
+        if _progress_run_root:
+            _out = _result.get("grib_dir") if isinstance(_result, dict) else ""
+            append_progress(_progress_run_root, f"ERA5 download done: {{_out}}")
+        _eager_write_job_status("done", 0, result=_result)
+        print(json.dumps({{"status": "done", "result": _result}}, ensure_ascii=False), flush=True)
+except Exception as _exc:
+    if _progress_run_root:
+        try:
+            append_progress(_progress_run_root, f"ERA5 download failed: {{_exc}}")
+        except Exception:
+            pass
+    _eager_write_job_status("failed", 1, failure_reason=str(_exc))
+    print(json.dumps({{"status": "failed", "error": str(_exc), "traceback": traceback.format_exc()}}, ensure_ascii=False), flush=True)
+"""
+    runner_path.write_text(runner_script, encoding="utf-8")
+    log_path.touch()
+    job.log_path = str(log_path)
+    job.params_path = str(params_path)
+
+    try:
+        with open(log_path, "w", encoding="utf-8") as log_file:
+            proc = subprocess.Popen(
+                [sys.executable, str(runner_path)],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=_conda_safe_env(None),
+                start_new_session=True,
+            )
+    except Exception as exc:
+        return {"error": "launch_failed", "message": str(exc),
+                "log_path": str(log_path), "params_path": str(params_path)}
+
+    job.pid = proc.pid
+    job.save(Path(job_context["jobs_dir"]))
+
+    if _run_root_str:
+        try:
+            from insar_agent.core.progress import append_progress as _ap
+            _ap(_run_root_str, f"ERA5 download launched: {grib_dir}")
+        except Exception:
+            pass
+
+    _era5_progress_log = (
+        str(Path(_run_root_str) / ".insar_agent" / "progress.log")
+        if _run_root_str else ""
+    )
+    return {
+        "job_id": job.job_id,
+        "status": "running",
+        "pid": proc.pid,
+        "output_dir": str(output_dir),
+        "log_path": str(log_path),
+        "params_path": str(params_path),
+        "monitor": f"tail -f {_era5_progress_log}" if _era5_progress_log else f"tail -f {log_path}",
+        "workspace_root": job_context.get("workspace_root"),
+        "task_id": job_context.get("task_id"),
+        "run_id": job_context.get("run_id"),
+        "run_root": job_context.get("run_root"),
+        "poll": _task_job_poll(job.job_id, job_context, include_logs=True),
+    }
+
+
 def _configured_opencode_skill_sources(repo_root: Path) -> list[Path]:
     xdg_config_home = Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser()
     config_paths = [
@@ -1234,5 +1431,7 @@ __all__ = [
     'insar_extract_bbox',
     '_launch_dem_download_background',
     '_launch_sentinel_prepare_background',
+    '_resolve_bbox_input',
+    '_launch_era5_download_background',
     '_configured_opencode_skill_sources',
 ]

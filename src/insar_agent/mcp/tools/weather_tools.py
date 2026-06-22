@@ -4,10 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from insar_agent.mcp._app import *  # noqa: F401, F403  (mcp instance + constants)
-from insar_agent.mcp._helpers import *  # noqa: F401, F403  (shared helpers)
+from insar_agent.mcp._helpers import *  # noqa: F401, F403  (shared helpers + _resolve_bbox_input)
 from insar_agent.core.output_resolver import prepare_input_dir
 from insar_agent.engines import era5
-from insar_agent.mcp.server import _resolve_bbox_input  # noqa: PLC2701
 
 
 def _cdsapi_retrieve(dataset: str, request: dict, target: str, rc_path: str = "") -> None:
