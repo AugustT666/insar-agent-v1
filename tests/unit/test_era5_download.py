@@ -1,0 +1,106 @@
+# tests/unit/test_era5_download.py
+from insar_agent.engines import era5
+from pathlib import Path
+
+
+def test_snwe2str_matches_mintpy_convention():
+    # mintpy/tropo_pyaps3.py:202-208 — order (s,n,w,e); lat->N/S, lon->E/W
+    assert era5.snwe2str((39, 41, 115, 118)) == "_N39_N41_E115_E118"
+    assert era5.snwe2str((-2, 3, -120, -110)) == "_S2_N3_W120_W110"
+
+
+def test_round_snwe_floor_south_west_ceil_north_east():
+    # pyaps3 autoget.py:47-53
+    assert era5.round_snwe(w=115.19, s=39.45, e=117.27, n=40.29) == (39, 41, 115, 118)
+
+
+def test_closest_era5_hour_nearest_integer_hour():
+    # 10:13:55 UTC -> 36835 s -> nearest hour 10
+    assert era5.closest_era5_hour(36835.0) == "10"
+    assert era5.closest_era5_hour(0.0) == "00"
+    assert era5.closest_era5_hour(23 * 3600 + 1700) == "23"
+
+
+def test_grib_filename_equals_mintpy_get_grib_filenames():
+    # Pins the exact basename MintPy will look for (tropo_pyaps3.py:216).
+    name = era5.grib_filename((39, 41, 115, 118), "20200105", "10")
+    assert name == "ERA5_N39_N41_E115_E118_20200105_10.grb"
+
+
+def test_single_request_when_under_cap():
+    dates = [f"2020{m:02d}{d:02d}" for m in range(1, 13) for d in (5, 17)]  # 24 dates
+    reqs = era5.build_cds_requests(dates, (39, 41, 115, 118), "10")
+    assert len(reqs) == 1
+    r = reqs[0]["request"]
+    assert r["variable"] == ["geopotential", "temperature", "specific_humidity"]
+    assert r["area"] == [41, 115, 39, 118]            # N,W,S,E
+    assert r["data_format"] == "grib"
+    assert r["time"] == ["10:00"]
+    assert len(r["pressure_level"]) == 37
+    assert sorted(r["month"]) == [f"{m:02d}" for m in range(1, 13)]
+
+
+def test_splits_by_month_only_when_over_cap():
+    # Force over-cap by a huge synthetic date span across all months/days.
+    dates = [f"2020{m:02d}{d:02d}" for m in range(1, 13) for d in range(1, 29)]
+    reqs = era5.build_cds_requests(dates, (39, 41, 115, 118), "10")
+    assert 1 < len(reqs) <= 12                         # split, never per-date
+    for rq in reqs:
+        items = era5.count_items(
+            len({(y, m, d) for y in rq["request"]["year"]
+                 for m in rq["request"]["month"] for d in rq["request"]["day"]}),
+            len(rq["request"]["pressure_level"]),
+            len(rq["request"]["variable"]),
+            len(rq["request"]["time"]),
+        )
+        assert items < era5.CDS_MAX_ITEMS
+
+
+def test_batchable_dates_share_one_request():
+    # 3 batchable dates -> 1 request (NOT 3). Request count tracks the 120k cap,
+    # not the date count.
+    dates = [f"202001{d:02d}" for d in (5, 17, 29)]
+    reqs = era5.build_cds_requests(dates, (39, 41, 115, 118), "10")
+    assert len(reqs) == 1
+
+
+def test_single_date_is_a_single_request():
+    # Backfilling exactly one date is legitimately one request.
+    reqs = era5.build_cds_requests(["20200105"], (39, 41, 115, 118), "10")
+    assert len(reqs) == 1
+
+
+def test_target_grib_paths_uses_mintpy_names(tmp_path):
+    out = era5.target_grib_paths(["20200105", "20200117"], (39, 41, 115, 118), "10", tmp_path)
+    assert out["20200105"].name == "ERA5_N39_N41_E115_E118_20200105_10.grb"
+    assert out["20200105"].parent == tmp_path
+
+
+def test_split_multidate_grib_keeps_only_requested_dates(monkeypatch, tmp_path):
+    # Stub pygrib with two dates x two levels x (z,t,q) synthetic messages.
+    written = {}
+
+    class _Msg:
+        def __init__(self, date, level, sn): self.dataDate, self.level, self.shortName = date, level, sn
+        def tostring(self): return f"{self.dataDate}-{self.level}-{self.shortName};".encode()
+
+    msgs = [_Msg(d, lv, sn) for d in (20200105, 20200117, 20200129)
+            for lv in (1000, 500) for sn in ("z", "t", "q")]
+
+    class _Grbs:
+        def __iter__(self): return iter(msgs)
+        def close(self): pass
+
+    fake_pygrib = type("pg", (), {"open": staticmethod(lambda p: _Grbs())})
+    monkeypatch.setitem(__import__("sys").modules, "pygrib", fake_pygrib)
+
+    names = era5.split_multidate_grib(tmp_path / "all.grb",
+                                      ["20200105", "20200117"],   # NOT 0129
+                                      (39, 41, 115, 118), "10", tmp_path)
+    assert set(names) == {
+        "ERA5_N39_N41_E115_E118_20200105_10.grb",
+        "ERA5_N39_N41_E115_E118_20200117_10.grb",
+    }
+    body = (tmp_path / "ERA5_N39_N41_E115_E118_20200105_10.grb").read_bytes()
+    # z,t,q order preserved within each level
+    assert body.split(b";")[0:3] == [b"20200105-1000-z", b"20200105-1000-t", b"20200105-1000-q"]
