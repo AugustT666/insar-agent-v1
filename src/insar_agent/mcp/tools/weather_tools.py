@@ -1,0 +1,186 @@
+"""MCP tool: insar_download_era5 (ERA5 GRIB for tropospheric correction)."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from insar_agent.mcp._app import *  # noqa: F401, F403  (mcp instance + constants)
+from insar_agent.mcp._helpers import *  # noqa: F401, F403  (shared helpers)
+from insar_agent.core.output_resolver import prepare_input_dir
+from insar_agent.engines import era5
+from insar_agent.mcp.server import _resolve_bbox_input  # noqa: PLC2701
+
+
+def _cdsapi_retrieve(dataset: str, request: dict, target: str, rc_path: str = "") -> None:
+    """Issue one real CDS request. Isolated for test monkeypatching."""
+    import cdsapi
+
+    if rc_path:
+        url, key = _cds_rc(rc_path)
+        client = cdsapi.Client(url=url, key=key)
+    else:
+        client = cdsapi.Client()
+    client.retrieve(dataset, request, target)
+
+
+def _cds_rc(rc_path: str) -> tuple[str, str]:
+    import configparser
+
+    cfg = configparser.ConfigParser()
+    raw = "[cds]\n" + Path(rc_path).expanduser().read_text()
+    cfg.read_string(raw)
+    return cfg["cds"]["url"], cfg["cds"]["key"]
+
+
+@mcp.tool()  # noqa: F405
+def insar_download_era5(
+    dates: list[str],
+    bbox: list[float] | None = None,
+    aoi_path: str = "",
+    hour: str = "10",
+    output_dir: str = "",
+    project_id: str = "",
+    dry_run: bool = False,
+    background: bool = False,
+    cds_rc_path: str = "",
+) -> dict:
+    """Download ERA5 pressure-level GRIB for tropospheric correction.
+
+    Files are named exactly as MintPy expects and written under
+    ``<output_dir>/ERA5/`` (default ``<output_root>/prepare/weather/ERA5/``), so
+    MintPy's correct_troposphere step reuses them without re-downloading.
+
+    Use ``dry_run=True`` to preview the exact CDS request(s) and file plan WITHOUT
+    sending anything (approval gate). Multiple dates are batched into as few CDS
+    requests as the 120000-item cap allows (one request when possible).
+
+    Args:
+        dates: Acquisition epochs as ``YYYYMMDD`` strings (one per SAR scene).
+        bbox: ``[W,S,E,N]`` WGS84; or pass aoi_path instead.
+        aoi_path: Path to an AOI file (GeoJSON/KML/SHP); or pass bbox instead.
+        hour: ERA5 analysis hour ``"HH"`` (closest to SAR overpass UTC; e.g. "10").
+        output_dir: weather dir; default ``<output_root>/prepare/weather`` via project_id.
+        project_id: Project UUID; used to derive output_dir when output_dir is omitted.
+        dry_run: If true, return the request plan and file plan without contacting CDS.
+        background: If true, launch as a background job (poll with insar_get_job).
+        cds_rc_path: Path to a CDS API RC file (default: ``~/.cdsapirc``).
+    """
+    if not dates:
+        return {"error": "invalid_input", "message": "dates must be a non-empty list of YYYYMMDD"}
+
+    # Resolve weather dir
+    if not output_dir.strip():
+        if not project_id.strip():
+            return {"error": "missing_input",
+                    "message": "Provide output_dir or project_id."}
+        try:
+            _proj = Project.load(project_id.strip())  # noqa: F405
+        except (KeyError, FileNotFoundError):
+            return {"error": "project_not_found", "message": f"Project {project_id!r} not found"}
+        output_dir = str(prepare_input_dir(_proj.output_root, "weather"))
+
+    weather_dir = Path(output_dir).expanduser()
+    grib_dir = weather_dir / "ERA5"
+
+    try:
+        w, s, e, n = _resolve_bbox_input(bbox=bbox, aoi_path=aoi_path)
+    except FileNotFoundError as exc:
+        return {"error": "path_not_found", "message": str(exc)}
+    except ValueError as exc:
+        return {"error": "invalid_input", "message": str(exc)}
+
+    snwe = era5.round_snwe(w=w, s=s, e=e, n=n)
+    requests = era5.build_cds_requests(sorted(set(dates)), snwe, hour)
+    targets = era5.target_grib_paths(sorted(set(dates)), snwe, hour, grib_dir)
+    file_plan = [str(p) for p in targets.values()]
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "n_requests": len(requests),
+            "est_dates": len(targets),
+            "weather_dir": str(weather_dir),
+            "snwe": list(snwe),
+            "hour": hour,
+            "requests": requests,
+            "file_plan": file_plan,
+        }
+
+    if background:
+        return _launch_era5_download_background({  # noqa: F405
+            "dates": list(dates),
+            "bbox": [w, s, e, n],
+            "aoi_path": "",
+            "hour": hour,
+            "output_dir": str(weather_dir),
+            "project_id": project_id,
+            "cds_rc_path": cds_rc_path,
+        })
+
+    return _download_era5_real(
+        requests, targets, snwe, hour, grib_dir,
+        weather_dir, dates, cds_rc_path, background,
+    )
+
+
+def _has_credentials(cds_rc_path: str) -> bool:
+    rc = Path(cds_rc_path).expanduser() if cds_rc_path else (Path.home() / ".cdsapirc")
+    return rc.is_file()
+
+
+def _download_era5_real(
+    requests: list[dict],
+    targets: dict,
+    snwe: tuple,
+    hour: str,
+    grib_dir: Path,
+    weather_dir: Path,
+    dates: list[str],
+    cds_rc_path: str,
+    background: bool,  # noqa: ARG001 — kept for call-site symmetry
+) -> dict:
+    import tempfile
+
+    dates = sorted(set(dates))
+
+    # Reuse short-circuit: all target files already present
+    if all(p.exists() for p in targets.values()):
+        return {
+            "weather_dir": str(weather_dir),
+            "grib_dir": str(grib_dir),
+            "grib_files": [p.name for p in targets.values()],
+            "dates_covered": dates,
+            "n_requests": 0,
+            "reused": True,
+        }
+
+    if not _has_credentials(cds_rc_path):
+        return {
+            "error": "missing_credentials",
+            "message": (
+                "No ~/.cdsapirc found. Register at "
+                "https://cds.climate.copernicus.eu/how-to-api, accept the "
+                "ERA5 licence, and place your token in ~/.cdsapirc "
+                "(url: https://cds.climate.copernicus.eu/api / key: <token>)."
+            ),
+        }
+
+    grib_dir.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="era5_dl_") as tmp:
+        for i, req in enumerate(requests):
+            raw = Path(tmp) / f"era5_req{i}.grb"
+            _cdsapi_retrieve(req["dataset"], req["request"], str(raw), cds_rc_path)
+            written += era5.split_multidate_grib(raw, dates, snwe, hour, grib_dir)
+
+    covered = sorted(
+        d for d in dates
+        if (grib_dir / era5.grib_filename(snwe, d, hour)).exists()
+    )
+    return {
+        "weather_dir": str(weather_dir),
+        "grib_dir": str(grib_dir),
+        "grib_files": sorted(set(written)),
+        "dates_covered": covered,
+        "n_requests": len(requests),
+        "reused": False,
+    }

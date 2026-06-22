@@ -100,3 +100,26 @@ def test_split_multidate_grib_keeps_only_requested_dates(monkeypatch, tmp_path):
     body = (tmp_path / "ERA5_N39_N41_E115_E118_20200105_10.grb").read_bytes()
     # z,t,q order preserved within each level
     assert body.split(b";")[0:3] == [b"20200105-1000-z", b"20200105-1000-t", b"20200105-1000-q"]
+
+
+# ---------------------------------------------------------------------------
+# Task 4: dry_run approval gate
+# ---------------------------------------------------------------------------
+
+def test_download_era5_dry_run_returns_plan_without_network(monkeypatch, tmp_path):
+    import insar_agent.mcp.tools.weather_tools as wt
+
+    called = {"retrieve": 0}
+    monkeypatch.setattr(wt, "_cdsapi_retrieve",
+                        lambda *a, **k: called.__setitem__("retrieve", called["retrieve"] + 1))
+    res = wt.insar_download_era5(
+        dates=["20200105", "20200117", "20200129"],
+        bbox=[115.19, 39.45, 117.27, 40.29],   # W,S,E,N
+        hour="10",
+        output_dir=str(tmp_path),
+        dry_run=True,
+    )
+    assert res["dry_run"] is True
+    assert res["n_requests"] == 1
+    assert called["retrieve"] == 0
+    assert any("ERA5_N39_N41_E115_E118_20200105_10.grb" in p for p in res["file_plan"])
