@@ -103,3 +103,14 @@ def test_tool_reports_failure_when_no_sentinel(tmp_path, monkeypatch):
     )
     assert res["error"] == "correction_failed"
     assert "boom" in res["message"]
+
+
+def test_default_out_dir_is_troposphere_dir(tmp_path, monkeypatch):
+    from insar_agent.engines.isce2 import troposphere as tp
+
+    run_root = tmp_path / "task_run"
+    (run_root / "merged").mkdir(parents=True)
+    # No .insar_agent/project.json marker — find_run_root returns None,
+    # so _default_tropo_out_dir falls back to <run_root>/insar_product/troposphere.
+    expected = str(run_root / "insar_product" / "troposphere")
+    assert tp._default_tropo_out_dir(str(run_root)) == expected

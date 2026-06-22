@@ -34,6 +34,16 @@ gdal.UseExceptions()
 C_BAND_WAVELENGTH = 0.05546576  # Sentinel-1 C-band (m)
 
 
+def _default_tropo_out_dir(run_root: str) -> str:
+    """Return the canonical troposphere output directory for a run root.
+
+    Matches ``RunLayout.troposphere_dir`` (``<run_root>/insar_product/troposphere``).
+    Falls back to the same path even when no ``.insar_agent/project.json`` marker
+    is present, so the function is safe to call on partial / test directories.
+    """
+    return str(os.path.join(run_root, "insar_product", "troposphere"))
+
+
 def _split_grib_by_date(grib_path: str, out_dir: str) -> dict[str, str]:
     """Split a (possibly multi-date) ERA5 pressure-level GRIB into per-date files
     containing only ``z,t,q`` ordered ``[z,t,q]`` per level (pyAPS read order).
@@ -129,7 +139,7 @@ def apply_era5_troposphere(run_root, grib_files, ref_date, sec_date,
     if not os.path.isfile(unw_vrt):
         return {"error": "path_not_found",
                 "message": f"merged unwrapped product missing: {unw_vrt}"}
-    out_dir = out_dir or os.path.join(run_root, "troposphere_correction")
+    out_dir = out_dir or _default_tropo_out_dir(run_root)
     os.makedirs(out_dir, exist_ok=True)
     rad_to_mm = wavelength / (4 * np.pi) * 1000.0
 

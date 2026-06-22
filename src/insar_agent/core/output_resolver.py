@@ -291,7 +291,7 @@ def prepare_input_dir(output_root: str | Path, kind: str) -> Path:
     output_root:
         The root output directory (containing all runs).
     kind:
-        Data kind: ``"dem"``, ``"orbits"``, ``"safe"``, or ``"rslc"``.
+        Data kind: ``"dem"``, ``"orbits"``, ``"safe"``, ``"rslc"``, or ``"weather"``.
 
     Returns
     -------
