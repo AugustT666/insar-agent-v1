@@ -87,11 +87,11 @@ def build_cds_requests(dates, snwe, hour, *, levels=ERA5_PRESSURE_LEVELS,
 
     whole = make(dates)
     # CDS counts items as the cartesian product of (year × month × day) combinations
-    # times levels × vars × all 24 analysis hours (capacity reservation).
+    # times levels × vars × the number of requested times (always 1 here).
     n_tuples = (len(whole["request"]["year"])
                 * len(whole["request"]["month"])
                 * len(whole["request"]["day"]))
-    if count_items(n_tuples, len(levels), len(variables), n_times=24) < CDS_MAX_ITEMS:
+    if count_items(n_tuples, len(levels), len(variables), n_times=1) < CDS_MAX_ITEMS:
         return [whole]
 
     by_month = defaultdict(list)

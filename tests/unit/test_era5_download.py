@@ -1,6 +1,5 @@
 # tests/unit/test_era5_download.py
 from insar_agent.engines import era5
-from pathlib import Path
 
 
 def test_snwe2str_matches_mintpy_convention():
@@ -40,20 +39,19 @@ def test_single_request_when_under_cap():
     assert sorted(r["month"]) == [f"{m:02d}" for m in range(1, 13)]
 
 
-def test_splits_by_month_only_when_over_cap():
-    # Force over-cap by a huge synthetic date span across all months/days.
-    dates = [f"2020{m:02d}{d:02d}" for m in range(1, 13) for d in range(1, 29)]
+def test_splits_when_cartesian_product_exceeds_cap():
+    # TRUE item count = |year|*|month|*|day|*|time(=1)|*|levels(37)|*|vars(3)|.
+    # We request ONE hour, so |time|=1 (NEVER 24). 6y*12m*28d*1*37*3 = 223,776 > 120000.
+    dates = [f"{y}{m:02d}{d:02d}" for y in range(2015, 2021)
+             for m in range(1, 13) for d in range(1, 29)]
     reqs = era5.build_cds_requests(dates, (39, 41, 115, 118), "10")
-    assert 1 < len(reqs) <= 12                         # split, never per-date
+    assert len(reqs) > 1
     for rq in reqs:
-        items = era5.count_items(
-            len({(y, m, d) for y in rq["request"]["year"]
-                 for m in rq["request"]["month"] for d in rq["request"]["day"]}),
-            len(rq["request"]["pressure_level"]),
-            len(rq["request"]["variable"]),
-            len(rq["request"]["time"]),
-        )
+        r = rq["request"]
+        items = era5.count_items(len(r["year"]) * len(r["month"]) * len(r["day"]),
+                                 len(r["pressure_level"]), len(r["variable"]), len(r["time"]))
         assert items < era5.CDS_MAX_ITEMS
+        assert r["time"] == ["10:00"]
 
 
 def test_batchable_dates_share_one_request():
@@ -78,8 +76,6 @@ def test_target_grib_paths_uses_mintpy_names(tmp_path):
 
 def test_split_multidate_grib_keeps_only_requested_dates(monkeypatch, tmp_path):
     # Stub pygrib with two dates x two levels x (z,t,q) synthetic messages.
-    written = {}
-
     class _Msg:
         def __init__(self, date, level, sn): self.dataDate, self.level, self.shortName = date, level, sn
         def tostring(self): return f"{self.dataDate}-{self.level}-{self.shortName};".encode()
