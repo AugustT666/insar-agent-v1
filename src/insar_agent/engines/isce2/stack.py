@@ -31,7 +31,12 @@ def _detect_stack_swaths(slc_dir: str, configured: list[int]) -> list[int]:
     return sorted(common) if common else configured
 
 
-def build_stack_command(params: dict, work_dir: str, conda_env: str | None = None) -> list[str]:
+def build_stack_command(
+    params: dict,
+    work_dir: str,
+    conda_env: str | None = None,
+    resume_from_run: int = 0,
+) -> list[str]:
     """
     Build the full ISCE2 topsStack command: runs stackSentinel.py (prep),
     then executes all generated run_files/run_* scripts in order.
@@ -41,6 +46,12 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
                      num_connections, coregistration, esd_coherence_threshold,
                      filter_strength, range_looks, azimuth_looks,
                      do_unwrap, unwrap_method, num_proc, use_gpu
+
+    resume_from_run: when >= 1, resume a prior run instead of starting over —
+        skip stackSentinel.py prep AND the rm -rf wipe, reuse the existing
+        run_files/configs/outputs, and execute only run_NN steps with NN >=
+        resume_from_run (run_files/ must already exist, else exit 4). 0 (default)
+        runs the full prepare+execute from scratch.
     """
     args = [
         "-s", shlex.quote(params["slc_dir"]),
@@ -94,10 +105,11 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         args += ["-useGPU"]
 
     args_str = " ".join(args)
-    inner_cmd = (
+
+    # Common prelude: ISCE2 import guard (before any destructive step, so a
+    # wrong-env launch never wipes the stack dir) + ISCE env setup + cd work_dir.
+    prelude = (
         'set -e && '
-        # Fail fast before any rm -rf if ISCE2 is not importable in this environment.
-        # Prevents destroying the stack directory when the wrong conda env is used.
         'python -c "import isce" 2>/dev/null || '
         '{ echo "[insar-agent] ERROR: ISCE2 not importable in this environment — '
         'pass a conda_env that has ISCE2 (run insar_check_env to discover capable envs)"; '
@@ -110,17 +122,44 @@ def build_stack_command(params: dict, work_dir: str, conda_env: str | None = Non
         'export PYTHONPATH="$ISCE_STACK" && '
         'export PATH="$ISCE_STACK/topsStack:$ISCE_APPLICATIONS:$PATH" && '
         f'cd {shlex.quote(work_dir)} && '
-        'rm -rf run_files configs SAFE_files.txt reference geom_reference '
-        'secondary secondary_* merged misreg baselines baselines_txt DEM_files && '
-        f'python "$ISCE_STACK/topsStack/stackSentinel.py" {args_str} && '
-        'echo "[insar-agent] stackSentinel.py done; executing run_files..." && '
-        'for f in $(ls -v run_files/run_* 2>/dev/null); do '
-        '  echo "[insar-agent] Step: $f"; '
-        '  . "$f" || exit 1; '
-        '  sync; '  # flush parallel writes (e.g. fullBurst_resample IW2.xml) before the next step reads them
-        'done && '
-        'echo "[insar-agent] All stack steps completed."'
     )
+
+    if resume_from_run and resume_from_run >= 1:
+        # Resume: reuse the prior run's run_files/configs/outputs. Skip both the
+        # stackSentinel.py prep and the rm -rf wipe, and skip run_NN steps below
+        # the resume point. Fail with exit 4 if there is nothing to resume.
+        execute = (
+            f'RESUME_FROM={int(resume_from_run)} && '
+            '{ [ -d run_files ] || { echo "[insar-agent] ERROR: resume_from_run set but '
+            'run_files/ missing — run once without resume_from_run first"; exit 4; }; } && '
+            'echo "[insar-agent] RESUME: skipping prep + wipe; '
+            'running run_files with run >= $RESUME_FROM" && '
+            'for f in $(ls -v run_files/run_* 2>/dev/null); do '
+            '  b=$(basename "$f"); n=${b#run_}; n=${n%%_*}; num=$((10#$n)); '
+            '  if [ "$num" -lt "$RESUME_FROM" ]; then echo "[insar-agent] Skip (resume <$RESUME_FROM): $f"; continue; fi; '
+            '  echo "[insar-agent] Step: $f"; '
+            '  . "$f" || exit 1; '
+            '  sync; '
+            'done && '
+            'echo "[insar-agent] All stack steps completed."'
+        )
+    else:
+        # Full run: wipe prior outputs, regenerate run_files via stackSentinel.py,
+        # then execute every generated run step in order.
+        execute = (
+            'rm -rf run_files configs SAFE_files.txt reference geom_reference '
+            'secondary secondary_* merged misreg baselines baselines_txt DEM_files && '
+            f'python "$ISCE_STACK/topsStack/stackSentinel.py" {args_str} && '
+            'echo "[insar-agent] stackSentinel.py done; executing run_files..." && '
+            'for f in $(ls -v run_files/run_* 2>/dev/null); do '
+            '  echo "[insar-agent] Step: $f"; '
+            '  . "$f" || exit 1; '
+            '  sync; '  # flush parallel writes (e.g. fullBurst_resample IW2.xml) before the next step reads them
+            'done && '
+            'echo "[insar-agent] All stack steps completed."'
+        )
+
+    inner_cmd = prelude + execute
 
     if conda_env:
         return ["conda", "run", "-n", conda_env, "--no-capture-output", "bash", "-c", inner_cmd]

@@ -135,6 +135,8 @@ Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
 Layer-2 raw engine logs at `<run_root>/insar_product/logs/`.
 
+> **断点续跑（天然支持）：** ISCE3 的每个 pair 是独立 runconfig，`run_parallel.sh` 对每个 config 先检查其 `sas_output_file` 是否已存在且非空（`SKIP` vs `RUN`）。因此处理中途失败后，**直接重跑同一个 `insar_run_batch(batch_dir=...)`（或 `run_parallel.sh`）即可**——已完成的 pair 自动跳过、只补跑未完成的，无需额外参数。（这与 ISCE2 stack 的 `resume_from_run` 不同：ISCE2 是单一有状态目录、按 run-step 续跑；ISCE3 是按 pair 幂等续跑。）
+
 **轮询纪律 — Monitor 优先 + 后台 sleep 兜底（自定节奏睡-醒-判断；多小时批处理，勿秒级紧凑轮询，会撑爆 agent 上下文）：** `timeout_ms` 与内部 `sleep` 由 agent 按当前阶段**现场决定**（分钟级，别久到不能及时接管）。
 
 ```text

@@ -204,6 +204,20 @@ Returns `job_id`, `log_path`, `pid`, and `run_root`.
 > 该工具内部通过 `. "$f" || exit 1` 串行 source，保留所有 wait barriers 和环境变量。
 > 绕过工具直接 Bash 调用会导致竞态条件、环境变量丢失和不可预知的处理失败。
 
+#### 断点续跑（处理中途失败时）
+
+stackSentinel 有 16 个 run step、可跑十几小时。若在某步（如 run_16 解缠）失败或需调参后续跑，**不要从 run_01 重跑**——用 `resume_from_run` 从指定步骤续跑：
+
+```
+insar_run_workflow(project_id=project_id, resume_from_run=16)
+```
+
+- `resume_from_run=N`（N≥1）：跳过 `stackSentinel.py` 预处理与 `rm -rf` 清理，**复用已有 run_files/configs/产物**，只执行 run 号 ≥ N 的步骤；并绕过 done/running 去重强制启新 job。
+- 前提：该 run 之前已正常跑过、`run_files/` 存在（否则报错 exit 4，提示先不带 `resume_from_run` 跑一次）。
+- 调参后续跑：先用 `insar_set_processing_param` 改参（如 `num_proc`），再 `resume_from_run=N` 让新参数从第 N 步生效。
+- 只适用于 ISCE2 stack；tops / ISCE3 传入会被拒。
+- 想确认从哪步续：看 `<run_root>/logs/<job_id>.log` 里最后的 `[insar-agent] Step: run_NN`。
+
 For multi-hour stack jobs, rely on the background job returned by `insar_run_workflow`. Always return:
 
 - the job id

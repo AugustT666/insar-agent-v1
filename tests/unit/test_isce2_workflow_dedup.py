@@ -334,3 +334,42 @@ def test_run_workflow_isce2_validates_stack_zip_scene_dem_overlap(monkeypatch, t
     assert result["error"] == "params_invalid"
     assert any("DEM does not overlap Sentinel-1 scene coverage" in error for error in result["errors"])
     assert any("scene.zip" in error for error in result["errors"])
+
+
+# ---------------------------------------------------------------------------
+# Issue 002 — resume_from_run plumbing through _run_workflow_isce2 (RED → GREEN)
+# ---------------------------------------------------------------------------
+
+def test_run_workflow_isce2_resume_skips_dedup_and_passes_resume_from_run(monkeypatch, tmp_path):
+    """resume_from_run >= 1 bypasses the done/running dedup and launches a fresh job
+    whose command resumes from the requested run step."""
+    project = _make_stack_project(tmp_path)
+    _save_job(project, "done")  # would normally deduplicate and refuse to relaunch
+
+    popen_calls = []
+
+    class FakeProcess:
+        pid = 12345
+
+    def fake_popen(*args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, resume_from_run=11)
+
+    assert result.get("deduplicated") is not True
+    assert result["status"] == "running"
+    assert "RESUME_FROM=11" in str(result["command"])
+    assert len(popen_calls) == 1
+
+
+def test_run_workflow_isce2_resume_dry_run_command_resumes(monkeypatch, tmp_path):
+    """A resume dry-run command must resume (RESUME_FROM=N) and not re-run prep."""
+    project = _make_stack_project(tmp_path)
+
+    result = server._run_workflow_isce2(project, dry_run=True, resume_from_run=7)
+
+    assert "RESUME_FROM=7" in str(result["command"])
+    assert "stackSentinel.py" not in str(result["command"])

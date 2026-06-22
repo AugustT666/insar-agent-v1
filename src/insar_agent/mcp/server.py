@@ -145,7 +145,7 @@ def _validate_isce2_dem_scene_overlap(params: dict, workflow: str) -> list[str]:
     return errors
 
 
-def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
+def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 0) -> dict:
     """Launch an ISCE2 workflow (topsApp.py or stackSentinel.py)."""
     params = project.runconfig
 
@@ -158,7 +158,9 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             "errors": errors,
         }
 
-    if not dry_run:
+    # On resume (resume_from_run >= 1) bypass dedup: the prior job is being
+    # deliberately re-run from a step, so a fresh job must launch.
+    if not dry_run and resume_from_run < 1:
         existing_job = _find_reusable_workflow_job(project)
         if existing_job is not None:
             return {
@@ -233,6 +235,7 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
             params=params,
             work_dir=isce2_work_dir,
             conda_env=project.conda_env,
+            resume_from_run=resume_from_run,
         )
         config_path = None
 
@@ -342,11 +345,13 @@ def _run_workflow_isce2(project: Project, dry_run: bool) -> dict:
 
 
 @mcp.tool()
-def insar_run_workflow(project_id: str, dry_run: bool = False, conda_env: str = "") -> dict:
+def insar_run_workflow(
+    project_id: str, dry_run: bool = False, conda_env: str = "", resume_from_run: int = 0
+) -> dict:
     """
-    Validate, export, and launch the ISCE3 NISAR workflow.
+    Validate, export, and launch an InSAR workflow (ISCE3 NISAR, or ISCE2 tops/stack).
 
-    Automatically validates the runconfig and writes the YAML to disk before
+    Automatically validates the runconfig and writes the config to disk before
     launching. No separate validate or export step is needed.
     Execution happens inside the project's configured conda environment.
 
@@ -354,11 +359,33 @@ def insar_run_workflow(project_id: str, dry_run: bool = False, conda_env: str = 
         project_id: Project UUID
         dry_run: If true, validate and export but do not launch the process
         conda_env: Optional conda env override; when provided, updates the project's conda_env in place (avoids re-creating the project just to fix the env).
+        resume_from_run: ISCE2 stack only. When >= 1, resume a prior stack run from
+            run step N instead of starting over: skip stackSentinel.py prep and the
+            rm -rf wipe, reuse existing run_files/configs/outputs, and execute only
+            run_NN steps with NN >= N (bypasses the done/running dedup so a fresh job
+            launches; run_files/ must already exist). 0 (default) runs the full
+            workflow from scratch.
     """
     try:
         project = Project.load(project_id)
     except (KeyError, FileNotFoundError):
         return _project_error(project_id)
+
+    # Normalize at the boundary — MCP transport may deliver resume_from_run as a string.
+    try:
+        resume_from_run = int(resume_from_run or 0)
+    except (TypeError, ValueError):
+        return {"status": "error", "error": f"resume_from_run must be an integer, got {resume_from_run!r}"}
+    if resume_from_run < 0:
+        resume_from_run = 0
+
+    if resume_from_run >= 1 and not (project.engine == "isce2" and project.workflow == "stack"):
+        return {
+            "status": "error",
+            "error": "resume_from_run only applies to the ISCE2 stack workflow",
+            "engine": project.engine,
+            "workflow": project.workflow,
+        }
 
     if conda_env.strip() and conda_env.strip() != (project.conda_env or ""):
         project.conda_env = conda_env.strip()
@@ -382,7 +409,7 @@ def insar_run_workflow(project_id: str, dry_run: bool = False, conda_env: str = 
 
     # Dispatch to engine-specific run logic
     if project.engine == "isce2":
-        return _run_workflow_isce2(project, dry_run)
+        return _run_workflow_isce2(project, dry_run, resume_from_run=resume_from_run)
     if project.engine == "isce3" and project.workflow == "stack":
         return {
             "error": "workflow_not_runnable",

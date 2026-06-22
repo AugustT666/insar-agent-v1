@@ -1,15 +1,15 @@
 ---
 id: 002
 title: "insar_run_workflow 支持断点续跑（resume_from_step）"
-status: open
+status: closed
 priority: high
 labels: [enhancement, resilience, isce2, workflow]
 reporter: data-agent
-assignee: ""
+assignee: dev-agent
 reported_at: 2026-06-22
-closed_at: ""
+closed_at: 2026-06-22
 affects: [stack-insar-isce2, stack-insar-isce3, d-insar-isce2, d-insar-isce3]
-fix_ref: ""
+fix_ref: "resume_from_run for ISCE2 stack (stack.py + server.py) + ISCE3 per-pair resume documented (refactor/output-layout-and-modularization, 2026-06-22)"
 ---
 
 ## Summary
@@ -78,3 +78,22 @@ insar_run_workflow(project_id=pid, resume_from_run=16)
 - `src/insar_agent/mcp/server.py` — `insar_run_workflow` 接口增加 `resume_from_run` 参数
 - `skills/stack-insar-isce2/SKILL.md` — 说明续跑用法
 - `skills/stack-insar-isce3/SKILL.md` — 同步
+
+## Resolution
+
+实现 **方案 A（`resume_from_run` 参数，run-step 级续跑）**——经评估这是匹配 ISCE2 实际代码结构的最简稳健方案。报告者倾向方案 B（config 级 jsonl 进度）对 ISCE2 不合适：run_NN 通过 `. "$f"` 整体 source，外层循环看不到内部 config，run-step 级才是自然粒度，config 级属过度设计。
+
+**ISCE2（真正的缺口）：**
+- `build_stack_command(..., resume_from_run=N)`：N≥1 时**跳过 `stackSentinel.py` 预处理与 `rm -rf` 全毁**，复用已有 run_files/configs/产物；for 循环用 `$((10#$n))` 解析 run 号、跳过 < N 的步骤；`run_files/` 缺失则 `exit 4`。保留 ISCE2 import 守卫与 `. "$f" || exit 1` wait barrier。
+- `insar_run_workflow(project_id, resume_from_run=N)` 与 `_run_workflow_isce2` 透传；N≥1 时**绕过 done/running 去重**强制启新 job；边界对参数做整数 coercion（吸取 #004 教训）+ 仅限 isce2 stack 的守卫（tops/ISCE3 传入被拒）。
+
+**ISCE3（已天然支持，无需新代码）：** 每 pair 独立 runconfig，`run_parallel.sh` 按 `sas_output_file` 存在性 `SKIP`/`RUN`——重跑 `insar_run_batch` 即幂等跳过已完成 pair。仅在 skill 文档化（原 issue 列的 `engines/isce3/stack.py — 同步实现` 因此无需改）。
+
+**命名：** 原标题写 `resume_from_step`，实现参数名为 `resume_from_run`（run-step 粒度，更贴切）。
+
+**测试（TDD）：** `test_isce2_runner.py` +4（resume/full 分支）、`test_isce2_workflow_dedup.py` +2（透传 + 跳过去重）。全套 **667 passed**。
+
+**Affected Files（实际改动）：**
+- `src/insar_agent/engines/isce2/stack.py`、`src/insar_agent/mcp/server.py`
+- `skills/stack-insar-isce2/SKILL.md`、`skills/stack-insar-isce3/SKILL.md`
+- `tests/unit/test_isce2_runner.py`、`tests/unit/test_isce2_workflow_dedup.py`

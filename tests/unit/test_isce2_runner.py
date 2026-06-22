@@ -255,3 +255,82 @@ def test_build_stack_command_bare_bash_also_has_isce_guard(tmp_path: Path) -> No
     guard_pos = inner.index("import isce")
     rm_pos = inner.index("rm -rf")
     assert guard_pos < rm_pos
+
+
+# ---------------------------------------------------------------------------
+# Issue 002 — resume_from_run: resume stack from a given run step (RED → GREEN)
+# ---------------------------------------------------------------------------
+
+def _resume_stack_params(slc_dir: Path) -> dict:
+    return {
+        "slc_dir": str(slc_dir),
+        "orbit_dir": "/tmp/orbits",
+        "dem_file": "/tmp/dem.tif",
+    }
+
+
+def test_build_stack_command_resume_skips_stacksentinel_and_rm_rf(tmp_path: Path) -> None:
+    """resume_from_run >= 1 must NOT re-run stackSentinel.py and must NOT rm -rf the
+    existing stack dir — the prior run's run_files/configs/outputs are reused."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        resume_from_run=11,
+    )
+    inner = command[-1]
+
+    assert "stackSentinel.py" not in inner
+    assert "rm -rf run_files" not in inner
+
+
+def test_build_stack_command_resume_skips_lower_run_numbers(tmp_path: Path) -> None:
+    """On resume the run loop must skip run_NN steps with NN < resume_from_run."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        resume_from_run=11,
+    )
+    inner = command[-1]
+
+    assert "RESUME_FROM=11" in inner
+    assert "continue" in inner  # skip path for run numbers below the resume point
+
+
+def test_build_stack_command_resume_keeps_guard_sourcing_and_safety(tmp_path: Path) -> None:
+    """Resume still runs in the right env (import guard), still sources run_files with
+    wait barriers, and fails clearly if run_files/ is missing (nothing to resume)."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        resume_from_run=11,
+    )
+    inner = command[-1]
+
+    assert "import isce" in inner
+    assert '. "$f" || exit 1' in inner
+    assert "exit 4" in inner  # distinct exit code for "nothing to resume" (run_files missing)
+
+
+def test_build_stack_command_resume_zero_runs_full_prep(tmp_path: Path) -> None:
+    """Default (resume_from_run=0) preserves the full prepare+execute behavior."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        resume_from_run=0,
+    )
+    inner = command[-1]
+
+    assert "stackSentinel.py" in inner
+    assert "rm -rf run_files" in inner
