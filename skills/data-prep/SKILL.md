@@ -34,7 +34,8 @@ to engine-specific implementations based on the detected or selected engine:
 | 场景元数据检查 | `insar_describe_rslc` | `insar_describe_s1` |
 | DEM 下载 | `insar_download_dem`（独立 Part B） | `insar_download_dem` 直调或 `insar_prepare_sentinel_data(download_dem=True)` |
 | 辅助数据 | N/A（state vectors 在 HDF 内） | orbits via `insar_prepare_sentinel_data(download_orbits=True)` |
-| 目录约定 | `<output_root>/prepare/rslc/`, `<output_root>/prepare/dem/` | `<output_root>/prepare/safe/`, `<output_root>/prepare/dem/`, `<output_root>/prepare/orbits/` |
+| 辅助气象数据 | N/A | `insar_download_era5`；GRIB 写入 `prepare/weather/` |
+| 目录约定 | `<output_root>/prepare/rslc/`, `<output_root>/prepare/dem/` | `<output_root>/prepare/safe/`, `<output_root>/prepare/dem/`, `<output_root>/prepare/orbits/`, `<output_root>/prepare/weather/` |
 | 服务器资源建议 | `nproc` + `free -h` + `df -h` | 同样先做 `nproc` + `free -h` + `df -h` |
 
 ## Unified Workflow

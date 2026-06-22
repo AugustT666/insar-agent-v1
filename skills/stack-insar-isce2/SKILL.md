@@ -253,7 +253,9 @@ Do not execute generated run scripts manually; the MCP workflow owns stack execu
 
 ### Step 6 — MintPy time-series analysis
 
-After stack processing completes, delegate to the unified **mintpy** skill with `engine=isce2`:
+After stack processing completes, **ask the user whether to enable ERA5 tropospheric correction** before launching MintPy (see Step 6.5 below).
+
+Then delegate to the unified **mintpy** skill with `engine=isce2`:
 
 ```
 Invoke the /insar-agent:mintpy skill
@@ -279,6 +281,74 @@ MintPy reads the ISCE2 stack outputs and performs:
 - Tropospheric / DEM error correction (optional)
 
 For advanced tuning of MintPy parameters, the user can edit the MintPy config file directly.
+
+---
+
+### Step 6.5 — Optional: ERA5 tropospheric correction
+
+Ask the user: "Do you want to apply ERA5 tropospheric correction in MintPy?"
+
+If the user says **yes**:
+
+**6.5a — Ensure ERA5 GRIB is available.**
+If `data-prep` (Step 2) already downloaded ERA5 for this project, the GRIB files are at
+`<output_root>/prepare/weather/ERA5/` and can be reused directly. Otherwise, download now
+using the approval-gated flow from `data-prep-sentinel` Step 2.3:
+
+```python
+# Preview first (dry_run=True), get user OK, then:
+insar_download_era5(
+    project_id=<project_id>,
+    dates=["20200101", "20200113", ...],   # YYYYMMDD, one per SAR acquisition
+    bbox=[W, S, E, N],                     # same AOI used for DEM
+    hour="10",                             # ERA5 analysis hour closest to SAR overpass UTC
+    dry_run=False,
+)
+# -> weather_dir = <output_root>/prepare/weather
+# -> grib_dir    = <output_root>/prepare/weather/ERA5/
+```
+
+If `~/.cdsapirc` is missing the tool returns `{"error": "missing_credentials"}`:
+direct the user to <https://cds.climate.copernicus.eu/how-to-api> to register and place
+their token in `~/.cdsapirc`.
+
+**6.5b — Run MintPy with the tropo switch enabled.**
+Pass `weather_dir` to `insar_run_mintpy_isce2`; MintPy reuses the pre-downloaded GRIB
+and enables native pyAPS ERA5 correction (`method = pyaps`):
+
+```python
+insar_run_mintpy_isce2(
+    mintpy_work_dir="<run_root>/insar_product/mintpy",
+    stack_work_dir="<run_root>/insar_product/stack",
+    conda_env=<discovered ISCE2-capable env>,
+    weather_dir="<output_root>/prepare/weather",   # points at the ERA5 parent dir
+    weather_model="ERA5",                           # default; explicit for clarity
+)
+```
+
+**Expected outputs after a successful ERA5-corrected run:**
+
+| File | Description |
+|------|-------------|
+| `velocity_ERA5.h5` | ERA5-corrected LOS velocity (m/yr) |
+| `timeseries_ERA5.h5` | ERA5-corrected displacement time series |
+
+The export step (`insar_export_geotiff`) automatically emits a before/after/residual
+comparison figure when both `velocity.h5` and `velocity_ERA5.h5` are present.
+
+**Post-hoc correction (re-running MintPy on a finished stack):**
+If the stack run finished but MintPy was run without ERA5, re-run just the MintPy step
+using `resume_from_run` — no need to redo the full stackSentinel processing:
+
+```python
+insar_run_workflow(
+    project_id=<project_id>,
+    resume_from_run=<N>,   # run-file number of the MintPy step; check the log for
+                           # the last "Step: run_NN" line before MintPy was launched
+)
+```
+
+Then immediately call `insar_run_mintpy_isce2` with `weather_dir` as shown in Step 6.5b.
 
 ---
 

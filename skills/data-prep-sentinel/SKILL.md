@@ -33,6 +33,7 @@ Shared prepare inputs land under `<output_root>/prepare/` — reused across runs
 - `<output_root>/prepare/safe/s1a_asc_rel014/` etc.
 - `<output_root>/prepare/dem/`
 - `<output_root>/prepare/orbits/`
+- `<output_root>/prepare/weather/ERA5/` (optional; ERA5 GRIB for tropospheric correction)
 
 Per-run products land under `<run_root> = <output_root>/<task>_<timestamp>`:
 - `<run_root>/insar_product/<subdir>/`
@@ -47,7 +48,8 @@ Per-run products land under `<run_root> = <output_root>/<task>_<timestamp>`:
 | 场景元数据检查 | `insar_describe_s1` | 作为代表场景检查步骤 |
 | DEM 下载 | `insar_prepare_sentinel_data(download_dem=True)` 或 `insar_download_dem` | 允许只准备 DEM |
 | 辅助数据 | `insar_prepare_sentinel_data(download_orbits=True)` | 轨道文件写入 `prepare/orbits/` |
-| 目录约定 | `prepare/safe/`, `prepare/dem/`, `prepare/orbits/` | 全部位于 `output_root` 之下，跨 run 共享 |
+| 辅助气象数据 | `insar_download_era5` | ERA5 GRIB 写入 `prepare/weather/ERA5/`，供 MintPy 对流层校正复用 |
+| 目录约定 | `prepare/safe/`, `prepare/dem/`, `prepare/orbits/`, `prepare/weather/` | 全部位于 `output_root` 之下，跨 run 共享 |
 | 服务器资源建议 | `insar_check_env` | 不使用 shell；仅通过 MCP 环境报告判断能力 |
 
 ## Hard constraints
@@ -187,6 +189,52 @@ Grouped SAFE paths are organized under `<output_root>/prepare/`:
 - `prepare/safe/s1a_asc_rel014/`
 - `prepare/safe/s1a_desc_rel079/`
 - `prepare/safe/s1c_asc_rel014/`
+
+### Step 2.3 — Download ERA5 weather data (optional, approval-gated)
+
+If the user intends to apply ERA5 tropospheric correction in MintPy, download ERA5 GRIB files
+now so they are cached and MintPy can reuse them without re-downloading at correction time.
+
+**Step 2.3a — Preview the request (dry run):**
+
+```python
+insar_download_era5(
+    project_id=<project_id>,
+    dates=["20200101", "20200113", ...],   # YYYYMMDD strings, one per SAR acquisition
+    bbox=[W, S, E, N],                     # same AOI/bbox used for DEM download
+    hour="10",                             # ERA5 analysis hour closest to SAR overpass UTC
+    dry_run=True,
+)
+```
+
+This returns a plan — number of CDS requests, expected GRIB file paths under
+`prepare/weather/ERA5/`, and the rounded `snwe` — without contacting the CDS API.
+Present the plan to the user and **wait for confirmation** before proceeding.
+
+**Step 2.3b — Download (after user approval):**
+
+```python
+insar_download_era5(
+    project_id=<project_id>,
+    dates=["20200101", "20200113", ...],
+    bbox=[W, S, E, N],
+    hour="10",
+    dry_run=False,
+)
+```
+
+GRIB files land under `<output_root>/prepare/weather/ERA5/`, named exactly as MintPy expects.
+MintPy will reuse the pre-downloaded files and skip re-downloading at correction time.
+
+**Credential check:** If `~/.cdsapirc` is missing, the tool returns
+`{"error": "missing_credentials", ...}`. The user must register at
+<https://cds.climate.copernicus.eu/how-to-api>, accept the ERA5 licence, and place
+their CDS token in `~/.cdsapirc` before retrying.
+
+**Background download:** For many dates (>30), pass `background=True` and poll with
+`insar_get_job(job_id=<job_id>, project_id=<project_id>)` at minute-level intervals.
+
+---
 
 ### Step 2.5 — Inspect representative scene
 
