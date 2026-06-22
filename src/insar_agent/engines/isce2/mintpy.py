@@ -78,8 +78,22 @@ def export_mintpy_tops_baselines(stack_work_dir: str | Path) -> Path:
     return output_root
 
 
-def _default_template_text(stack_work_dir: Path, baseline_dir: Path | None = None) -> str:
+def _default_template_text(
+    stack_work_dir: Path,
+    baseline_dir: Path | None = None,
+    *,
+    weather_dir: str | None = None,
+    weather_model: str = "ERA5",
+) -> str:
     baseline_dir = baseline_dir or export_mintpy_tops_baselines(stack_work_dir)
+    if weather_dir:
+        tropo_lines = [
+            "mintpy.troposphericDelay.method = pyaps",
+            f"mintpy.troposphericDelay.weatherModel = {weather_model}",
+            f"mintpy.troposphericDelay.weatherDir = {weather_dir}",
+        ]
+    else:
+        tropo_lines = ["mintpy.troposphericDelay.method = no"]
     return "\n".join(
         [
             "mintpy.load.processor = isce",
@@ -98,15 +112,25 @@ def _default_template_text(stack_work_dir: Path, baseline_dir: Path | None = Non
             f"mintpy.load.shadowMaskFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'shadowMask.rdr').as_posix()}",
             "mintpy.plot = no",
             "mintpy.unwrapError.method = no",
-            "mintpy.troposphericDelay.method = no",
+            *tropo_lines,
             "mintpy.topographicResidual = no",
         ]
     ) + "\n"
 
 
-def _write_default_template(mintpy_work_dir: Path, stack_work_dir: Path, baseline_dir: Path | None = None) -> Path:
+def _write_default_template(
+    mintpy_work_dir: Path,
+    stack_work_dir: Path,
+    baseline_dir: Path | None = None,
+    *,
+    weather_dir: str | None = None,
+    weather_model: str = "ERA5",
+) -> Path:
     template_path = mintpy_work_dir / "isce2_stack.txt"
-    template_path.write_text(_default_template_text(stack_work_dir, baseline_dir), encoding="utf-8")
+    template_path.write_text(
+        _default_template_text(stack_work_dir, baseline_dir, weather_dir=weather_dir, weather_model=weather_model),
+        encoding="utf-8",
+    )
     return template_path
 
 
@@ -117,6 +141,8 @@ def run_mintpy_isce2_stack(
     mintpy_config: str | Path | None = None,
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
+    weather_dir: str | None = None,
+    weather_model: str = "ERA5",
 ) -> dict[str, object]:
     work_dir = Path(mintpy_work_dir)
     stack_dir = Path(stack_work_dir)
@@ -144,7 +170,9 @@ def run_mintpy_isce2_stack(
     logs_dir = resolve_output(run_root, "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    config_path = Path(mintpy_config) if mintpy_config else _write_default_template(work_dir, stack_dir, baseline_dir)
+    config_path = Path(mintpy_config) if mintpy_config else _write_default_template(
+        work_dir, stack_dir, baseline_dir, weather_dir=weather_dir, weather_model=weather_model
+    )
     if not config_path.exists():
         raise FileNotFoundError(str(config_path))
 

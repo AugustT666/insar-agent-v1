@@ -751,12 +751,19 @@ def insar_run_mintpy_isce2(
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
     interaction_mode: str = "interactive",
+    weather_dir: str | None = None,
+    weather_model: str = "ERA5",
 ) -> dict:
     """Launch MintPy asynchronously on an ISCE2/topsStack-style Sentinel workspace.
 
     Uses prep_isce.py plus smallbaselineApp.py against a completed ISCE2 stack
     directory containing merged/interferograms, merged/geom_reference,
     topsStack baseline text files or baseline rasters, and reference/IW*.xml.
+
+    When ``weather_dir`` is supplied (path to an ERA5 GRIB directory already
+    prepared by ``insar_download_era5``), the generated MintPy template enables
+    native pyAPS ERA5 tropospheric correction (``method = pyaps``). Omitting it
+    keeps the default ``method = no`` behaviour.
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
@@ -779,6 +786,8 @@ def insar_run_mintpy_isce2(
             mintpy_config=mintpy_config or None,
             python_bin=python_bin,
             smallbaseline_bin=smallbaseline_bin,
+            weather_dir=weather_dir or None,
+            weather_model=weather_model,
         )
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}

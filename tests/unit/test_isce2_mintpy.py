@@ -172,6 +172,38 @@ class TestRunMintpyISCE2Stack:
         assert "PREP_ISCE_BIN" not in kwargs["env"]
 
 
+def _make_minimal_stack(root: Path) -> Path:
+    """Minimal stack dir with just a reference/IW2.xml for template generation."""
+    ref = root / "reference"
+    ref.mkdir(parents=True, exist_ok=True)
+    (ref / "IW2.xml").write_text(
+        "<imageFile>"
+        "<property name=\"width\"><value>1</value></property>"
+        "<property name=\"length\"><value>1</value></property>"
+        "</imageFile>",
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_default_template_tropo_off_by_default(tmp_path):
+    from insar_agent.engines.isce2 import mintpy as _mp
+    stack = _make_minimal_stack(tmp_path / "stack")
+    txt = _mp._default_template_text(stack, baseline_dir=tmp_path)
+    assert "mintpy.troposphericDelay.method = no" in txt
+
+
+def test_default_template_tropo_pyaps_when_weather_dir(tmp_path):
+    from insar_agent.engines.isce2 import mintpy as _mp
+    stack = _make_minimal_stack(tmp_path / "stack")
+    txt = _mp._default_template_text(stack, baseline_dir=tmp_path,
+                                     weather_dir="/w/prepare/weather")
+    assert "mintpy.troposphericDelay.method = pyaps" in txt
+    assert "mintpy.troposphericDelay.weatherModel = ERA5" in txt
+    assert "mintpy.troposphericDelay.weatherDir = /w/prepare/weather" in txt
+    assert "mintpy.troposphericDelay.method = no" not in txt
+
+
 class TestInsarRunMintpyISCE2:
     def test_missing_stack_dir_returns_path_not_found(self, tmp_path: Path) -> None:
         result = insar_run_mintpy_isce2(
