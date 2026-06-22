@@ -40,6 +40,8 @@ ALLOWED_SET_FIELDS: dict[str, list[str]] = {
         "runconfig.groups.logging.path",
         "runconfig.groups.worker.gpu_enabled",
         "runconfig.groups.worker.gpu_id",
+        "runconfig.groups.dynamic_ancillary_file_group.troposphere_weather_model_files.reference_troposphere_file",
+        "runconfig.groups.dynamic_ancillary_file_group.troposphere_weather_model_files.secondary_troposphere_file",
     ],
     "gslc": [
         "runconfig.groups.input_file_group.input_file_path",
