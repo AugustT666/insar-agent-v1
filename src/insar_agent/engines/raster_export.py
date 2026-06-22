@@ -50,6 +50,7 @@ def _write_gtiff(path, arr, geotransform, epsg: int = 4326, nodata=None) -> None
 _BROWSE_STYLE = {
     "velocity":          ("RdBu_r", "symmetric", "LOS velocity [cm/yr]", 100.0),
     "velocity_masked":   ("RdBu_r", "symmetric", "LOS velocity [cm/yr]", 100.0),
+    "velocity_residual": ("RdBu_r", "symmetric", "LOS velocity residual [cm/yr]", 100.0),
     "temporalCoherence": ("viridis", "unit", "temporal coherence", 1.0),
     "avgSpatialCoh":     ("viridis", "unit", "avg spatial coherence", 1.0),
     "maskTempCoh":       ("gray", "unit", "mask", 1.0),
@@ -119,6 +120,65 @@ def _write_layer_browse(browse_dir, stem: str, layer: str, arr) -> str:
     out = browse_dir / f"{stem}.png"
     _write_browse_png(out, disp, cmap=cmap, vmin=vmin, vmax=vmax, title=stem, cbar_label=label)
     return out.name
+
+
+def plot_velocity_comparison(mintpy_dir, out_dir, *, tag: str, mask_h5=None) -> dict:
+    """3-panel before/after/residual velocity comparison for an ERA5-corrected
+    MintPy time series. before=velocity.h5, after=velocity_ERA5.h5.
+
+    Returns ``{"png": filename|None, "residual_tif": filename|None}``.
+    When ``velocity_ERA5.h5`` is absent, returns ``{"png": None, "residual_tif": None}``.
+    """
+    import h5py
+    import numpy as np
+
+    mintpy_dir, out_dir = Path(mintpy_dir), Path(out_dir)
+    before = mintpy_dir / "velocity.h5"
+    after = mintpy_dir / "velocity_ERA5.h5"
+    if not (before.exists() and after.exists()):
+        return {"png": None, "residual_tif": None}
+
+    def _read(p):
+        with h5py.File(p, "r") as f:
+            dset = "velocity" if "velocity" in f else next(iter(_first_2d_dataset(f)))
+            return f[dset][:].astype("float64"), dict(f.attrs)
+
+    vb, attrs = _read(before)
+    va, _ = _read(after)
+    resid = vb - va
+    cmap, mode, label, scale = _browse_style("velocity")
+    panels = [("before", vb), ("after", va), ("residual", resid)]
+    vmin, vmax = _browse_value_range(np.concatenate([vb.ravel(), va.ravel()]) * scale, mode="symmetric")
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    for ax, (name, arr) in zip(axes, panels):
+        d = np.where(np.isfinite(arr), arr, np.nan) * scale
+        lo, hi = (vmin, vmax) if name != "residual" else _browse_value_range(d, mode="symmetric")
+        im = ax.imshow(d, cmap=cmap, vmin=lo, vmax=hi, interpolation="nearest")
+        ax.set_title(f"{tag} velocity {name}")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).set_label(label)
+    browse_dir = out_dir / "browse"
+    browse_dir.mkdir(parents=True, exist_ok=True)
+    png = f"{tag}_velocity_comparison.png"
+    fig.tight_layout()
+    fig.savefig(browse_dir / png, dpi=150)
+    plt.close(fig)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    resid_tif = f"{tag}_velocity_residual.tif"
+    _write_gtiff(
+        out_dir / resid_tif,
+        resid,
+        _geo_h5_geotransform(attrs),
+        epsg=int(attrs.get("EPSG") or 4326),
+        nodata=float("nan"),
+    )
+    return {"png": png, "residual_tif": resid_tif}
 
 
 def _detect_format(path) -> str:
@@ -238,6 +298,13 @@ def _export_geo_h5(h5_path, out_dir, *, tag: str, browse: bool = True) -> dict:
                             out_dir / "browse", f"{tag}_velocity_masked", "velocity_masked", vm
                         )
                     )
+    if (mintpy_dir / "velocity_ERA5.h5").exists():
+        cmp = plot_velocity_comparison(mintpy_dir, out_dir, tag=tag)
+        if cmp["residual_tif"]:
+            written.append(cmp["residual_tif"])
+        if cmp["png"]:
+            browse_files.append(cmp["png"])
+
     return {"files": written, "browse": browse_files}
 
 
