@@ -172,10 +172,8 @@ def _download_era5_real(
             _cdsapi_retrieve(req["dataset"], req["request"], str(raw), cds_rc_path)
             written += era5.split_multidate_grib(raw, dates, snwe, hour, grib_dir)
 
-    covered = sorted(
-        d for d in dates
-        if (grib_dir / era5.grib_filename(snwe, d, hour)).exists()
-    )
+    written_set = set(written)
+    covered = sorted(d for d in dates if era5.grib_filename(snwe, d, hour) in written_set)
     return {
         "weather_dir": str(weather_dir),
         "grib_dir": str(grib_dir),

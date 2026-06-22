@@ -1,4 +1,6 @@
 # tests/unit/test_era5_download.py
+from pathlib import Path
+
 from insar_agent.engines import era5
 
 
@@ -123,3 +125,51 @@ def test_download_era5_dry_run_returns_plan_without_network(monkeypatch, tmp_pat
     assert res["n_requests"] == 1
     assert called["retrieve"] == 0
     assert any("ERA5_N39_N41_E115_E118_20200105_10.grb" in p for p in res["file_plan"])
+
+
+# ---------------------------------------------------------------------------
+# Task 5: real download + reused short-circuit + missing-credentials
+# ---------------------------------------------------------------------------
+
+def test_download_era5_missing_credentials(monkeypatch, tmp_path):
+    import insar_agent.mcp.tools.weather_tools as wt
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "nohome"))
+    res = wt.insar_download_era5(dates=["20200105"], bbox=[115.19, 39.45, 117.27, 40.29],
+                                 output_dir=str(tmp_path), cds_rc_path=str(tmp_path / "missing.rc"))
+    assert res["error"] == "missing_credentials"
+    assert "key" not in str(res).lower() or "<" in str(res)  # never echoes a key
+
+
+def test_download_era5_writes_named_files(monkeypatch, tmp_path):
+    import insar_agent.mcp.tools.weather_tools as wt
+    (tmp_path / ".cdsapirc").write_text("url: https://x/api\nkey: SECRET\n")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    def fake_retrieve(dataset, request, target, rc_path=""):
+        Path(target).write_bytes(b"FAKEGRIB")
+    monkeypatch.setattr(wt, "_cdsapi_retrieve", fake_retrieve)
+    monkeypatch.setattr(wt.era5, "split_multidate_grib",
+                        lambda src, dates, snwe, hour, gd: [wt.era5.grib_filename(snwe, d, hour) for d in dates])
+
+    res = wt.insar_download_era5(dates=["20200105", "20200117"],
+                                 bbox=[115.19, 39.45, 117.27, 40.29],
+                                 output_dir=str(tmp_path), hour="10")
+    assert res["n_requests"] == 1
+    assert "ERA5_N39_N41_E115_E118_20200105_10.grb" in res["grib_files"]
+    assert set(res["dates_covered"]) == {"20200105", "20200117"}
+
+
+def test_download_era5_reused_short_circuit(monkeypatch, tmp_path):
+    import insar_agent.mcp.tools.weather_tools as wt
+    (tmp_path / ".cdsapirc").write_text("url: https://x/api\nkey: SECRET\n")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    gd = tmp_path / "ERA5"; gd.mkdir()
+    for d in ("20200105", "20200117"):
+        (gd / f"ERA5_N39_N41_E115_E118_{d}_10.grb").write_bytes(b"x")
+    called = {"n": 0}
+    monkeypatch.setattr(wt, "_cdsapi_retrieve", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
+    res = wt.insar_download_era5(dates=["20200105", "20200117"],
+                                 bbox=[115.19, 39.45, 117.27, 40.29],
+                                 output_dir=str(tmp_path), hour="10")
+    assert res["reused"] is True
+    assert called["n"] == 0
