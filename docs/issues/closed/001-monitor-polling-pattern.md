@@ -9,7 +9,7 @@ assignee: dev-agent
 reported_at: 2026-06-22
 closed_at: 2026-06-22
 affects: [d-insar-isce2, d-insar-isce3, stack-insar-isce2, stack-insar-isce3, mintpy]
-fix_ref: "Monitor-primary + bg-sleep fallback unified across 5 workflow skills + insar-integration-tdd (refactor/output-layout-and-modularization, 2026-06-22)"
+fix_ref: "79fe47a — Monitor-primary + bg-sleep fallback unified across 5 workflow skills + insar-integration-tdd"
 ---
 
 ## Summary

@@ -9,7 +9,7 @@ assignee: dev-agent
 reported_at: 2026-06-22
 closed_at: 2026-06-22
 affects: [stack-insar-isce2, d-insar-isce2, stack-insar-isce3, d-insar-isce3]
-fix_ref: "host_probe unwrap_methods/unwrap_recommended + dynamic-discovery in skills + param-advisor scene rules (refactor/output-layout-and-modularization, 2026-06-22)"
+fix_ref: "59ebe19 — host_probe unwrap_methods + dynamic discovery in skills + param-advisor scene rules"
 ---
 
 ## Summary

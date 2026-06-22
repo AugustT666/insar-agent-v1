@@ -9,7 +9,7 @@ assignee: dev-agent
 reported_at: 2026-06-22
 closed_at: 2026-06-22
 affects: [stack-insar-isce2, stack-insar-isce3, d-insar-isce2, d-insar-isce3]
-fix_ref: "resume_from_run for ISCE2 stack (stack.py + server.py) + ISCE3 per-pair resume documented (refactor/output-layout-and-modularization, 2026-06-22)"
+fix_ref: "e80cbb3 — resume_from_run for ISCE2 stack (stack.py + server.py) + ISCE3 per-pair resume documented"
 ---
 
 ## Summary
