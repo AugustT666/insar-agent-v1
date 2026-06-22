@@ -85,6 +85,23 @@ Heuristics:
 
 只推荐 `unwrap_methods` 中 `available` 为真的方法；不可用的（如未装 phunwrap）不要推荐，必要时提示用户安装后再选。
 
+## Tropospheric / Atmospheric Correction (ERA5)
+
+**When to suggest:** Time-series velocity analysis over areas with significant topographic relief or known tropospheric variability (e.g. mountainous margins, coastal ranges). The clearest trigger is a height-correlated pattern in the unwrapped phase or time-series velocity — or when the user asks about atmospheric noise. For very flat, low-relief AOIs (plains, deltas) the benefit is minimal and can be skipped.
+
+**How it is enabled (advisory only — the main agent decides):** The param-advisor does not apply ERA5 correction automatically; there is no runconfig key for it. If the user opts in:
+
+1. Download ERA5 GRIB files beforehand with `insar_download_era5` — they land in `<output_root>/prepare/weather/ERA5/`.
+2. Run MintPy with `insar_run_mintpy_isce2(..., weather_dir=<output_root>/prepare/weather)`. MintPy reads the pre-downloaded GRIB and writes `velocity_ERA5.h5`; the export step emits a before/after/residual comparison figure.
+
+The MintPy default is `troposphericDelay.method = no`; correction is opt-in and the non-ERA5 `velocity.h5` is always produced regardless.
+
+**Caveats:**
+
+- ERA5 download requires a valid `~/.cdsapirc` CDS API token; prompt the user to check this before starting the download step.
+- For a completed run without ERA5, the correction can be added later by re-running only the MintPy step (`insar_run_workflow(resume_from_run=N)`); no need to reprocess interferograms.
+- Do not claim ERA5 removes all atmospheric signal — residual tropospheric artifacts can remain, especially for short-wavelength spatial patterns not resolved by ERA5's ~31 km grid.
+
 ## Default vs Change Guidance
 
 Prefer defaults when:
