@@ -587,32 +587,6 @@ def insar_run_workflow(
     return result
 
 
-def _resolve_bbox_input(
-    *,
-    bbox: list[float] | None,
-    aoi_path: str,
-) -> tuple[float, float, float, float]:
-    has_bbox = bbox is not None
-    has_aoi = bool(aoi_path.strip())
-
-    if has_bbox == has_aoi:
-        raise ValueError("Provide exactly one of bbox or aoi_path")
-
-    if has_bbox:
-        assert bbox is not None
-        if len(bbox) != 4:
-            raise ValueError("bbox must be [min_lon, min_lat, max_lon, max_lat]")
-        values = tuple(float(value) for value in bbox)
-        if values[0] >= values[2] or values[1] >= values[3]:
-            raise ValueError("bbox must satisfy min_lon < max_lon and min_lat < max_lat")
-        return values
-
-    path = Path(aoi_path)
-    if not path.exists():
-        raise FileNotFoundError(str(path))
-    return resolve_aoi_bbox(path)
-
-
 @mcp.tool()
 def insar_export_geotiff(h5_path: str, output_dir: str = "", tag: str = "E") -> dict:
     """

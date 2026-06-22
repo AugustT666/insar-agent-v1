@@ -132,7 +132,7 @@ class TestInsarDownloadRslcTool:
         output_dir = workspace / "rslc"
 
         with (
-            patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
+            patch("insar_agent.mcp._helpers.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
             patch("insar_agent.mcp.server.subprocess.Popen") as mock_popen,
         ):
             mock_popen.return_value.pid = 12345
@@ -163,7 +163,7 @@ class TestInsarDownloadRslcTool:
         output_dir = workspace / "rslc"
 
         with (
-            patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
+            patch("insar_agent.mcp._helpers.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
             patch("insar_agent.mcp.server.subprocess.Popen") as mock_popen,
         ):
             mock_popen.return_value.pid = 99999
@@ -230,7 +230,7 @@ class TestInsarDownloadDemTool:
         shp_path.write_text("placeholder", encoding="utf-8")
 
         with (
-            patch("insar_agent.mcp.server.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
+            patch("insar_agent.mcp._helpers.resolve_aoi_bbox", return_value=(40.5, 13.4, 40.8, 13.7)),
             patch(
                 "insar_agent.mcp.server.download_dem",
                 return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
