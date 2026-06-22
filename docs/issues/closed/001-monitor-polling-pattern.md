@@ -1,15 +1,15 @@
 ---
 id: 001
 title: "统一长任务轮询：用 Monitor 工具替代手搓 sleep 循环"
-status: open
+status: closed
 priority: medium
 labels: [enhancement, dx, skill, all-workflows]
 reporter: data-agent
-assignee: ""
+assignee: dev-agent
 reported_at: 2026-06-22
-closed_at: ""
+closed_at: 2026-06-22
 affects: [d-insar-isce2, d-insar-isce3, stack-insar-isce2, stack-insar-isce3, mintpy]
-fix_ref: ""
+fix_ref: "Monitor-primary + bg-sleep fallback unified across 5 workflow skills + insar-integration-tdd (refactor/output-layout-and-modularization, 2026-06-22)"
 ---
 
 ## Summary
@@ -76,3 +76,21 @@ Monitor 超时后（1 小时）需重新 arm；skill 文档应明确说明。
 - `skills/stack-insar-isce2/SKILL.md` — Step 5 轮询（当前仅文字描述）
 - `skills/stack-insar-isce3/SKILL.md` — 轮询章节
 - `skills/mintpy/SKILL.md` — MintPy 轮询章节
+
+## Resolution
+
+统一为 **Monitor 优先 + 后台单次 `sleep` 兜底**的自定节奏「睡-醒-判断」循环，写入 5 个工作流 skill 的轮询段，并同步更新开发编排用的 `insar-integration-tdd` skill（仅换机制、不改监控目标）。
+
+**与报告者原提案的差异（经评估refine）：** 报告者建议纯 `Monitor` until-loop。改为 **`Monitor(persistent=false` + 有限 `timeout_ms)`**——`timeout_ms` 即定时网（零事件也到点醒），`echo` 即事件唤醒，一个工具兼顾定时与事件。原纯 Monitor/until-done 方案被否：失败模式（参数/环境错、进程挂死、被 kill）**常不产生终态信号**，纯条件等待会睡死、永不接管。
+
+**四条必守原则：**
+1. **有限 `timeout_ms` 定时网**：零事件也到点醒，挂死可接管。
+2. **agent 每次醒来独立判断**：`echo` 只是提前唤醒的触发器，不是成败判决。
+3. **grep 覆盖失败签名**：进度标志 + `Traceback|ERROR|FAILED|Killed`。
+4. **睡前用 CST(UTC+8) 播报下次重检时间**（用户最看重「看得见下次何时醒」）。
+
+终态以 `${LOG%.log}.exitcode` 文件（detached job 结束必写，比 job.json 可靠）+ `insar_get_job` 权威源判定。睡眠间隔由 agent 现场按阶段决定，不写死。前台 `sleep` 被 harness 阻断的问题随之修复。
+
+**Affected Files（实际改动）：**
+- `skills/d-insar-isce2/SKILL.md`、`skills/d-insar-isce3/SKILL.md`、`skills/stack-insar-isce2/SKILL.md`、`skills/stack-insar-isce3/SKILL.md`、`skills/mintpy/SKILL.md`
+- （工作区开发 skill，本仓库外）`insar-integration-tdd/SKILL.md` step 5 + `references/operations-runbook.md`「监控隔离会话」段

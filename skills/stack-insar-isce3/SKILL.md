@@ -135,7 +135,19 @@ Poll `insar_get_job(job_id=..., batch_dir=...)` until done. Do NOT use `include_
 Or execute manually: `bash <stack_output_dir>/run_parallel.sh <stack_output_dir> <N>`
 Layer-2 raw engine logs at `<run_root>/insar_product/logs/`.
 
-**轮询纪律 (sleep-wake discipline):** 多小时批处理,**勿秒级紧凑轮询**(会撑爆 agent 上下文)。每次 `insar_get_job` 之间用 `sleep <N>`/`ScheduleWakeup` 拉开到分钟级(N 随阶段自定,长跑 ~20–40min),醒来只查一次 status 再决定继续睡或收口;**绝不用不退出的 `while true`**。
+**轮询纪律 — Monitor 优先 + 后台 sleep 兜底（自定节奏睡-醒-判断；多小时批处理，勿秒级紧凑轮询，会撑爆 agent 上下文）：** `timeout_ms` 与内部 `sleep` 由 agent 按当前阶段**现场决定**（分钟级，别久到不能及时接管）。
+
+```text
+Monitor(description="isce3/batch <job_id>", persistent=false, timeout_ms=<现场定>, command='''
+PLOG="<run_root>/.insar_agent/progress.log"; prev=""
+while true; do
+  HIT=$(grep -oE "RUN |SKIP |Traceback|ERROR|FAILED|Killed" "$PLOG" 2>/dev/null | tail -1)
+  [ "$HIT" != "$prev" ] && { echo "progress: $HIT"; prev="$HIT"; }
+  sleep <现场定>
+done''')
+```
+
+`timeout_ms`=定时网（到点必醒判断，上限 1h），echo=事件唤醒。批处理终态以 `insar_get_job(job_id=..., batch_dir=...)` 为权威（无单 job exitcode 文件，靠 timeout 网到点醒来查）。**兜底**（Monitor 报错时回滚）：`Bash(run_in_background=true, command='sleep <现场定>; echo "TICK <job_id>"')`。**每次醒来**（echo/超时/tick）：调 `insar_get_job(batch_dir=...)` 取权威状态 + 进度**多信号判断**健康/挂死/报错 → 健康则重新 arm（优先 Monitor，失败回滚 sleep）、异常进收口；睡前用 **CST(UTC+8)** 播报下次重检时间。**绝不用永不退出的 `while true` 后台命令**（Monitor 内 finite timeout 有界，不在此列）。
 
 Progress: relay `monitor` command so user watches Layer-1 live in terminal.
 `insar_get_job` returns `progress` (Layer-1 tail) + `status` (running/done/failed).
@@ -173,7 +185,7 @@ insar_run_batch(
 ```
 Relay `monitor` command to user (`tail -f <run_root>/.insar_agent/progress.log`).
 Poll `insar_get_job(batch_dir=...)` until done
-(同 Option A 的**轮询纪律**:睡醒式、分钟级间隔、绝不 `while true`,避免 agent 上下文饱和)。
+(同 Option A 的**轮询纪律**:Monitor 优先 + 后台 sleep 兜底、自定节奏睡-醒-判断、绝不用永不退出的 `while true`,避免 agent 上下文饱和)。
 Or execute manually: `bash <network_output_dir>/run_parallel.sh <network_output_dir> <N>`
 
 ## Output requirements (report after each completed option)

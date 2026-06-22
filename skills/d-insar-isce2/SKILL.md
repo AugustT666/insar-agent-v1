@@ -198,8 +198,22 @@ insar_get_job(job_id=job_id, project_id=project_id)
 ```
 
 Typical runtime: 30–120 minutes depending on scene size and number of swaths.
-Poll at minute-level intervals — NOT a tight while-true loop (that exhausts context).
 Each response includes `progress` (Layer-1 concise tail from `.insar_agent/progress.log`).
+
+**轮询纪律 — Monitor 优先 + 后台 sleep 兜底（自定节奏睡-醒-判断；勿秒级紧凑轮询，会撑爆上下文）：** `timeout_ms` 与内部 `sleep` 由 agent 按当前阶段**现场决定**（分钟级，别久到不能及时接管）。
+
+```text
+Monitor(description="isce2/tops <job_id>", persistent=false, timeout_ms=<现场定>, command='''
+LOG="<insar_run_workflow 返回的 log_path>"; EXIT="${LOG%.log}.exitcode"; prev=""
+while true; do
+  [ -f "$EXIT" ] && { echo "TERMINAL exitcode=$(cat "$EXIT")"; break; }
+  HIT=$(grep -oE "Running |filt_topophase|geocod|Traceback|ERROR|FAILED|Killed" "$LOG" 2>/dev/null | tail -1)
+  [ "$HIT" != "$prev" ] && { echo "progress: $HIT"; prev="$HIT"; }
+  sleep <现场定>
+done''')
+```
+
+`timeout_ms`=定时网（到点必醒判断，上限 1h），echo=事件唤醒。**兜底**（Monitor 报错时回滚）：`Bash(run_in_background=true, command='sleep <现场定>; echo "TICK <job_id>"')`。**每次醒来**（echo/超时/tick）：以 `insar_get_job(job_id=job_id, project_id=project_id)` 为权威状态 + 进度/日志尾**多信号判断**健康/挂死/报错 → 健康则重新 arm（优先 Monitor，失败回滚 sleep）、异常进收口；睡前用 **CST(UTC+8)** 播报下次重检时间。**绝不用永不退出的 `while true` 后台命令**（Monitor 内 break-on-terminal + finite timeout 有界，不在此列）。
 
 Relay the `monitor` command from the `insar_run_workflow` response to the user:
 ```bash
