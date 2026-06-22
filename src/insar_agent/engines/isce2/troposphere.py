@@ -127,7 +127,7 @@ def apply_era5_troposphere(run_root, grib_files, ref_date, sec_date,
     ref_date, sec_date : str
         ``YYYYMMDD`` of the interferometric pair.
     out_dir : str, optional
-        Output dir; defaults to ``<run_root>/troposphere`` (a legitimate product dir).
+        Output dir; defaults to ``<run_root>/insar_product/troposphere`` (RunLayout.troposphere_dir).
 
     Returns
     -------

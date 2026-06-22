@@ -147,6 +147,7 @@ def plot_velocity_comparison(mintpy_dir, out_dir, *, tag: str, mask_h5=None) -> 
     va, _ = _read(after)
     resid = vb - va
     cmap, mode, label, scale = _browse_style("velocity")
+    resid_label = _browse_style("velocity_residual")[2]
     panels = [("before", vb), ("after", va), ("residual", resid)]
     vmin, vmax = _browse_value_range(np.concatenate([vb.ravel(), va.ravel()]) * scale, mode="symmetric")
 
@@ -161,7 +162,8 @@ def plot_velocity_comparison(mintpy_dir, out_dir, *, tag: str, mask_h5=None) -> 
         ax.set_title(f"{tag} velocity {name}")
         ax.set_xticks([])
         ax.set_yticks([])
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).set_label(label)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04).set_label(
+            resid_label if name == "residual" else label)
     browse_dir = out_dir / "browse"
     browse_dir.mkdir(parents=True, exist_ok=True)
     png = f"{tag}_velocity_comparison.png"
@@ -299,11 +301,14 @@ def _export_geo_h5(h5_path, out_dir, *, tag: str, browse: bool = True) -> dict:
                         )
                     )
     if (mintpy_dir / "velocity_ERA5.h5").exists():
-        cmp = plot_velocity_comparison(mintpy_dir, out_dir, tag=tag)
-        if cmp["residual_tif"]:
-            written.append(cmp["residual_tif"])
-        if cmp["png"]:
-            browse_files.append(cmp["png"])
+        try:
+            cmp = plot_velocity_comparison(mintpy_dir, out_dir, tag=tag)
+            if cmp["residual_tif"]:
+                written.append(cmp["residual_tif"])
+            if cmp["png"]:
+                browse_files.append(cmp["png"])
+        except Exception as exc:  # noqa: BLE001 - comparison figure is best-effort
+            _log.warning("velocity ERA5 comparison figure failed: %s", exc)
 
     return {"files": written, "browse": browse_files}
 

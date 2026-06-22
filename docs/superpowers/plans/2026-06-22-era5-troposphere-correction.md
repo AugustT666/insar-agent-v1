@@ -15,7 +15,7 @@
 - 小时：`HH = f"{min(range(24), key=lambda x: abs(x - utc_sec/3600.0)):02d}"`（mintpy closest_weather_model_hour，ERA5 为逐时 0..23）。
 - ERA5 变量恰为 `["geopotential","temperature","specific_humidity"]`，写盘按每气压层 `z,t,q` 排序（pyAPS 按消息位置读）。
 - 气压层恰为 37 层（见 Task 1 常量）。
-- CDS 单请求 items 上限 120000；`items = |year|×|month|×|day|×|time|×|levels|×|variables|`。**请求数由该上限决定、不由日期数决定**：把所有需要的日期合成尽量少的请求（放得下就 1 个）；仅当单请求 items≥120000 才按月/年拆。补单个日期就是合理的 1 个请求。关键性质：**能合批的多个日期不得被拆成多个请求**（不得为每个日期单独发请求）。
+- CDS 单请求 items 上限 120000；`items = |year|×|month|×|day|×|time|×|levels|×|variables|`。**我们只请求 1 个时刻（如 "10:00"），故 |time|=1，绝不按 24 计。** **请求数由该上限决定、不由日期数决定**：把所有需要的日期合成尽量少的请求（放得下就 1 个）；仅当单请求 items≥120000 才按月/年拆。补单个日期就是合理的 1 个请求。关键性质：**能合批的多个日期不得被拆成多个请求**（不得为每个日期单独发请求）。
 - 不改 MintPy 全局默认：未给 weather_dir 时模板仍输出 `mintpy.troposphericDelay.method = no`。
 - GRIB 默认落 `<output_root>/prepare/weather/ERA5/`；weatherDir 指向 `<output_root>/prepare/weather`。
 - 任何真实 CDS 请求前必须支持 `dry_run` 预览（审批门）；缺 `~/.cdsapirc` 返回 `missing_credentials` 且**绝不**打印 key。
@@ -186,20 +186,20 @@ def test_single_request_when_under_cap():
     assert sorted(r["month"]) == [f"{m:02d}" for m in range(1, 13)]
 
 
-def test_splits_by_month_only_when_over_cap():
-    # Force over-cap by a huge synthetic date span across all months/days.
-    dates = [f"2020{m:02d}{d:02d}" for m in range(1, 13) for d in range(1, 29)]
+def test_splits_when_cartesian_product_exceeds_cap():
+    # TRUE item count = |year|*|month|*|day|*|time(=1)|*|levels(37)|*|vars(3)|.
+    # We request ONE hour, so |time|=1 (NEVER 24). A genuinely over-cap set needs
+    # a large year*month*day cartesian product: 6y * 12m * 28d * 1 * 37 * 3 = 223,776 > 120000.
+    dates = [f"{y}{m:02d}{d:02d}" for y in range(2015, 2021)
+             for m in range(1, 13) for d in range(1, 29)]
     reqs = era5.build_cds_requests(dates, (39, 41, 115, 118), "10")
-    assert 1 < len(reqs) <= 12                         # split, never per-date
+    assert len(reqs) > 1                               # split required
     for rq in reqs:
-        items = era5.count_items(
-            len({(y, m, d) for y in rq["request"]["year"]
-                 for m in rq["request"]["month"] for d in rq["request"]["day"]}),
-            len(rq["request"]["pressure_level"]),
-            len(rq["request"]["variable"]),
-            len(rq["request"]["time"]),
-        )
+        r = rq["request"]
+        items = era5.count_items(len(r["year"]) * len(r["month"]) * len(r["day"]),
+                                 len(r["pressure_level"]), len(r["variable"]), len(r["time"]))
         assert items < era5.CDS_MAX_ITEMS
+        assert r["time"] == ["10:00"]                  # single hour, not 24
 
 
 def test_batchable_dates_share_one_request():
