@@ -166,20 +166,32 @@ def test_download_era5_missing_credentials(monkeypatch, tmp_path):
     assert "key" not in str(res).lower() or "<" in str(res)  # never echoes a key
 
 
-def test_download_era5_writes_named_files(monkeypatch, tmp_path):
+def test_build_era5_runner_command_uses_given_env_no_hardcode():
+    import insar_agent.mcp.tools.weather_tools as wt
+    cmd = wt._build_era5_runner_command("anyenv", "/tmp/job.json")
+    assert cmd[:4] == ["conda", "run", "-n", "anyenv"]      # discovered env, not "isce2"
+    assert "insar_agent.engines.era5_runner" in cmd
+    assert cmd[-1] == "/tmp/job.json"
+
+
+def test_download_era5_dispatches_to_discovered_env(monkeypatch, tmp_path):
     import insar_agent.mcp.tools.weather_tools as wt
     (tmp_path / ".cdsapirc").write_text("url: https://x/api\nkey: SECRET\n")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    # env is DISCOVERED (never hardcoded); retrieve+split run there, not inline
+    monkeypatch.setattr("insar_agent.core.conda_env.find_conda_env", lambda pkgs, **k: "geoenv")
+    captured = {}
 
-    def fake_retrieve(dataset, request, target, rc_path=""):
-        Path(target).write_bytes(b"FAKEGRIB")
-    monkeypatch.setattr(wt, "_cdsapi_retrieve", fake_retrieve)
-    monkeypatch.setattr(wt.era5, "split_multidate_grib",
-                        lambda src, dates, snwe, hour, gd: [wt.era5.grib_filename(snwe, d, hour) for d in dates])
+    def fake_run(env, requests, snwe, hour, grib_dir, dates, rc):
+        captured["env"] = env
+        return [wt.era5.grib_filename(snwe, d, hour) for d in dates]
+    monkeypatch.setattr(wt, "_run_era5_download_in_env", fake_run)
 
     res = wt.insar_download_era5(dates=["20200105", "20200117"],
                                  bbox=[115.19, 39.45, 117.27, 40.29],
                                  output_dir=str(tmp_path), hour="10")
+    assert captured["env"] == "geoenv"
+    assert res["conda_env"] == "geoenv"
     assert res["n_requests"] == 1
     assert "ERA5_N30_N50_E110_E120_20200105_10.grb" in res["grib_files"]
     assert set(res["dates_covered"]) == {"20200105", "20200117"}

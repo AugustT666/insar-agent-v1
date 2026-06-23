@@ -41,6 +41,7 @@ def insar_download_era5(
     dry_run: bool = False,
     background: bool = False,
     cds_rc_path: str = "",
+    conda_env: str = "",
 ) -> dict:
     """Download ERA5 pressure-level GRIB for tropospheric correction.
 
@@ -62,6 +63,8 @@ def insar_download_era5(
         dry_run: If true, return the request plan and file plan without contacting CDS.
         background: If true, launch as a background job (poll with insar_get_job).
         cds_rc_path: Path to a CDS API RC file (default: ``~/.cdsapirc``).
+        conda_env: Conda env that has cdsapi+pygrib to run the download/split in.
+            Default "" auto-discovers one (NEVER hardcodes an env name).
     """
     if not dates:
         return {"error": "invalid_input", "message": "dates must be a non-empty list of YYYYMMDD"}
@@ -117,13 +120,59 @@ def insar_download_era5(
 
     return _download_era5_real(
         requests, targets, snwe, hour, grib_dir,
-        weather_dir, dates, cds_rc_path, background,
+        weather_dir, dates, cds_rc_path, conda_env,
     )
 
 
 def _has_credentials(cds_rc_path: str) -> bool:
     rc = Path(cds_rc_path).expanduser() if cds_rc_path else (Path.home() / ".cdsapirc")
     return rc.is_file()
+
+
+def _build_era5_runner_command(conda_env: str, job_path: str) -> list[str]:
+    """argv to run the ERA5 download/split inside *conda_env* (no hardcoded env)."""
+    return [
+        "conda", "run", "-n", conda_env, "--no-capture-output",
+        "python", "-m", "insar_agent.engines.era5_runner", str(job_path),
+    ]
+
+
+def _run_era5_download_in_env(
+    conda_env: str, requests: list[dict], snwe: tuple, hour: str,
+    grib_dir: Path, dates: list[str], cds_rc_path: str,
+) -> list[str]:
+    """Dispatch retrieve+split to a conda env that has cdsapi+pygrib and return the
+    written per-date filenames. Runs ``insar_agent.engines.era5_runner`` via conda."""
+    import json as _json
+    import subprocess
+    import tempfile
+
+    import insar_agent
+    from insar_agent.engines.era5_runner import RESULT_SENTINEL
+
+    grib_dir.mkdir(parents=True, exist_ok=True)
+    spec = {
+        "requests": requests, "snwe": list(snwe), "hour": hour,
+        "grib_dir": str(grib_dir), "dates": list(dates), "cds_rc_path": cds_rc_path,
+    }
+    src_path = str(Path(insar_agent.__file__).resolve().parents[1])
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as jf:
+        _json.dump(spec, jf)
+        job = jf.name
+    try:
+        proc = subprocess.run(
+            _build_era5_runner_command(conda_env, job),
+            capture_output=True, text=True, timeout=3600,
+            env=_conda_safe_env({"PYTHONPATH": src_path}),  # noqa: F405
+        )
+    finally:
+        Path(job).unlink(missing_ok=True)
+    for line in proc.stdout.splitlines():
+        if line.startswith(RESULT_SENTINEL):
+            return _json.loads(line[len(RESULT_SENTINEL):])["written"]
+    raise RuntimeError(
+        f"era5 download failed in env {conda_env!r}: {(proc.stderr or proc.stdout)[-800:]}"
+    )
 
 
 def _download_era5_real(
@@ -135,9 +184,9 @@ def _download_era5_real(
     weather_dir: Path,
     dates: list[str],
     cds_rc_path: str,
-    background: bool,  # noqa: ARG001 — kept for call-site symmetry
+    conda_env: str = "",
 ) -> dict:
-    import tempfile
+    from insar_agent.core.conda_env import resolve_conda_env
 
     dates = sorted(set(dates))
 
@@ -163,14 +212,19 @@ def _download_era5_real(
             ),
         }
 
-    grib_dir.mkdir(parents=True, exist_ok=True)
-    written: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="era5_dl_") as tmp:
-        for i, req in enumerate(requests):
-            raw = Path(tmp) / f"era5_req{i}.grb"
-            _cdsapi_retrieve(req["dataset"], req["request"], str(raw), cds_rc_path)
-            written += era5.split_multidate_grib(raw, dates, snwe, hour, grib_dir)
+    # Run cdsapi retrieve + pygrib split in a conda env that has them (discovered,
+    # never hardcoded) — the MCP server's base interpreter usually lacks pygrib.
+    env = resolve_conda_env(conda_env, ["cdsapi", "pygrib"], prefer=["mintpy", "isce2"])
+    if not env:
+        return {
+            "error": "no_capable_env",
+            "message": (
+                "No conda env with cdsapi+pygrib found to download ERA5. "
+                "Run insar_check_env; install e.g. 'conda install -n <env> -c conda-forge cdsapi pygrib'."
+            ),
+        }
 
+    written = _run_era5_download_in_env(env, requests, snwe, hour, grib_dir, dates, cds_rc_path)
     written_set = set(written)
     covered = sorted(d for d in dates if era5.grib_filename(snwe, d, hour) in written_set)
     return {
@@ -180,4 +234,5 @@ def _download_era5_real(
         "dates_covered": covered,
         "n_requests": len(requests),
         "reused": False,
+        "conda_env": env,
     }
