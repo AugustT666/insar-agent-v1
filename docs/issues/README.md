@@ -39,7 +39,9 @@ fix_ref: ""           # commit hash 或 PR 编号
 
 ### Open
 
-_（空）_
+| ID | 标题 | 优先级 | 报告日期 |
+|----|------|--------|----------|
+| [005](open/005-conda-env-selection-agent-driven.md) | conda 环境选择不应由规则自动判定，应发现候选后交 agent/用户决策 | medium | 2026-06-23 |
 
 ### In Progress
 
