@@ -79,7 +79,7 @@ def _validate_isce2_imports(
     validation_root: Path,
 ) -> dict:
     validation_root.mkdir(parents=True, exist_ok=True)
-    wrapper = orbit._fetch_sentinel_wrapper_path()
+    env, wrapper = orbit._topsstack_env_and_script("SentinelWrapper.py")
     results: list[dict] = []
 
     for scene in scenes:
@@ -125,7 +125,7 @@ def _validate_isce2_imports(
             "conda",
             "run",
             "-n",
-            "isce2",
+            env,
             "--no-capture-output",
             "python",
             str(wrapper),

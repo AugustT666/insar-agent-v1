@@ -60,10 +60,11 @@ def _topsstack_script(prefix: str, script_name: str) -> Path:
     return Path(prefix) / "share" / "isce2" / "topsStack" / script_name
 
 
-def _topsstack_script_path(script_name: str, conda_env: str | None = None) -> Path:
-    """Locate an ISCE2 topsStack script WITHOUT hardcoding the conda install path or
-    env name: discover the env that has ISCE2 (or use the given one) and resolve its
-    real prefix via ``conda env list``. Works for any conda root / env name."""
+def _topsstack_env_and_script(script_name: str, conda_env: str | None = None) -> tuple[str, Path]:
+    """Discover the conda env that has ISCE2 (or use the given one) and return BOTH the
+    env NAME and the resolved topsStack script path, so the same env feeds both the
+    filesystem lookup and ``conda run -n <env>`` — WITHOUT hardcoding the conda install
+    path or env name. Works for any conda root / env name."""
     from insar_agent.core.conda_env import conda_env_prefix, resolve_conda_env
 
     env = resolve_conda_env(conda_env, ["isce"], prefer=["isce2", "isce"])
@@ -78,7 +79,11 @@ def _topsstack_script_path(script_name: str, conda_env: str | None = None) -> Pa
     script = _topsstack_script(prefix, script_name)
     if not script.exists():
         raise FileNotFoundError(f"ISCE2 {script_name} not found under env {env!r}: {script}")
-    return script
+    return env, script
+
+
+def _topsstack_script_path(script_name: str, conda_env: str | None = None) -> Path:
+    return _topsstack_env_and_script(script_name, conda_env)[1]
 
 
 def _fetch_orbit_script_path(conda_env: str | None = None) -> Path:
@@ -128,7 +133,7 @@ def _download_orbits_for_scenes(
 ) -> tuple[int, list[dict]]:
     log = on_log or (lambda _: None)
     orbit_dir.mkdir(parents=True, exist_ok=True)
-    script = _fetch_orbit_script_path()
+    env, script = _topsstack_env_and_script("fetchOrbit.py")
     before = {path.name for path in orbit_dir.glob("*.EOF")}
     failed: list[dict] = []
 
@@ -137,7 +142,7 @@ def _download_orbits_for_scenes(
             "conda",
             "run",
             "-n",
-            "isce2",
+            env,
             "python",
             str(script),
             "-i",
