@@ -65,7 +65,7 @@ class TestDownloadDemPrepareLayout:
 
         with (
             patch("insar_agent.mcp.server.download_dem", side_effect=fake_download_dem),
-            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+            patch("insar_agent.mcp.server._isce2_app_script", return_value=(None, None)),
         ):
             result = insar_download_dem(
                 project_id=project_id,
@@ -100,7 +100,7 @@ class TestDownloadDemPrepareLayout:
 
         with (
             patch("insar_agent.mcp.server.download_dem", side_effect=fake_download_dem),
-            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+            patch("insar_agent.mcp.server._isce2_app_script", return_value=(None, None)),
         ):
             result = insar_download_dem(
                 project_id=project_id,
