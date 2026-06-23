@@ -380,18 +380,26 @@ class GeocodeInputMissing(RuntimeError):
     """Radar-coordinate MintPy product cannot be geocoded (no geometryRadar.h5)."""
 
 
-def _geocode_radar_h5(h5_path, *, conda_env: str = "isce2") -> Path:
+def _geocode_radar_h5(h5_path, *, conda_env: str = "") -> Path:
     """Geocode a radar-coordinate MintPy dir via mintpy geocode.py.
 
     Runs geocode.py on the curated layers using inputs/geometryRadar.h5, writing
     geo_*.h5 into <mintpy_dir>/geo. Returns the geo dir. Raises GeocodeInputMissing
-    if the lookup geometry is absent.
+    if the lookup geometry is absent. *conda_env* "" auto-discovers a MintPy env
+    (no hardcoded env name).
     """
+    from insar_agent.core.conda_env import resolve_conda_env
+
     mintpy_dir = Path(h5_path).parent
     geom = mintpy_dir / "inputs" / "geometryRadar.h5"
     if not geom.exists():
         raise GeocodeInputMissing(
             f"radar-coordinate product {h5_path} needs {geom} to geocode; not found"
+        )
+    conda_env = resolve_conda_env(conda_env, ["mintpy"], prefer=["isce2", "mintpy"])
+    if not conda_env:
+        raise RuntimeError(
+            "no conda env with MintPy found for geocode.py (run insar_check_env)"
         )
     geo_dir = mintpy_dir / "geo"
     layers = [
@@ -417,7 +425,7 @@ def _geocode_radar_h5(h5_path, *, conda_env: str = "isce2") -> Path:
 _DIR_GLOBS = ("*.h5", "*.geo.vrt", "*.tif", "*.tiff", "*.unw", "*.rmg")
 
 
-def export_path(src, out_dir, *, tag: str = "export", conda_env: str = "isce2") -> dict:
+def export_path(src, out_dir, *, tag: str = "export", conda_env: str = "") -> dict:
     """Export a file or directory of rasters to CRS-bearing GeoTIFFs.
 
     File  -> export that one raster (by detected format).

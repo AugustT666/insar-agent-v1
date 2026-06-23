@@ -311,8 +311,9 @@ def insar_check_env() -> dict:
         },
     }
     if missing_skills:
+        _skills_dir = Path(__file__).resolve().parents[4] / "skills"
         skills_status["hint"] = (
-            "Configure OpenCode skills.sources for /home/august/insar-agent/skills, "
+            f"Configure OpenCode skills.sources for {_skills_dir}, "
             "or install the Claude Code project plugin when using Claude Code."
         )
 
