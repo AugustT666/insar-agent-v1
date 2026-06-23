@@ -55,18 +55,38 @@ def _retry_with_backoff(
     raise RuntimeError("Unexpected: no exception raised but all retries exhausted")
 
 
-def _fetch_orbit_script_path() -> Path:
-    script = Path.home() / "miniconda3" / "envs" / "isce2" / "share" / "isce2" / "topsStack" / "fetchOrbit.py"
+def _topsstack_script(prefix: str, script_name: str) -> Path:
+    """Path to an ISCE2 topsStack script inside a conda env *prefix* (pure)."""
+    return Path(prefix) / "share" / "isce2" / "topsStack" / script_name
+
+
+def _topsstack_script_path(script_name: str, conda_env: str | None = None) -> Path:
+    """Locate an ISCE2 topsStack script WITHOUT hardcoding the conda install path or
+    env name: discover the env that has ISCE2 (or use the given one) and resolve its
+    real prefix via ``conda env list``. Works for any conda root / env name."""
+    from insar_agent.core.conda_env import conda_env_prefix, resolve_conda_env
+
+    env = resolve_conda_env(conda_env, ["isce"], prefer=["isce2", "isce"])
+    if not env:
+        raise FileNotFoundError(
+            f"No conda env with ISCE2 found to locate {script_name} "
+            "(run insar_check_env to discover/create one)."
+        )
+    prefix = conda_env_prefix(env)
+    if not prefix:
+        raise FileNotFoundError(f"Cannot resolve filesystem prefix for conda env {env!r}")
+    script = _topsstack_script(prefix, script_name)
     if not script.exists():
-        raise FileNotFoundError(f"ISCE2 fetchOrbit.py not found: {script}")
+        raise FileNotFoundError(f"ISCE2 {script_name} not found under env {env!r}: {script}")
     return script
 
 
-def _fetch_sentinel_wrapper_path() -> Path:
-    script = Path.home() / "miniconda3" / "envs" / "isce2" / "share" / "isce2" / "topsStack" / "SentinelWrapper.py"
-    if not script.exists():
-        raise FileNotFoundError(f"ISCE2 SentinelWrapper.py not found: {script}")
-    return script
+def _fetch_orbit_script_path(conda_env: str | None = None) -> Path:
+    return _topsstack_script_path("fetchOrbit.py", conda_env)
+
+
+def _fetch_sentinel_wrapper_path(conda_env: str | None = None) -> Path:
+    return _topsstack_script_path("SentinelWrapper.py", conda_env)
 
 
 def _resolve_orbit_token_file(
