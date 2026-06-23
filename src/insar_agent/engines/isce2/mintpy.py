@@ -137,12 +137,14 @@ def _write_default_template(
 def run_mintpy_isce2_stack(
     mintpy_work_dir: str | Path,
     stack_work_dir: str | Path,
-    conda_env: str = "isce2",
+    conda_env: str = "",
     mintpy_config: str | Path | None = None,
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
     weather_dir: str | None = None,
     weather_model: str = "ERA5",
+    start_step: str = "",
+    end_step: str = "velocity",
 ) -> dict[str, object]:
     work_dir = Path(mintpy_work_dir)
     stack_dir = Path(stack_work_dir)
@@ -178,6 +180,14 @@ def run_mintpy_isce2_stack(
 
     job_id = str(uuid4())
     log_path = str(logs_dir / f"{job_id}.log")
+
+    # Discover a MintPy+pyaps3 env at runtime; never hardcode the env name.
+    from insar_agent.core.conda_env import resolve_conda_env
+    conda_env = resolve_conda_env(conda_env, ["mintpy", "pyaps3"], prefer=["isce2", "mintpy"])
+    if not conda_env:
+        raise RuntimeError(
+            "no conda env with MintPy+pyaps3 found to run smallbaselineApp (run insar_check_env)"
+        )
     command = [
         "conda",
         "run",
@@ -190,6 +200,8 @@ def run_mintpy_isce2_stack(
         str(stack_dir),
         str(config_path),
         str(baseline_dir),
+        str(start_step),
+        str(end_step),
     ]
 
     env = os.environ.copy()

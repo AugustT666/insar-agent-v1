@@ -56,16 +56,28 @@ if [ ! -f "$CUSTOM_CFG" ]; then
   exit 1
 fi
 
-echo "Preparing ISCE2 metadata for MintPy"
-prep_isce.py \
-  -f "$STACK_DIR/merged/interferograms/*/filt_fine.unw" \
-  -m "$META_FILE" \
-  -b "$BASELINE_DIR" \
-  -g "$STACK_DIR/merged/geom_reference" \
-  --force
+START_STEP="${5:-}"
+END_STEP="${6:-velocity}"
 
-echo "Generating MintPy config under $WORK_DIR"
-"$SMALLBASELINE_BIN" --dir "$WORK_DIR" -g "$CUSTOM_CFG"
+if [ -n "$START_STEP" ] && [ "$START_STEP" != "load_data" ]; then
+  # Stage-level resume (breakpoint continue): start from an arbitrary MintPy step,
+  # reusing already-computed products. Skips prep_isce + load_data/inversion, so
+  # e.g. adding ERA5 tropo (start_step=correct_troposphere) does NOT re-invert.
+  echo "Resuming MintPy from step '$START_STEP' to '$END_STEP' (reuse existing products)"
+  "$SMALLBASELINE_BIN" --dir "$WORK_DIR" -g "$CUSTOM_CFG"
+  "$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$WORK_DIR/smallbaselineApp.cfg" --start "$START_STEP" --end "$END_STEP"
+else
+  echo "Preparing ISCE2 metadata for MintPy"
+  prep_isce.py \
+    -f "$STACK_DIR/merged/interferograms/*/filt_fine.unw" \
+    -m "$META_FILE" \
+    -b "$BASELINE_DIR" \
+    -g "$STACK_DIR/merged/geom_reference" \
+    --force
 
-echo "Running MintPy full workflow"
-"$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$WORK_DIR/smallbaselineApp.cfg" --end velocity
+  echo "Generating MintPy config under $WORK_DIR"
+  "$SMALLBASELINE_BIN" --dir "$WORK_DIR" -g "$CUSTOM_CFG"
+
+  echo "Running MintPy workflow to step '$END_STEP'"
+  "$SMALLBASELINE_BIN" --dir "$WORK_DIR" "$WORK_DIR/smallbaselineApp.cfg" --end "$END_STEP"
+fi

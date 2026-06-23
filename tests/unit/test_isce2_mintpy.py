@@ -150,7 +150,26 @@ class TestRunMintpyISCE2Stack:
         template = Path(data["mintpy_config"]).read_text(encoding="utf-8")
         assert f"mintpy.load.baselineDir = {(stack / 'baselines').as_posix()}" in template
         command = mock_popen.call_args.args[0]
-        assert command[-1] == str(stack / "baselines")
+        assert str(stack / "baselines") in command       # baseline dir still threaded
+        assert command[-2:] == ["", "velocity"]          # start_step="" , end_step default
+
+    def test_launch_threads_start_step_for_stage_resume(self, tmp_path: Path) -> None:
+        stack = _make_stack_root_with_text_baselines(tmp_path / "stack")
+        fake_script = tmp_path / "run_mintpy_isce2_stack.sh"
+        fake_script.write_text("#!/bin/bash\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 7
+        with patch("insar_agent.engines.isce2.mintpy._SCRIPT", fake_script), \
+             patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+            run_mintpy_isce2_stack(
+                mintpy_work_dir=str(tmp_path / "mintpy"),
+                stack_work_dir=str(stack),
+                conda_env="isce2",
+                start_step="correct_troposphere",
+            )
+        command = mock_popen.call_args.args[0]
+        # breakpoint resume: the chosen start step is threaded to the shell
+        assert command[-2:] == ["correct_troposphere", "velocity"]
 
     def test_launch_does_not_set_removed_bridge_env_overrides(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")
@@ -236,7 +255,7 @@ class TestInsarRunMintpyISCE2:
         assert "tail" not in result["progress_hint"]
         assert "include_logs=True" in result["progress_hint"]
 
-    def test_tool_uses_isce2_default_and_no_removed_bridge_args(self, tmp_path: Path) -> None:
+    def test_tool_defaults_to_dynamic_env_and_threads_step_range(self, tmp_path: Path) -> None:
         stack = _make_stack_root(tmp_path / "stack")
         fake = {
             "job_id": "job-1",
@@ -254,5 +273,7 @@ class TestInsarRunMintpyISCE2:
             )
 
         _, kwargs = mock_run.call_args
-        assert kwargs["conda_env"] == "isce2"
+        assert kwargs["conda_env"] == ""           # dynamic discovery, NOT hardcoded "isce2"
+        assert kwargs["start_step"] == ""          # full run by default
+        assert kwargs["end_step"] == "velocity"
         assert "prep_isce_bin" not in kwargs

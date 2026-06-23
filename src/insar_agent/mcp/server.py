@@ -746,13 +746,15 @@ def insar_run_mintpy(
 def insar_run_mintpy_isce2(
     mintpy_work_dir: str,
     stack_work_dir: str,
-    conda_env: str = "isce2",
+    conda_env: str = "",
     mintpy_config: str = "",
     python_bin: str | None = None,
     smallbaseline_bin: str | None = None,
     interaction_mode: str = "interactive",
     weather_dir: str | None = None,
     weather_model: str = "ERA5",
+    start_step: str = "",
+    end_step: str = "velocity",
 ) -> dict:
     """Launch MintPy asynchronously on an ISCE2/topsStack-style Sentinel workspace.
 
@@ -764,6 +766,12 @@ def insar_run_mintpy_isce2(
     prepared by ``insar_download_era5``), the generated MintPy template enables
     native pyAPS ERA5 tropospheric correction (``method = pyaps``). Omitting it
     keeps the default ``method = no`` behaviour.
+
+    ``start_step``/``end_step`` expose MintPy's native step range for breakpoint
+    resume: e.g. ``start_step="correct_troposphere"`` re-runs only from that step on
+    an already-inverted run (skips prep_isce + re-inversion), so adding ERA5 tropo
+    later does not redo the whole pipeline. ``conda_env=""`` auto-discovers a
+    MintPy+pyaps3 env (the env name is never hardcoded).
     """
     try:
         interaction_mode = _normalize_interaction_mode(interaction_mode)
@@ -788,6 +796,8 @@ def insar_run_mintpy_isce2(
             smallbaseline_bin=smallbaseline_bin,
             weather_dir=weather_dir or None,
             weather_model=weather_model,
+            start_step=start_step,
+            end_step=end_step,
         )
     except FileNotFoundError as exc:
         return {"error": "path_not_found", "message": str(exc)}
