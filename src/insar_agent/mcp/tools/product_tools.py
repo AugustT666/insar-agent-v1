@@ -69,7 +69,7 @@ def insar_apply_troposphere_isce2(
     ref_date: str,
     sec_date: str,
     grib_files: list[str],
-    conda_env: str = "isce2",
+    conda_env: str = "",
     out_dir: str | None = None,
 ) -> dict:
     """
@@ -96,7 +96,8 @@ def insar_apply_troposphere_isce2(
         ref_date: Reference epoch ``YYYYMMDD``.
         sec_date: Secondary epoch ``YYYYMMDD``.
         grib_files: ERA5 pressure-level GRIB path(s); one multi-epoch file or per-epoch files.
-        conda_env: Conda env that has pyaps3/pygrib/GDAL (default ``"isce2"``).
+        conda_env: Conda env that has pyaps3/pygrib/GDAL; "" auto-discovers one
+            (never hardcodes an env name).
         out_dir: Output dir; defaults to ``<run_root>/troposphere_correction/``.
     """
     import json as _json
@@ -114,6 +115,12 @@ def insar_apply_troposphere_isce2(
     missing = [g for g in grib_files if not Path(g).exists()]
     if missing:
         return {"error": "path_not_found", "message": f"GRIB file(s) not found: {missing}"}
+
+    from insar_agent.core.conda_env import resolve_conda_env
+    conda_env = resolve_conda_env(conda_env, ["pyaps3", "pygrib"], prefer=["isce2", "mintpy"])
+    if not conda_env:
+        return {"error": "no_capable_env",
+                "message": "no conda env with pyaps3+pygrib+GDAL found for tropo correction (run insar_check_env)"}
 
     cmd = build_troposphere_command(
         run_root, ref_date, sec_date, grib_files, conda_env=conda_env, out_dir=out_dir)

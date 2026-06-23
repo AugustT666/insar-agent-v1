@@ -78,7 +78,7 @@ def test_tool_recovers_sentinel_json_from_noisy_stdout(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeProc())
     res = product_tools.insar_apply_troposphere_isce2(
-        str(tmp_path), "20251025", "20251106", [str(grib)]
+        str(tmp_path), "20251025", "20251106", [str(grib)], conda_env="isce2"
     )
     assert res == payload
 
@@ -99,7 +99,7 @@ def test_tool_reports_failure_when_no_sentinel(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _FakeProc())
     res = product_tools.insar_apply_troposphere_isce2(
-        str(tmp_path), "20251025", "20251106", [str(grib)]
+        str(tmp_path), "20251025", "20251106", [str(grib)], conda_env="isce2"
     )
     assert res["error"] == "correction_failed"
     assert "boom" in res["message"]
