@@ -235,7 +235,7 @@ class TestInsarDownloadDemTool:
                 "insar_agent.mcp.server.download_dem",
                 return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
             ) as mock_download,
-            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+            patch("insar_agent.mcp.server._isce2_app_script", return_value=(None, None)),
         ):
             result = insar_download_dem(
                 output_path=str(tmp_path / "dem.tif"),
@@ -251,7 +251,7 @@ class TestInsarDownloadDemTool:
                 "insar_agent.mcp.server.download_dem",
                 return_value={"output_path": str(tmp_path / "dem.tif"), "source": "copernicus_30", "bbox": [40.4, 13.3, 40.9, 13.8]},
             ) as mock_download,
-            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+            patch("insar_agent.mcp.server._isce2_app_script", return_value=(None, None)),
         ):
             result = insar_download_dem(
                 output_path=str(tmp_path / "dem.tif"),
@@ -284,7 +284,7 @@ class TestInsarDownloadDemTool:
 
         with (
             patch("insar_agent.mcp.server.download_dem", side_effect=fake_download_dem),
-            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=script_path),
+            patch("insar_agent.mcp.server._isce2_app_script", return_value=("isce2", script_path)),
             patch("insar_agent.mcp.server.subprocess.run", side_effect=fake_run),
         ):
             result = insar_download_dem(output_path=str(output_path), bbox=[12.5, 39.7, 14.5, 42.3])
@@ -323,7 +323,7 @@ class TestInputToolReusesPinnedRun:
 
         with (
             patch("insar_agent.mcp.server.download_dem", side_effect=fake_download_dem),
-            patch("insar_agent.mcp.server._find_isce2_gdal2isce_xml", return_value=None),
+            patch("insar_agent.mcp.server._isce2_app_script", return_value=(None, None)),
         ):
             result = insar_download_dem(
                 bbox=[40.5, 13.4, 40.8, 13.7],

@@ -1196,33 +1196,44 @@ except Exception as _e:
     }
 
 
-def _find_isce2_gdal2isce_xml() -> Path | None:
-    return next(
-        (
-            path
-            for path in (Path.home() / "miniconda3" / "envs" / "isce2" / "lib").glob(
-                "python*/site-packages/isce/applications/gdal2isce_xml.py"
-            )
-        ),
+def _isce2_app_script(script_name: str, conda_env: str = "") -> tuple[str | None, Path | None]:
+    """Discover the ISCE2 env NAME + the path to one of its ``applications/`` scripts
+    WITHOUT hardcoding the conda install root or the env name. Returns (env, path);
+    either may be None if no ISCE2 env / script is found."""
+    from insar_agent.core.conda_env import conda_env_prefix, resolve_conda_env
+
+    env = resolve_conda_env(conda_env, ["isce"], prefer=["isce2", "isce"])
+    if not env:
+        return None, None
+    prefix = conda_env_prefix(env)
+    if not prefix:
+        return env, None
+    script = next(
+        (Path(prefix) / "lib").glob(f"python*/site-packages/isce/applications/{script_name}"),
         None,
     )
+    return env, script
 
 
-def _ensure_isce2_dem_xml(dem_path: Path, log_path: Path) -> str | None:
+def _find_isce2_gdal2isce_xml(conda_env: str = "") -> Path | None:
+    return _isce2_app_script("gdal2isce_xml.py", conda_env)[1]
+
+
+def _ensure_isce2_dem_xml(dem_path: Path, log_path: Path, conda_env: str = "") -> str | None:
     xml_path = dem_path.with_name(dem_path.name + ".xml")
     if xml_path.exists():
         return str(xml_path)
 
-    script = _find_isce2_gdal2isce_xml()
-    if script is None:
-        _append_log(log_path, "ISCE2 gdal2isce_xml.py not found; DEM XML sidecar was not generated.")
+    env, script = _isce2_app_script("gdal2isce_xml.py", conda_env)
+    if script is None or not env:
+        _append_log(log_path, "ISCE2 gdal2isce_xml.py not found in any conda env; DEM XML sidecar was not generated.")
         return None
 
     command = [
         "conda",
         "run",
         "-n",
-        "isce2",
+        env,
         "python",
         str(script),
         "-i",
@@ -1251,6 +1262,7 @@ def insar_download_dem(
     proxy: str | None = None,
     backend: str = "general",
     dem_type: str | None = None,
+    conda_env: str = "",
     project_id: str = "",
     workspace_root: str = "",
     task_id: str = "",
@@ -1354,19 +1366,11 @@ def insar_download_dem(
     )
     messages: list[str] = []
     if backend == "isce2":
-        dem_script = next(
-            (
-                path
-                for path in (Path.home() / "miniconda3" / "envs" / "isce2" / "lib").glob(
-                    "python*/site-packages/isce/applications/dem.py"
-                )
-            ),
-            None,
-        )
-        if dem_script is None:
+        dem_env, dem_script = _isce2_app_script("dem.py", conda_env)
+        if dem_script is None or not dem_env:
             return {
                 "error": "path_not_found",
-                "message": "ISCE2 dem.py not found in the isce2 conda environment",
+                "message": "ISCE2 dem.py not found in any conda env with ISCE2 (run insar_check_env)",
                 "log_path": str(log_path),
                 "params_path": str(params_path),
             }
@@ -1384,7 +1388,7 @@ def insar_download_dem(
             "conda",
             "run",
             "-n",
-            "isce2",
+            dem_env,
             "python",
             str(dem_script),
             "-a",

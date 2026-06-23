@@ -852,6 +852,10 @@ def test_insar_download_dem_supports_isce2_backend(tmp_path, monkeypatch):
         return Result()
 
     monkeypatch.setattr("insar_agent.mcp.server.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "insar_agent.mcp.server._isce2_app_script",
+        lambda name, conda_env="": ("isce2", tmp_path / name),
+    )
 
     result = insar_download_dem(
         output_path=str(tmp_path / "dem" / "isce2.dem.wgs84"),
@@ -890,6 +894,10 @@ def test_insar_download_dem_retries_isce2_backend_failures(tmp_path, monkeypatch
         return Result()
 
     monkeypatch.setattr("insar_agent.mcp.server.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "insar_agent.mcp.server._isce2_app_script",
+        lambda name, conda_env="": ("isce2", tmp_path / name),
+    )
 
     result = insar_download_dem(
         output_path=str(tmp_path / "dem" / "isce2.dem.wgs84"),
