@@ -96,6 +96,7 @@ usage, users may also invoke the namespaced form such as
 | MintPy time-series, displacement, baseline plot | `mintpy` | Plot baseline when relevant, run MintPy, poll |
 | ISCE3 parameter tuning | `param-advisor` with `engine=isce3` | Collect metadata, then delegate to param-advisor subagent through the skill |
 | ISCE2 parameter tuning | `param-advisor` with `engine=isce2` | Collect Sentinel metadata, then delegate to param-advisor subagent through the skill |
+| Post-run review, YODO experience capture, plugin asset planning | `yodo` | Summarize the collaboration, classify the asset opportunity, and recommend development handoff |
 
 If a request spans multiple rows, route in dependency order. For example, run
 `data-prep` before an engine-specific processing workflow when data is missing.

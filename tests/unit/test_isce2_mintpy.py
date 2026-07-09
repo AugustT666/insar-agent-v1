@@ -127,7 +127,10 @@ class TestRunMintpyISCE2Stack:
         assert "merged/interferograms/*/filt_fine.unw" in template
         assert "merged/baselines_txt" in template
         assert "mintpy.troposphericDelay.method = no" in template
-        assert "mintpy.topographicResidual = no" in template
+        assert "mintpy.topographicResidual = yes" in template
+        assert "mintpy.unwrapError.method = bridging+phase_closure" in template
+        assert "mintpy.solidEarthTides = yes" in template
+        assert "mintpy.deramp = quadratic" in template
 
     def test_launch_accepts_topsstack_text_baselines(self, tmp_path: Path) -> None:
         stack = _make_stack_root_with_text_baselines(tmp_path / "stack")

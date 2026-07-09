@@ -20,6 +20,7 @@ EXPECTED_SKILLS = {
     "mintpy",
     "d-insar-isce2",
     "stack-insar-isce2",
+    "yodo",
 }
 
 
@@ -100,3 +101,31 @@ def test_param_advisor_agent_has_short_trigger_and_invoke_section() -> None:
     assert "Typical triggers include" in frontmatter
     assert "## When to invoke" in body
     assert "<example>" not in frontmatter
+
+
+def test_yodo_skill_declares_read_only_asset_review_contract() -> None:
+    text = (REPO_ROOT / "skills" / "yodo" / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter, body = text.split("---", 2)[1:]
+
+    assert "This skill should be used when" in frontmatter
+    assert "version: 0.1.0" in frontmatter
+
+    for classification in (
+        "existing_engine_extension",
+        "new_engine_onboarding",
+        "common_plugin_capability",
+    ):
+        assert classification in body
+
+    for phrase in (
+        "read-only",
+        "YODO 复盘包",
+        "plugin-dev:skill-development",
+        "plugin-dev:plugin-structure",
+        "plugin-dev:mcp-integration",
+        "plugin-dev:hook-development",
+        "skill-creator",
+        "Do not modify repository files",
+        "Do not run InSAR processing commands",
+    ):
+        assert phrase in body

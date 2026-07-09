@@ -111,9 +111,12 @@ def _default_template_text(
             f"mintpy.load.azAngleFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'los.rdr').as_posix()}",
             f"mintpy.load.shadowMaskFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'shadowMask.rdr').as_posix()}",
             "mintpy.plot = no",
-            "mintpy.unwrapError.method = no",
+            "mintpy.unwrapError.method = bridging+phase_closure",
+            "mintpy.solidEarthTides = yes",
+            "mintpy.deramp = quadratic",
+            "mintpy.ionosphericDelay.method = no",
             *tropo_lines,
-            "mintpy.topographicResidual = no",
+            "mintpy.topographicResidual = yes",
         ]
     ) + "\n"
 
