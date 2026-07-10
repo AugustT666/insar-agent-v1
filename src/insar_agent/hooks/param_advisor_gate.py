@@ -25,6 +25,7 @@ from pathlib import Path
 
 _ADVISOR_HINT = "param-advisor"
 _EXEC_TOOL_SUFFIXES = ("insar_run_workflow", "insar_prepare_stack", "insar_prepare_network")
+_PARAM_WRITE_TOOL_SUFFIX = "insar_set_processing_param"
 
 
 def marker_dir() -> Path:
@@ -47,36 +48,6 @@ def record_advisor_marker(payload: dict) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
     return True
-
-
-def _safe(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", name or "unknown")
-
-
-def confirm_marker_path(run_id: str) -> Path:
-    """Per-run marker written when the user confirms a science-parameter write."""
-    return marker_dir() / f"{_safe(run_id)}.paramconfirm"
-
-
-def auto_marker_path(session_id: str) -> Path:
-    """Per-session marker written when the flow enters autonomous 'auto' mode."""
-    return marker_dir() / f"{_safe(session_id)}.autoparam"
-
-
-def record_param_confirm_marker(run_id: str) -> Path:
-    """Create the per-run user-confirm marker (mkdir parents ok); return its Path."""
-    path = confirm_marker_path(run_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
-    return path
-
-
-def record_auto_marker(session_id: str) -> Path:
-    """Create the per-session auto-mode marker (mkdir parents ok); return its Path."""
-    path = auto_marker_path(session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
-    return path
 
 
 def _decision(verdict: str, reason: str) -> dict:
@@ -153,37 +124,62 @@ def main_marker() -> None:
     sys.exit(0)
 
 
-# ── Controlled write policy: mode-aware gate for the parameter-write tool ──────
-# Non-path science parameters (insar_set_processing_param, incl. scope=mintpy)
-# require user confirmation. Allow iff a per-session auto-mode marker OR a
-# per-run user-confirm marker exists. Path fields (insar_set_runconfig_value)
-# are routed to a different tool and are never gated here.
-
-_PARAM_WRITE_DENY_REASON = (
-    "Blocked: non-path science parameters require user confirmation (or auto mode). "
-    "In interactive mode, surface the parameter diff and wait for user OK — that "
-    "records a per-run confirm marker; or enter auto mode, which records a "
-    "per-session auto marker; then retry. Path fields go through "
-    "insar_set_runconfig_value and are not gated."
-)
+# ── Param-write gate (PreToolUse on insar_set_processing_param) ────────────────
+# Markers key on project_id: an MCP tool cannot see the harness session_id, so
+# insar_arm_param_write writes a per-run marker keyed by the same project_id the
+# write tool receives. A single arm authorizes every science-param write this run.
 
 
-def decide_param_write_gate(payload: dict) -> bool:
-    """PreToolUse gate for the parameter-write tool (insar_set_processing_param).
+def confirm_marker_path(project_id: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", project_id or "unknown")
+    return marker_dir() / f"{safe}.param_confirm"
 
-    Returns True (allow) iff a per-session auto-mode marker OR a per-run
-    user-confirm marker exists; otherwise False (deny). Only marker existence is
-    checked — the gate never parses the science-parameter args (same as
-    decide_execution_gate). The per-run key is the tool's project_id.
-    """
-    session_id = str(payload.get("session_id") or "")
-    if auto_marker_path(session_id).exists():
-        return True
+
+def auto_marker_path(project_id: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", project_id or "unknown")
+    return marker_dir() / f"{safe}.param_auto"
+
+
+def _write_marker(path: Path) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
+    return True
+
+
+def record_param_confirm_marker(project_id: str) -> bool:
+    """Arm a single interactive confirmation for param writes on this project/run."""
+    if not project_id:
+        return False
+    return _write_marker(confirm_marker_path(project_id))
+
+
+def record_auto_marker(project_id: str) -> bool:
+    """Arm auto-mode param writes on this project/run."""
+    if not project_id:
+        return False
+    return _write_marker(auto_marker_path(project_id))
+
+
+def decide_param_write_gate(payload: dict) -> dict:
+    tool_name = str(payload.get("tool_name") or "")
     tool_input = payload.get("tool_input") or {}
-    run_id = str(tool_input.get("project_id") or "")
-    if run_id and confirm_marker_path(run_id).exists():
-        return True
-    return False
+
+    # Only gate the science-parameter write tool; path-field writes stay ungated.
+    if not tool_name.endswith(_PARAM_WRITE_TOOL_SUFFIX):
+        return _decision("allow", "not the gated param-write tool")
+
+    project_id = str(tool_input.get("project_id") or "")
+    if confirm_marker_path(project_id).exists() or auto_marker_path(project_id).exists():
+        return _decision("allow", "param writes armed for this run via insar_arm_param_write")
+
+    return _decision(
+        "deny",
+        "Blocked: param writes are not armed for this run. The param-advisor / stack / "
+        "mintpy skill must present the advisor diff + three-choice once, then call "
+        "insar_arm_param_write(project_id, mode='confirm') (interactive) or mode='auto' "
+        "(on entering auto mode) before insar_set_processing_param. Arming is ungated and "
+        "changes no value; a single arm authorizes all writes for this run.",
+    )
 
 
 def main_param_write_gate() -> None:
@@ -191,6 +187,7 @@ def main_param_write_gate() -> None:
         payload = json.load(sys.stdin)
     except Exception:
         sys.exit(0)  # never block on malformed hook input
-    if not decide_param_write_gate(payload):
-        print(json.dumps(_decision("deny", _PARAM_WRITE_DENY_REASON)))
+    decision = decide_param_write_gate(payload)
+    if decision["hookSpecificOutput"]["permissionDecision"] == "deny":
+        print(json.dumps(decision))
     sys.exit(0)

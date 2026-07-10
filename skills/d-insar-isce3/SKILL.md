@@ -121,7 +121,7 @@ version: 0.1.0
      （`subagent_type: insar-agent-plugin:param-advisor`）生成推荐 + yaml_diff_preview；
      主会话不得自行替代顾问给建议
    - 展示 diff 后三选一（默认 / 采用推荐 / 自定）；interactive 等待用户确认，auto 自动接受推荐
-   - 若采用推荐或自定：`insar_set_processing_param(project_id, key, value, justification)` × N
+   - 若采用推荐或自定：先调用一次 `insar_arm_param_write(project_id, mode="confirm")`（auto 模式用 `mode="auto"`）武装本轮写入（未门控、只写按 `project_id` 键控的 per-run marker），否则 PreToolUse 门会 DENY 每一次写入；再逐项 `insar_set_processing_param(project_id, key, value, justification)` × N
    - `insar_get_runconfig(format='yaml')` 展示最终配置
    - **落盘**：`insar_record_param_advice` 写入 `<run_root>/.insar_agent/recommendation.json`
    - 选用默认参数也是有效结果，但 subagent 必须已被咨询过。完成后继续 Step 5。

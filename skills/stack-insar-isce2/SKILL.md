@@ -130,9 +130,11 @@ want to override them.
 
 ### Step 4 — Set stack parameters
 
-Mandatory fields:
+Mandatory fields (arm this run's param writes once first — ungated, writes a per-run marker keyed by `project_id`; otherwise the PreToolUse gate DENIES every `insar_set_processing_param` below):
 
 ```
+insar_arm_param_write(project_id, mode="confirm")
+
 insar_set_processing_param(project_id, key="slc_dir",
     value="/mnt/.../safe/s1a_asc_rel014", justification="directory containing grouped S1 SAFE inputs for one stack")
 

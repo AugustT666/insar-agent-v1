@@ -5,6 +5,62 @@ from __future__ import annotations
 from insar_agent.mcp._app import *  # noqa: F403  (foundation: imports + constants + mcp)
 from insar_agent.mcp._helpers import *  # noqa: F403  (shared helpers)
 
+from insar_agent.hooks.param_advisor_gate import (
+    auto_marker_path,
+    confirm_marker_path,
+    record_auto_marker,
+    record_param_confirm_marker,
+)
+
+
+@mcp.tool()
+def insar_arm_param_write(project_id: str, mode: str = "confirm") -> dict:
+    """
+    Arm param writes for this run so insar_set_processing_param is allowed.
+
+    A PreToolUse gate DENIES insar_set_processing_param until this arming step
+    has run for the project. Call this ONCE per run from the param-advisor /
+    stack / mintpy skill (single-confirmation UX, not per-write prompts):
+
+    * mode="confirm" (interactive): after the user picks "adopt suggested" or
+      "self-config" in the three-choice, before applying any science params.
+    * mode="auto": once on entering auto mode.
+
+    This tool is itself UNGATED (it IS the arming step) and changes no parameter
+    value. It only writes a per-run marker keyed by project_id; one arm
+    authorizes every insar_set_processing_param write for this run. Path-field
+    writes via insar_set_runconfig_value stay ungated and need no arming.
+
+    Args:
+        project_id: Project UUID
+        mode: "confirm" (single interactive confirmation) or "auto"
+    """
+    normalized = (mode or "").strip().lower()
+    if normalized not in ("confirm", "auto"):
+        return {"error": "invalid_mode", "message": "mode must be 'confirm' or 'auto'."}
+
+    try:
+        project = Project.load(project_id)
+    except (KeyError, FileNotFoundError):
+        return _project_error(project_id)
+
+    if normalized == "auto":
+        wrote = record_auto_marker(project.project_id)
+        marker = str(auto_marker_path(project.project_id))
+    else:
+        wrote = record_param_confirm_marker(project.project_id)
+        marker = str(confirm_marker_path(project.project_id))
+
+    if not wrote:
+        return {"error": "arm_failed", "message": "could not write the param-write marker"}
+
+    return {
+        "project_id": project.project_id,
+        "mode": normalized,
+        "armed": True,
+        "marker_path": marker,
+    }
+
 
 @mcp.tool()
 def insar_record_param_advice(

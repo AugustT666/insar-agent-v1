@@ -44,7 +44,7 @@ version: 0.1.0
 - 参数建议阶段必须调用 `insar-agent-plugin:param-advisor` subagent（传入 engine 参数）
 - 主会话不得直接调用经验规则替代 subagent
 - 传给 subagent 的内容必须是压缩后的 evidence profile，不得传完整长对话、完整 YAML、完整知识库或长 reasoning 历史
-- 参数应用只能通过 `insar_set_processing_param`
+- 参数应用只能通过 `insar_set_processing_param`；且每轮**首次**写参数前必须先调用一次 `insar_arm_param_write(project_id, mode=...)` 武装本轮写入（interactive→`"confirm"`，auto→`"auto"`）。未武装时 PreToolUse 门会 DENY 每一次 `insar_set_processing_param`。武装工具本身未被门控、不改任何参数值，只写一个按 `project_id` 键控的 per-run marker；单次武装即放行本轮全部写入，勿逐参数重复武装
 - 应用参数后必须调用 `insar_get_runconfig(format='yaml')` 展示完整 YAML
   - **interactive 模式**：展示后等待用户明确继续
   - **auto 模式**：展示后直接继续，不等待用户输入
@@ -149,7 +149,11 @@ subagent 返回后，主会话先**全读**它落盘的 `recommendation.json`（
 如果用户选择采用建议参数或自行指定参数：
 
 1. 建议已由 subagent 用 `insar_record_param_advice` 落盘为 `recommendation.json`（JSON + Markdown）并被主会话全读，无需主会话重复落盘
-2. 逐项调用 `insar_set_processing_param(justification=<具体理由>)`
+2. **先武装、再逐项写入（单次确认，非逐参数确认）：**
+   - **interactive 模式**：用户在三选一里选"采用建议参数"或"自行指定参数"后，先调用一次 `insar_arm_param_write(project_id, mode="confirm")`
+   - **auto 模式**：进入 auto 模式时先调用一次 `insar_arm_param_write(project_id, mode="auto")`
+   - 该工具未被门控（就是武装步骤本身），只写一个按 `project_id` 键控的 per-run marker，不改任何参数值；不先武装则 PreToolUse 门会 DENY 每一次 `insar_set_processing_param`；单次武装即放行本轮全部写入，勿逐参数重复武装
+   - 然后逐项调用 `insar_set_processing_param(justification=<具体理由>)`
 3. 调 `insar_get_runconfig(format='yaml')` 展示完整 YAML
 4. **落盘（防重复调优）：**
    - **ISCE3 Path A**：调用 MCP 工具 `insar_export_runconfig(project_id, output_dir="<current_run_root>/insar_product/param_tuned")`

@@ -118,9 +118,11 @@ Raw engine logs (Layer-2): `<run_root>/insar_product/logs/`.
 
 ### Step 5 — Set required parameters
 
-Set all `required_fields` using `insar_set_processing_param`. Mandatory fields:
+Set all `required_fields` using `insar_set_processing_param`. Arm this run's param writes once first (ungated; writes a per-run marker keyed by `project_id`) — otherwise the PreToolUse gate DENIES every `insar_set_processing_param` below. Mandatory fields:
 
 ```
+insar_arm_param_write(project_id, mode="confirm")
+
 insar_set_processing_param(project_id, key="reference_safe",
     value="/mnt/.../safe/s1a_asc_rel014/S1A_IW_SLC__...SAFE", justification="reference scene path")
 

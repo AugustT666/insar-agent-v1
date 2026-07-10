@@ -91,7 +91,7 @@ param-advisor (engine=isce3) 调用链（Path B）：
 - **必须通过 Task 工具调用 `insar-agent-plugin:param-advisor` subagent**
   （`subagent_type: insar-agent-plugin:param-advisor`）生成推荐；主会话不得自行替代
 - interactive：展示 yaml_diff_preview，三选一等待确认；auto：自动接受推荐
-- 若采用：`insar_set_processing_param`（临时 project）
+- 若采用：先 `insar_arm_param_write(project_id, mode="confirm")`（auto 用 `mode="auto"`）武装本轮写入（未门控、写按 `project_id` 键控的 per-run marker），再 `insar_set_processing_param`（临时 project）；不先武装则 PreToolUse 门会 DENY 每一次写入
 - **落盘**：将调优后的 YAML 保存为 `<data_dir>/base_runconfig_param_tuned.yaml`，供后续复用
 - 使用该文件作为后续选项的 base_runconfig
 

@@ -1,5 +1,5 @@
 {
-  "description": "Force the param-advisor subagent before irreversible InSAR execution (run_workflow / prepare_stack / prepare_network); record advisor consultation via the Task tool. Enforces process, not parameter values.",
+  "description": "Force the param-advisor subagent before irreversible InSAR execution (run_workflow / prepare_stack / prepare_network) and gate insar_set_processing_param until the skill arms the run via insar_arm_param_write; record advisor consultation via the Task tool. Enforces process, not parameter values.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,16 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/param_advisor_gate.py",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*insar.*__insar_set_processing_param$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/param_write_gate.py",
             "timeout": 15
           }
         ]

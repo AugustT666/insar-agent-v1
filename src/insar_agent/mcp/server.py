@@ -38,6 +38,7 @@ from insar_agent.mcp.tools.project_tools import (  # noqa: F401  (re-export)
     insar_set_runconfig_value,
 )
 from insar_agent.mcp.tools.param_tools import (  # noqa: F401  (re-export)
+    insar_arm_param_write,
     insar_record_param_advice,
     insar_set_processing_param,
     insar_export_runconfig,
@@ -1710,6 +1711,7 @@ def build_server_description() -> dict:
             "insar_set_runconfig_value",
             "insar_record_param_advice",
             "insar_set_processing_param",
+            "insar_arm_param_write",
             "insar_describe_rslc",
             "insar_run_workflow",
             "insar_get_job",
