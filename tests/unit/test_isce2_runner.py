@@ -334,3 +334,59 @@ def test_build_stack_command_resume_zero_runs_full_prep(tmp_path: Path) -> None:
 
     assert "stackSentinel.py" in inner
     assert "rm -rf run_files" in inner
+
+
+# ---------------------------------------------------------------------------
+# PHASE C2 — generate_only: prep run_files/configs then STOP (no exec loop)
+# ---------------------------------------------------------------------------
+
+def test_build_stack_command_generate_only_preps_without_exec_loop(tmp_path: Path) -> None:
+    """generate_only=True runs stackSentinel.py prep but NOT the run_files exec loop."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        generate_only=True,
+    )
+    inner = command[-1]
+
+    # prep IS present (wipe + stackSentinel.py to regenerate run_files/ + configs/)
+    assert "rm -rf run_files" in inner
+    assert 'python "$ISCE_STACK/topsStack/stackSentinel.py"' in inner
+    # the execution loop is NOT present — the user reviews run_files before resuming
+    assert 'for f in $(ls -v run_files/run_*' not in inner
+    assert '. "$f" || exit 1' not in inner
+
+
+def test_build_stack_command_generate_only_keeps_isce_guard_before_wipe(tmp_path: Path) -> None:
+    """The import-isce guard must still precede rm -rf so a wrong env never wipes."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        generate_only=True,
+    )
+    inner = command[-1]
+
+    assert "import isce" in inner
+    assert inner.index("import isce") < inner.index("rm -rf")
+
+
+def test_build_stack_command_full_run_keeps_prep_and_exec_loop(tmp_path: Path) -> None:
+    """Regression: the default full run still contains BOTH prep and the exec loop."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+    )
+    inner = command[-1]
+
+    assert 'python "$ISCE_STACK/topsStack/stackSentinel.py"' in inner
+    assert 'for f in $(ls -v run_files/run_*' in inner
+    assert '. "$f" || exit 1' in inner

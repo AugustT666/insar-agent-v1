@@ -36,6 +36,9 @@ def build_stack_command(
     work_dir: str,
     conda_env: str | None = None,
     resume_from_run: int = 0,
+    generate_only: bool = False,
+    start_step: int = 0,
+    end_step: int = 0,
 ) -> list[str]:
     """
     Build the full ISCE2 topsStack command: runs stackSentinel.py (prep),
@@ -52,6 +55,15 @@ def build_stack_command(
         run_files/configs/outputs, and execute only run_NN steps with NN >=
         resume_from_run (run_files/ must already exist, else exit 4). 0 (default)
         runs the full prepare+execute from scratch.
+
+    generate_only: when True, run only the wipe + stackSentinel.py prep to produce
+        run_files/ + configs/, then STOP (no execution loop). The caller reviews the
+        generated per-run configs and later executes via resume_from_run=1. Mutually
+        exclusive with resume_from_run at the caller (see insar_run_workflow).
+
+    start_step/end_step: reserved for the inclusive [start..end] run-window
+        (0 == unbounded on that side). Accepted here for signature stability; the
+        window loop is implemented in PHASE C4 and is inert in this phase.
     """
     args = [
         "-s", shlex.quote(params["slc_dir"]),
@@ -124,7 +136,18 @@ def build_stack_command(
         f'cd {shlex.quote(work_dir)} && '
     )
 
-    if resume_from_run and resume_from_run >= 1:
+    if generate_only:
+        # Generation phase only: wipe + stackSentinel.py prep to produce run_files/ +
+        # configs/, then STOP. No execution loop — the caller reviews the generated
+        # per-run configs and later executes via resume_from_run=1.
+        execute = (
+            'rm -rf run_files configs SAFE_files.txt reference geom_reference '
+            'secondary secondary_* merged misreg baselines baselines_txt DEM_files && '
+            f'python "$ISCE_STACK/topsStack/stackSentinel.py" {args_str} && '
+            'echo "[insar-agent] generate_only: run_files/ and configs/ generated; STOP '
+            '(no execution). Review the generated configs, then execute with resume_from_run=1."'
+        )
+    elif resume_from_run and resume_from_run >= 1:
         # Resume: reuse the prior run's run_files/configs/outputs. Skip both the
         # stackSentinel.py prep and the rm -rf wipe, and skip run_NN steps below
         # the resume point. Fail with exit 4 if there is nothing to resume.
