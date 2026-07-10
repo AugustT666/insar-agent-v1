@@ -30,9 +30,13 @@ version: 0.1.0
 - Check CLAUDE.md first: if it declares AUTO mode, set `interaction_mode="auto"` immediately without notifying the user.
 - Otherwise default to `interaction_mode="interactive"` and tell the user they can switch to auto at any time.
 - **interactive**: At Step 4.5, consulting param-advisor (engine=isce2) is required before
-  execution; run it, then present the three-choice (defaults / recommended / custom) and wait
-  for the user's pick.
-- **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking.
+  execution; run it to produce the recommendation diff. Execution then runs as
+  **generate → review → execute** (Step 5): `insar_run_workflow(generate_only=True)` produces
+  `run_files/`+`configs/` and STOPS, you PAUSE and present the three-choice
+  (defaults / adopt suggested / self-config) alongside the `run_files/`+`config_*` paths, then
+  execute via `insar_run_workflow(resume_from_run=1)`.
+- **auto**: At Step 4.5, automatically enter param-advisor (engine=isce2) without asking; at
+  Step 5, show the generated `run_files/`+`config_*` paths and continue without pausing.
 - Consulting the advisor is mandatory in both modes — accepting default parameters afterward is
   fine, but the param-advisor subagent must be invoked first. A PreToolUse gate blocks
   `insar_run_workflow` until the `insar-agent-plugin:param-advisor` subagent has run this session.
@@ -183,23 +187,84 @@ The advisor flow should build a compressed evidence profile from:
 
 It then **must invoke the `insar-agent-plugin:param-advisor` subagent** (via the Task tool,
 `subagent_type: insar-agent-plugin:param-advisor`) to generate recommendations — the main
-session must not substitute its own advice. Accepted changes are applied via
-`insar_set_processing_param` only; choosing the default parameters is a valid outcome, but the
-subagent must still have been consulted first.
+session must not substitute its own advice. Do NOT apply the recommended science params here:
+the three-choice and any `insar_set_processing_param` writes are DEFERRED to the Step 5 review
+pause and now require arming first (see Step 5b). Carry the advisor diff forward so Step 5b can
+present it. Choosing the default parameters is a valid outcome, but the subagent must still have
+been consulted first.
 
 ---
 
-### Step 5 — Run stackSentinel (prepare + execute)
+### Step 5 — Run stackSentinel (generate → review → execute)
+
+Execution is split into three phases so the user can see and freely edit the per-run
+parameters before anything irreversible runs. **interactive: you MUST pause at Step 5b.
+auto: show the paths at Step 5b and continue without pausing.**
+
+#### Step 5a — Generate run_files + configs (no execution yet)
 
 ```
-insar_run_workflow(project_id=project_id)
+insar_run_workflow(project_id=project_id, generate_only=True)
 ```
 
-This calls `stackSentinel.py` which:
+This runs only `rm -rf … && stackSentinel.py {args}`: it produces
+`<run_root>/stack/run_files/run_01..run_NN` and `<run_root>/stack/configs/config_*`, then
+STOPS before the execution loop. Use the `run_root` the tool returns; don't hand-assemble it.
+
+#### Step 5b — Review pause + three-choice (interactive: MUST pause)
+
+Surface to the user, in ONE message:
+- the ordered step-file paths `<run_root>/stack/run_files/run_01 … run_NN`
+- each run's associated `<run_root>/stack/configs/config_*` file paths
+- the param-advisor diff from Step 4.5 (effective params vs suggested)
+
+Then present the three-choice ONCE and wait:
+
+1. **Use defaults/template** — execute the generated run_files as-is (go to Step 5c). No param
+   writes, no regenerate.
+2. **Adopt advisor suggestions** — apply the recommended whitelisted science params, then
+   regenerate:
+   a. `insar_arm_param_write(project_id, mode="confirm")` — ONE arming call; writes the
+      per-project confirm marker that unlocks science-param writes.
+   b. For each accepted change: `insar_set_processing_param(project_id, key=…, value=…,
+      justification=…)` (each now allowed by the marker).
+   c. Regenerate so configs reflect the new params:
+      `insar_run_workflow(project_id, generate_only=True)` again (propagates to all pairs).
+   d. Go to Step 5c.
+3. **Self-config** — two routes:
+   - **(i) Edit whitelisted params → regenerate:** same mechanics as choice 2 (arm →
+     `insar_set_processing_param` → regenerate via `generate_only=True`). Use this for ANY
+     science-parameter change so it propagates to every pair.
+   - **(ii) Hand-edit config files → execute as-is:** the user edits specific
+     `<run_root>/stack/configs/config_*` files on disk; do NOT regenerate (regeneration
+     overwrites hand edits). Go to Step 5c.
+
+> **Arming gate.** `insar_set_processing_param` is gated: it is DENIED until this project is
+> armed by `insar_arm_param_write(project_id, mode="confirm")` (interactive) or
+> `insar_arm_param_write(project_id, mode="auto")` (auto). Arm ONCE per batch, then apply every
+> science param. Path-field writes via `insar_set_runconfig_value` are never gated.
+> Only regenerate (choice 2 / 3(i)) after changing science params — never set new
+> topology-class params (`num_connections` / `swaths` / `coregistration`) and then jump to
+> Step 5c WITHOUT regenerating, or the change is silently ignored by the reused run_files.
+
+**auto mode (Step 5b):** if the advisor recommends changes, call
+`insar_arm_param_write(project_id, mode="auto")` once, apply them via
+`insar_set_processing_param`, then regenerate via `generate_only=True`; otherwise keep the
+generated defaults. Print the `run_files/`+`config_*` paths, then continue to Step 5c without
+pausing.
+
+#### Step 5c — Execute the generated run_files
+
+```
+insar_run_workflow(project_id=project_id, resume_from_run=1)
+```
+
+`resume_from_run=1` reuses the on-disk `run_files/`+`configs/` from Step 5a/5b (no re-prepare,
+no `rm -rf`) and executes every step from `run_01` to the end. `stackSentinel` execution then:
 1. Reads the SAFE inputs from the selected grouped directory
 2. Downloads orbit files if needed
-3. Sets work_dir under the run root (`<run_root>/stack`); use the `run_root` the tool returns, don't hand-assemble the path.
-4. Executes stack processing inside that work_dir, including generated `run_files`
+3. Runs inside `<run_root>/stack` (the `run_root` the tool returns)
+4. Executes each generated `run_files/run_NN` step
 
 Returns `job_id`, `log_path`, `pid`, and `run_root`.
 

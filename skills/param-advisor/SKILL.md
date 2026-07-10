@@ -75,7 +75,8 @@ version: 0.1.0
   `networkInversion.minTempCoh`/`weightFunc`、`reference.minCoherence`）出建议并落盘 `recommendation.json`。
 - 用户确认后，MintPy 科学参数只能经
   `insar_set_processing_param(scope="mintpy", mintpy_work_dir=<mintpy 运行目录>)`
-  写入受管 `smallbaselineApp.cfg`；主会话不得手搓 cfg 文本。
+  写入受管模板 `<mintpy_work_dir>/isce2_stack.txt`（该文件由 `insar_run_mintpy_isce2`
+  经 `smallbaselineApp.py -g` 回生成 `smallbaselineApp.cfg`）；主会话不得手搓 cfg 文本。
 - 路径键（`mintpy.load.*`、`troposphericDelay.weatherDir`）仍走路径通道，Agent 可自由设置。
 
 ## 职责分工

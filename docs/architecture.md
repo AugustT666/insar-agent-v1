@@ -196,14 +196,14 @@ MCP server 通过 FastMCP 注册三类对象：
 
 | 类型 | 数量 | 说明 |
 |------|------|------|
-| **Tools** | 28 | 源码实际注册的 AI 可调用操作；全部 `@mcp.tool()` |
+| **Tools** | 31 | 源码实际注册的 AI 可调用操作；全部 `@mcp.tool()` |
 | **Resources** | 1 + 1 template | `insar://workflow-guide` 为静态 resource；`insar://allowed-fields/{workflow}` 为 resource template |
 | **Prompts** | 2 | 预填路径的引导式任务模板 |
 
 详细规范见 [developer-documents/MCP-tools.md](developer-documents/MCP-tools.md)。
 
 > 校准记录：当前 FastMCP 实际注册面与 `insar-mcp-server --describe` 均为
-> 28 tools、1 resource、1 resource template、2 prompts。
+> 31 tools、1 resource、1 resource template、2 prompts。
 
 ### Resources
 
@@ -297,6 +297,33 @@ insar-agent skill（会话引导 + 路由）
 ```
 
 MCP 工具不验证 skill 委派链路是否被遵守——它只校验参数更新本身。
+
+---
+
+## 参数写入策略（路径自由 / 科学需确认 + mode-aware gate）
+
+参数写入分两条通道，边界是"进程而非取值"（与既有 param-advisor 执行 gate 同构）：
+
+- **路径参数自由**：SAFE/RSLC、DEM、orbit、ERA5 `weatherDir`、workspace/output、`mintpy.load.*`
+  等路径字段经 `insar_set_runconfig_value`（白名单 `ALLOWED_SET_FIELDS`，`engines/*/defaults.py`）
+  写入，数据处理 Agent 可自由改，**不过确认 gate**。
+- **科学参数需确认**：looks / filter / unwrap / coreg / num_connections、MintPy `network.*` /
+  `troposphericDelay.method` / `unwrapError.method` / `networkInversion.minTempCoh` 等经
+  `insar_set_processing_param`（MintPy 侧走 `scope=mintpy`，写入托管 MintPy cfg）写入，
+  **默认必须用户确认**。
+
+一个 **mode-aware PreToolUse gate**（扩展 `src/insar_agent/hooks/param_advisor_gate.py` +
+`hooks/hooks.json` matcher）拦 `insar_set_processing_param`：放行**当且仅当**该 `project_id`
+存在 confirm 或 auto marker。marker 由**新增的 ungated 工具**
+`insar_arm_param_write(project_id, mode="confirm"|"auto")` 按 `project_id` 写入（MCP 工具看不到
+harness session_id，故一律按 `project_id` keying）。交互模式下 skill 把顾问 diff + 三选一
+**一次性**呈现，用户选"采纳/自己配"后先 `insar_arm_param_write(..., mode="confirm")` armed 一次、
+再逐条 `insar_set_processing_param`；`auto` 模式进入时 `insar_arm_param_write(..., mode="auto")`
+一次即自治。gate 只查 marker 存在性、不解析取值，`dry_run` 恒放行；路径通道
+（`insar_set_runconfig_value`）与 arming 工具本身均不受 gate 限制。设计见
+`docs/superpowers/specs/2026-07-10-param-safety-and-freeform-execution-design.md` §5；
+ISCE2 科学参数取舍与 MintPy 第二轮顾问见
+`references/param-advisor/param-advisor-isce2.md`（spec §3）。
 
 ---
 
