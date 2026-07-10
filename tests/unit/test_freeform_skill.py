@@ -24,7 +24,8 @@ def test_freeform_skill_states_safety_red_lines() -> None:
 def test_freeform_skill_maps_each_engine_native_unit() -> None:
     text = (REPO / "skills" / "freeform" / "SKILL.md").read_text(encoding="utf-8")
     for token in ("resume_from_run", "from_step", "to_step", "insar_set_runconfig_value",
-                  "insar_run_mintpy_isce2", "insar_run_batch", "generate_only"):
+                  "insar_run_mintpy_isce2", "insar_run_batch", "generate_only",
+                  "start_step", "end_step"):
         assert token in text
 
 

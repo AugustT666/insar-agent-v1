@@ -195,7 +195,7 @@ def _run_workflow_isce2(
     # resume_from_run/generate_only + a non-inverted window before this is
     # reached). Treated as a deliberate remediation re-run, same as
     # resume_from_run and tops_partial below.
-    stack_window = bool(start_step) or bool(end_step)
+    stack_window = start_step > 0 or end_step > 0
 
     # On resume (resume_from_run >= 1), generate_only, a tops step window, or a
     # stack start/end window bypass dedup: a resume is deliberately re-running
