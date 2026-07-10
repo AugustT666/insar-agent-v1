@@ -390,3 +390,85 @@ def test_build_stack_command_full_run_keeps_prep_and_exec_loop(tmp_path: Path) -
     assert 'python "$ISCE_STACK/topsStack/stackSentinel.py"' in inner
     assert 'for f in $(ls -v run_files/run_*' in inner
     assert '. "$f" || exit 1' in inner
+
+
+# ---------------------------------------------------------------------------
+# C4 — resume window: inclusive [start_step..end_step] over run_NN
+# ---------------------------------------------------------------------------
+
+def test_build_stack_command_window_skips_below_start_and_above_end(tmp_path: Path) -> None:
+    """start_step/end_step define an inclusive run window: run_NN with NN < start
+    OR NN > end are skipped; sourcing + sync + exit-4 guard are preserved."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        start_step=5,
+        end_step=9,
+    )
+    inner = command[-1]
+
+    # Partial window reuses prior products: no prep, no wipe.
+    assert "stackSentinel.py" not in inner
+    assert "rm -rf run_files" not in inner
+    # Both bounds are materialized as shell vars.
+    assert "RESUME_FROM=5" in inner
+    assert "RESUME_TO=9" in inner
+    # Upper bound is only applied when RESUME_TO > 0.
+    assert 'RESUME_TO" -gt 0' in inner
+    assert '-gt "$RESUME_TO"' in inner
+    # Safety invariants preserved.
+    assert '. "$f" || exit 1' in inner
+    assert "sync;" in inner
+    assert "exit 4" in inner
+
+
+def test_build_stack_command_window_end_only_is_unbounded_start(tmp_path: Path) -> None:
+    """end_step with no start_step runs [1..end]: lower bound is 0 (never skips low)."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        end_step=3,
+    )
+    inner = command[-1]
+    assert "RESUME_FROM=0" in inner
+    assert "RESUME_TO=3" in inner
+    assert "stackSentinel.py" not in inner  # partial window, not a full run
+
+
+def test_build_stack_command_resume_from_run_maps_to_lower_bound_unbounded_end(tmp_path: Path) -> None:
+    """Backward compat: resume_from_run=11 still emits RESUME_FROM=11 with an
+    unbounded upper bound (RESUME_TO=0)."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        resume_from_run=11,
+    )
+    inner = command[-1]
+    assert "RESUME_FROM=11" in inner
+    assert "RESUME_TO=0" in inner
+
+
+def test_build_stack_command_start_step_overrides_resume_from_run(tmp_path: Path) -> None:
+    """When both are given, start_step wins as the explicit lower bound."""
+    slc_dir = tmp_path / "safe"
+    slc_dir.mkdir()
+    command = build_stack_command(
+        _resume_stack_params(slc_dir),
+        str(tmp_path / "stack"),
+        conda_env="isce2",
+        resume_from_run=2,
+        start_step=6,
+        end_step=8,
+    )
+    inner = command[-1]
+    assert "RESUME_FROM=6" in inner
+    assert "RESUME_TO=8" in inner

@@ -62,9 +62,12 @@ def build_stack_command(
         generated per-run configs and later executes via resume_from_run=1. Mutually
         exclusive with resume_from_run at the caller (see insar_run_workflow).
 
-    start_step/end_step: reserved for the inclusive [start..end] run-window
-        (0 == unbounded on that side). Accepted here for signature stability; the
-        window loop is implemented in PHASE C4 and is inert in this phase.
+    start_step/end_step: inclusive [start..end] run-window over run_NN steps
+        (0 == unbounded on that side). start_step is the explicit lower bound
+        (resume_from_run is its legacy alias — start_step wins if both are set);
+        end_step is the upper bound. Either one alone is enough to trigger the
+        partial-window branch (skip prep + wipe, reuse run_files/configs/outputs;
+        run_files/ must already exist, else exit 4).
     """
     args = [
         "-s", shlex.quote(params["slc_dir"]),
@@ -137,6 +140,14 @@ def build_stack_command(
         f'cd {shlex.quote(work_dir)} && '
     )
 
+    # Partial-execution window: run only run_NN in the inclusive [win_lo..win_hi]
+    # range. start_step is the explicit lower bound; resume_from_run is its legacy
+    # alias. win_hi == 0 means unbounded on the upper side. (generate_only is a
+    # separate early branch handled above.)
+    win_lo = start_step if start_step and start_step >= 1 else (resume_from_run if resume_from_run and resume_from_run >= 1 else 0)
+    win_hi = end_step if end_step and end_step >= 1 else 0
+    partial = win_lo >= 1 or win_hi >= 1
+
     if generate_only:
         # Generation phase only: wipe + stackSentinel.py prep to produce run_files/ +
         # configs/, then STOP. No execution loop — the caller reviews the generated
@@ -148,19 +159,21 @@ def build_stack_command(
             'echo "[insar-agent] generate_only: run_files/ and configs/ generated; STOP '
             '(no execution). Review the generated configs, then execute with resume_from_run=1."'
         )
-    elif resume_from_run and resume_from_run >= 1:
-        # Resume: reuse the prior run's run_files/configs/outputs. Skip both the
-        # stackSentinel.py prep and the rm -rf wipe, and skip run_NN steps below
-        # the resume point. Fail with exit 4 if there is nothing to resume.
+    elif partial:
+        # Resume/window: reuse the prior run's run_files/configs/outputs. Skip both
+        # the stackSentinel.py prep and the rm -rf wipe, and skip run_NN steps
+        # outside [win_lo..win_hi]. Fail with exit 4 if there is nothing to resume.
         execute = (
-            f'RESUME_FROM={int(resume_from_run)} && '
-            '{ [ -d run_files ] || { echo "[insar-agent] ERROR: resume_from_run set but '
-            'run_files/ missing — run once without resume_from_run first"; exit 4; }; } && '
-            'echo "[insar-agent] RESUME: skipping prep + wipe; '
-            'running run_files with run >= $RESUME_FROM" && '
+            f'RESUME_FROM={int(win_lo)} && '
+            f'RESUME_TO={int(win_hi)} && '
+            '{ [ -d run_files ] || { echo "[insar-agent] ERROR: partial run requested but '
+            'run_files/ missing — run once without a window first"; exit 4; }; } && '
+            'echo "[insar-agent] WINDOW: skipping prep + wipe; '
+            'running run_files in [$RESUME_FROM..$RESUME_TO] (0=unbounded)" && '
             'for f in $(ls -v run_files/run_* 2>/dev/null); do '
             '  b=$(basename "$f"); n=${b#run_}; n=${n%%_*}; num=$((10#$n)); '
-            '  if [ "$num" -lt "$RESUME_FROM" ]; then echo "[insar-agent] Skip (resume <$RESUME_FROM): $f"; continue; fi; '
+            '  if [ "$num" -lt "$RESUME_FROM" ]; then echo "[insar-agent] Skip (<$RESUME_FROM): $f"; continue; fi; '
+            '  if [ "$RESUME_TO" -gt 0 ] && [ "$num" -gt "$RESUME_TO" ]; then echo "[insar-agent] Skip (>$RESUME_TO): $f"; continue; fi; '
             '  echo "[insar-agent] Step: $f"; '
             '  . "$f" || exit 1; '
             '  sync; '
