@@ -138,7 +138,7 @@ done''')
 Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>, include_logs=True)`.
 Summarise key error lines from the tool response. Suggest:
 - Path issues → verify paths and re-run the MCP MintPy tool
-- MintPy parameter issues → user must edit `mintpy_config` manually, then re-run
+- MintPy parameter issues → route the change through the `param-advisor` skill (`stage=mintpy`) and `insar_set_processing_param(scope="mintpy")` (do NOT hand-edit `mintpy_config` text), then re-run.
 - Numpy compatibility errors → use a MintPy environment with `python=3.11` and `numpy<2`
 - GDAL import errors → use a conda-forge MintPy environment that includes GDAL-compatible packages
 
@@ -190,7 +190,7 @@ done''')
 Call `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>, include_logs=True)`.
 Summarise key error lines from the tool response. Suggest:
 - Path issues → verify stack directory paths and re-run `insar_run_mintpy_isce2`
-- MintPy parameter issues → user must edit `mintpy_config` manually, then re-run
+- MintPy parameter issues → route the change through the `param-advisor` skill (`stage=mintpy`) and `insar_set_processing_param(scope="mintpy")` (do NOT hand-edit `mintpy_config` text), then re-run.
 - Missing environment or missing MintPy in the selected environment → choose or prepare a MintPy-compatible conda environment, then retry
 - Numpy compatibility errors → use a MintPy environment with `numpy<2`
 
