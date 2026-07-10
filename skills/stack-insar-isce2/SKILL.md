@@ -245,7 +245,9 @@ Then present the three-choice ONCE and wait:
 > science param. Path-field writes via `insar_set_runconfig_value` are never gated.
 > Only regenerate (choice 2 / 3(i)) after changing science params — never set new
 > topology-class params (`num_connections` / `swaths` / `coregistration`) and then jump to
-> Step 5c WITHOUT regenerating, or the change is silently ignored by the reused run_files.
+> Step 5c WITHOUT regenerating: resume is refused with a `topology_changed` error if a
+> topology-changing param differs from what generated the existing run_files. Re-run with
+> `generate_only=True` to regenerate, then `resume_from_run=1`.
 
 **auto mode (Step 5b):** if the advisor recommends changes, call
 `insar_arm_param_write(project_id, mode="auto")` once, apply them via

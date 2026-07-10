@@ -319,8 +319,10 @@ MCP 工具不验证 skill 委派链路是否被遵守——它只校验参数更
 harness session_id，故一律按 `project_id` keying）。交互模式下 skill 把顾问 diff + 三选一
 **一次性**呈现，用户选"采纳/自己配"后先 `insar_arm_param_write(..., mode="confirm")` armed 一次、
 再逐条 `insar_set_processing_param`；`auto` 模式进入时 `insar_arm_param_write(..., mode="auto")`
-一次即自治。gate 只查 marker 存在性、不解析取值，`dry_run` 恒放行；路径通道
-（`insar_set_runconfig_value`）与 arming 工具本身均不受 gate 限制。设计见
+一次即自治。gate 只查 marker 存在性、不解析取值：marker 存在则放行，否则拒绝，与 `dry_run`
+无关（`insar_set_processing_param` 本身无 `dry_run` 参数；`dry_run` 恒放行是另一条、独立的
+execution gate 行为，见 `decide_execution_gate`，只管 `insar_run_workflow`/`prepare_stack`/
+`prepare_network`）；路径通道（`insar_set_runconfig_value`）与 arming 工具本身均不受 gate 限制。设计见
 `docs/superpowers/specs/2026-07-10-param-safety-and-freeform-execution-design.md` §5；
 ISCE2 科学参数取舍与 MintPy 第二轮顾问见
 `references/param-advisor/param-advisor-isce2.md`（spec §3）。
