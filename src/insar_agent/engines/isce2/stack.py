@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from pathlib import Path
@@ -187,3 +188,58 @@ def build_stack_command(
     if conda_env:
         return ["conda", "run", "-n", conda_env, "--no-capture-output", "bash", "-c", inner_cmd]
     return ["bash", "-c", inner_cmd]
+
+
+_STACK_TOPOLOGY_FILE = ".insar_stack_topology.json"
+_TOPOLOGY_FIELDS = ("num_connections", "swaths", "coregistration")
+
+
+def stack_topology_signature(params: dict) -> dict:
+    """Normalized topology-defining params that control run_files generation.
+
+    These stackSentinel.py inputs determine the pair network + coregistration graph;
+    changing any of them invalidates already-generated run_files/. The derivation is kept
+    in sync with build_stack_command so the recorded signature matches what actually
+    generated the run_files (effective swaths via _detect_stack_swaths, coregistration
+    default "NESD", num_connections normalized to int-or-None).
+    """
+    swaths = _detect_stack_swaths(params["slc_dir"], params.get("swaths", [1, 2, 3]))
+    num_connections = params.get("num_connections")
+    return {
+        "num_connections": None if num_connections is None else int(num_connections),
+        "swaths": list(swaths),
+        "coregistration": params.get("coregistration", "NESD"),
+    }
+
+
+def write_stack_topology(work_dir: str, params: dict) -> Path:
+    """Record the topology signature that generated the current run_files/configs.
+
+    Written at generation time (full run or generate_only) so a later resume can detect
+    a topology-changing edit and refuse to silently reuse stale run_files (Bug §7.3 / D3).
+    """
+    path = Path(work_dir) / _STACK_TOPOLOGY_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(stack_topology_signature(params), sort_keys=True),
+        encoding="utf-8",
+    )
+    return path
+
+
+def detect_stack_topology_change(work_dir: str, params: dict) -> list[str]:
+    """Return the topology fields that differ from the recorded generation signature.
+
+    Empty list means "safe to resume": either nothing changed, or there is no recorded
+    signature (a legacy run generated before this guard existed — a change cannot be
+    proven, so resume is allowed).
+    """
+    path = Path(work_dir) / _STACK_TOPOLOGY_FILE
+    if not path.exists():
+        return []
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+    current = stack_topology_signature(params)
+    return [f for f in _TOPOLOGY_FIELDS if recorded.get(f) != current.get(f)]
