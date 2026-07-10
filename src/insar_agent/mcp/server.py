@@ -159,9 +159,14 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
             "errors": errors,
         }
 
-    # On resume (resume_from_run >= 1) bypass dedup: the prior job is being
-    # deliberately re-run from a step, so a fresh job must launch.
-    if not dry_run and resume_from_run < 1:
+    # On resume (resume_from_run >= 1) or generate_only bypass dedup: a resume is
+    # deliberately re-running from a step, and generate_only must regenerate
+    # run_files/configs + refresh the topology signature even if a prior job for
+    # this run already reached "done" — otherwise edits made after that "done"
+    # job (e.g. num_connections) would be silently dropped. The live-pid
+    # concurrency guard (_find_live_running_workflow_job, checked upstream in
+    # insar_run_workflow) still blocks a genuinely running job either way.
+    if not dry_run and resume_from_run < 1 and not generate_only:
         existing_job = _find_reusable_workflow_job(project)
         if existing_job is not None:
             return {
@@ -246,8 +251,9 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
                     "message": (
                         "resume refused: topology-changing stack params "
                         f"({', '.join(_changed)}) differ from what generated the existing "
-                        "run_files/. Resuming would silently reuse the old topology — re-run "
-                        "the full workflow (resume_from_run=0) to regenerate run_files/configs."
+                        "run_files/. Resuming would silently reuse the old topology — "
+                        "re-run with generate_only=True to regenerate run_files/configs and "
+                        "refresh the topology signature, then execute with resume_from_run=1."
                     ),
                     "changed_fields": _changed,
                 }

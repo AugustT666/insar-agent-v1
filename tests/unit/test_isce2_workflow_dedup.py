@@ -429,7 +429,8 @@ def test_run_workflow_isce2_resume_refuses_on_topology_change(monkeypatch, tmp_p
 
     assert result["error"] == "topology_changed"
     assert "num_connections" in result["changed_fields"]
-    assert "resume_from_run=0" in result["message"]
+    assert "generate_only=True" in result["message"]
+    assert "resume_from_run=1" in result["message"]
 
 
 def test_run_workflow_isce2_resume_allows_when_topology_unchanged(monkeypatch, tmp_path):
@@ -457,6 +458,37 @@ def test_run_workflow_isce2_resume_allows_when_topology_unchanged(monkeypatch, t
     assert result["status"] == "running"
     assert "RESUME_FROM=1" in str(result["command"])
     assert len(popen_calls) == 1
+
+
+def test_run_workflow_isce2_generate_only_skips_dedup_and_relaunches(monkeypatch, tmp_path):
+    """generate_only=True must bypass the done/running dedup (like resume_from_run>=1
+    already does): after a prior job for this run already reached 'done', calling
+    generate_only=True again must regenerate run_files/configs + refresh the topology
+    signature rather than silently short-circuiting to the stale done job. Without this,
+    the D3 refusal's prescribed recovery (re-run to regenerate, then resume_from_run=1)
+    is a silent no-op whenever a prior generate_only run already finished."""
+    project = _make_stack_project(tmp_path)
+    project.run_id = "20260101T000000Z"
+    _save_job(project, "done")  # a prior generate_only launch already reached "done"
+
+    popen_calls = []
+
+    class FakeProcess:
+        pid = 24680
+
+    def fake_popen(*args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, generate_only=True)
+
+    assert result.get("deduplicated") is not True
+    assert result["status"] == "running"
+    assert len(popen_calls) == 1
+    stack_dir = server._resolve_run_layout(project).stack_dir
+    assert (stack_dir / ".insar_stack_topology.json").exists()
 
 
 def test_insar_run_workflow_generate_only_and_resume_mutually_exclusive(monkeypatch, tmp_path):
