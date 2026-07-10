@@ -49,6 +49,36 @@ def record_advisor_marker(payload: dict) -> bool:
     return True
 
 
+def _safe(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", name or "unknown")
+
+
+def confirm_marker_path(run_id: str) -> Path:
+    """Per-run marker written when the user confirms a science-parameter write."""
+    return marker_dir() / f"{_safe(run_id)}.paramconfirm"
+
+
+def auto_marker_path(session_id: str) -> Path:
+    """Per-session marker written when the flow enters autonomous 'auto' mode."""
+    return marker_dir() / f"{_safe(session_id)}.autoparam"
+
+
+def record_param_confirm_marker(run_id: str) -> Path:
+    """Create the per-run user-confirm marker (mkdir parents ok); return its Path."""
+    path = confirm_marker_path(run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
+    return path
+
+
+def record_auto_marker(session_id: str) -> Path:
+    """Create the per-session auto-mode marker (mkdir parents ok); return its Path."""
+    path = auto_marker_path(session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
+    return path
+
+
 def _decision(verdict: str, reason: str) -> dict:
     return {
         "hookSpecificOutput": {
