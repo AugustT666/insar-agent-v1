@@ -1,0 +1,144 @@
+parameters:
+
+  - key: network.tempBaseMax
+    label: Max temporal baseline (days)
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.0, 100000.0]
+    description: >
+      Drop interferograms whose temporal baseline exceeds this many days
+      (mintpy.network.tempBaseMax). Tightening prunes decorrelated long-span
+      pairs; loosening keeps more of the network.
+
+  - key: network.perpBaseMax
+    label: Max perpendicular baseline (m)
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.0, 100000.0]
+    description: >
+      Drop interferograms whose perpendicular baseline exceeds this many metres
+      (mintpy.network.perpBaseMax).
+
+  - key: network.excludeDate
+    label: Excluded acquisition dates
+    type: str
+    required: false
+    risk_level: medium
+    description: >
+      Comma-separated YYYYMMDD dates to drop from the network, or 'no'
+      (mintpy.network.excludeDate).
+
+  - key: network.coherenceBased
+    label: Coherence-based network trimming
+    type: bool
+    required: false
+    risk_level: medium
+    description: >
+      Enable coherence-based interferogram exclusion
+      (mintpy.network.coherenceBased).
+
+  - key: network.minCoherence
+    label: Min average coherence for network
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.0, 1.0]
+    description: >
+      Minimum average spatial coherence for keeping an interferogram when
+      coherence-based trimming is on (mintpy.network.minCoherence).
+
+  - key: troposphericDelay.method
+    label: Tropospheric delay correction method
+    type: str
+    required: false
+    risk_level: high
+    valid_values: [no, pyaps, height_correlation]
+    description: >
+      Tropospheric delay correction method (mintpy.troposphericDelay.method).
+      'pyaps' consumes a weather model (see troposphericDelay.weatherModel).
+
+  - key: troposphericDelay.weatherModel
+    label: Weather model for tropo correction
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [ERA5, ERA5T, ERAINT, MERRA, NARR]
+    description: >
+      Global weather model used by the pyaps tropospheric correction
+      (mintpy.troposphericDelay.weatherModel).
+
+  - key: unwrapError.method
+    label: Phase unwrapping error correction
+    type: str
+    required: false
+    risk_level: high
+    valid_values: [no, bridging, phase_closure, bridging+phase_closure]
+    description: >
+      Unwrapping-error correction strategy (mintpy.unwrapError.method).
+
+  - key: deramp
+    label: Phase deramping mode
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [no, linear, quadratic]
+    description: >
+      Remove a spatial phase ramp before inversion (mintpy.deramp).
+
+  - key: solidEarthTides
+    label: Solid Earth tides correction
+    type: bool
+    required: false
+    risk_level: low
+    description: >
+      Apply the solid Earth tide correction (mintpy.solidEarthTides).
+
+  - key: ionosphericDelay.method
+    label: Ionospheric delay correction method
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [no, split_spectrum]
+    description: >
+      Ionospheric delay correction method (mintpy.ionosphericDelay.method).
+
+  - key: topographicResidual
+    label: Topographic residual (DEM error) correction
+    type: bool
+    required: false
+    risk_level: medium
+    description: >
+      Estimate and remove the DEM-error / topographic residual term
+      (mintpy.topographicResidual).
+
+  - key: networkInversion.minTempCoh
+    label: Min temporal coherence mask
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.0, 1.0]
+    description: >
+      Temporal coherence threshold for the reliable-pixel mask after network
+      inversion (mintpy.networkInversion.minTempCoh).
+
+  - key: networkInversion.weightFunc
+    label: Network inversion weight function
+    type: str
+    required: false
+    risk_level: medium
+    valid_values: [var, fim, coh, no]
+    description: >
+      Weighting function for the small-baseline network inversion
+      (mintpy.networkInversion.weightFunc).
+
+  - key: reference.minCoherence
+    label: Min coherence for auto reference point
+    type: float
+    required: false
+    risk_level: medium
+    valid_range: [0.0, 1.0]
+    description: >
+      Minimum temporal coherence for automatic reference-point selection
+      (mintpy.reference.minCoherence).

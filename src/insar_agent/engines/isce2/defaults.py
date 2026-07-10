@@ -123,3 +123,20 @@ def load_processing_params(workflow: str) -> list[dict]:
 def get_processing_param_keys(workflow: str) -> list[str]:
     """Return the list of dotted keys allowed for insar_set_processing_param."""
     return [p["key"] for p in load_processing_params(workflow)]
+
+
+def load_mintpy_processing_params() -> list[dict]:
+    """Load the MintPy science-parameter whitelist (scope='mintpy')."""
+    path = _ASSETS / "processing_params_mintpy.yaml"
+    if not path.exists():
+        raise FileNotFoundError(
+            "No MintPy processing params registry: processing_params_mintpy.yaml"
+        )
+    with path.open() as f:
+        data = yaml.safe_load(f)
+    return data["parameters"]
+
+
+def get_mintpy_processing_param_keys() -> list[str]:
+    """Return the dotted keys allowed for insar_set_processing_param(scope='mintpy')."""
+    return [p["key"] for p in load_mintpy_processing_params()]
