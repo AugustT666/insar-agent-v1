@@ -66,6 +66,18 @@ version: 0.1.0
 - workflow 须指定为 `tops`（单对）或 `stack`（时序）
 - stack 不强行合并成一个模板，保留 workflow-specific templates
 
+### MintPy 第二轮顾问（stack 完成后、`insar_run_mintpy_isce2` 之前）
+
+- stack 跑完、进入 MintPy 之前，必须再跑一轮 param-advisor（`engine=isce2, stage=mintpy`）。
+- subagent 针对 MintPy 科学键（白名单 `engines/isce2/assets/processing_params_mintpy.yaml`：
+  `network.*`、`troposphericDelay.method`/`weatherModel`、`unwrapError.method`、`deramp`、
+  `solidEarthTides`、`ionosphericDelay.method`、`topographicResidual`、
+  `networkInversion.minTempCoh`/`weightFunc`、`reference.minCoherence`）出建议并落盘 `recommendation.json`。
+- 用户确认后，MintPy 科学参数只能经
+  `insar_set_processing_param(scope="mintpy", mintpy_work_dir=<mintpy 运行目录>)`
+  写入受管 `smallbaselineApp.cfg`；主会话不得手搓 cfg 文本。
+- 路径键（`mintpy.load.*`、`troposphericDelay.weatherDir`）仍走路径通道，Agent 可自由设置。
+
 ## 职责分工
 
 ### 本 skill / 主会话负责（保持上下文轻量）

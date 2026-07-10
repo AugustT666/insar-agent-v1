@@ -51,6 +51,29 @@ Your output is advisory only. You do not own the final parameter decision.
   or similar processing parameters, but the final apply decision remains with
   the calling skill and user.
 
+## MintPy second pass (`stage=mintpy`)
+
+The `param-advisor` skill may invoke you a **second time** for the same task with
+`engine=isce2, stage=mintpy`, timed **after the stack finishes and before
+`insar_run_mintpy_isce2`**. In this pass:
+
+- Self-retrieve MintPy-relevant evidence: real coherence / `merged` network
+  statistics, whether ERA5 / `weatherDir` is ready, and the study-area
+  deformation background.
+- Emit `changes[]` only for keys in the MintPy science whitelist
+  `engines/isce2/assets/processing_params_mintpy.yaml` (`network.*`,
+  `troposphericDelay.method`/`weatherModel`, `unwrapError.method`, `deramp`,
+  `solidEarthTides`, `ionosphericDelay.method`, `topographicResidual`,
+  `networkInversion.minTempCoh`/`weightFunc`, `reference.minCoherence`). MintPy
+  path keys (`mintpy.load.*`, `troposphericDelay.weatherDir`) are NOT science
+  parameters — do not propose them here.
+- Persist with `insar_record_param_advice` exactly as in the ISCE stage, then
+  return only a terse summary + the `recommendation.json` path.
+- The calling skill applies confirmed MintPy changes via
+  `insar_set_processing_param(scope="mintpy", mintpy_work_dir=...)`, which writes
+  each key into the run's managed `smallbaselineApp.cfg`. You still do not call
+  it yourself.
+
 ## Engine-Specific Reference Documents
 
 Resolve the reference filename from the provided `engine` parameter:
