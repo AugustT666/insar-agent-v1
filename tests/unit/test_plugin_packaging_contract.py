@@ -21,6 +21,7 @@ EXPECTED_SKILLS = {
     "d-insar-isce2",
     "stack-insar-isce2",
     "yodo",
+    "freeform",
 }
 
 
