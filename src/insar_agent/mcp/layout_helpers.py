@@ -29,6 +29,20 @@ def validate_param_advice_format_version(format_version: str) -> None:
         )
 
 
+def _first_present(item: dict, keys: list[str], default: object = "") -> object:
+    """Return item[k] for the first present key, preserving falsy values.
+
+    The advisor subagent may serialize a field under any of several aliases
+    (e.g. suggested/proposed/recommended value, or the Chinese label). The
+    earlier renderer only checked two aliases for the suggested value, so real
+    recommendations that used ``proposed_value`` rendered an empty field.
+    """
+    for k in keys:
+        if k in item:
+            return item[k]
+    return default
+
+
 def render_param_advice_markdown(record: dict) -> str:
     package = record.get("recommendation_package", {})
     if not isinstance(package, dict):
@@ -53,16 +67,16 @@ def render_param_advice_markdown(record: dict) -> str:
     if isinstance(changes, list) and changes:
         for item in changes:
             if isinstance(item, dict):
-                key = item.get("key") or item.get("参数名") or item.get("parameter") or "unknown"
+                key = _first_present(item, ["key", "参数名", "parameter"], "unknown")
                 lines.extend([
                     f"### {key}",
                     "",
-                    f"- Current: `{item.get('current_value', item.get('当前值', ''))}`",
-                    f"- Default: `{item.get('default_value', item.get('默认值', ''))}`",
-                    f"- Suggested: `{item.get('suggested_value', item.get('建议值', ''))}`",
-                    f"- Risk: `{item.get('risk', item.get('风险', item.get('risk_level', '')))}`",
-                    f"- Confidence: `{item.get('confidence', item.get('置信度', ''))}`",
-                    f"- Justification: {item.get('justification', item.get('rationale', ''))}",
+                    f"- Current: `{_first_present(item, ['current_value', '当前值'])}`",
+                    f"- Default: `{_first_present(item, ['default_value', '默认值'])}`",
+                    f"- Suggested: `{_first_present(item, ['suggested_value', 'proposed_value', 'recommended_value', '建议值'])}`",
+                    f"- Risk: `{_first_present(item, ['risk', '风险', 'risk_level'])}`",
+                    f"- Confidence: `{_first_present(item, ['confidence', '置信度'])}`",
+                    f"- Justification: {_first_present(item, ['justification', 'rationale'])}",
                     "",
                 ])
             else:
