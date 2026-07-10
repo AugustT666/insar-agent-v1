@@ -42,6 +42,15 @@ ALLOWED_SET_FIELDS: dict[str, list[str]] = {
         "runconfig.groups.worker.gpu_id",
         "runconfig.groups.dynamic_ancillary_file_group.troposphere_weather_model_files.reference_troposphere_file",
         "runconfig.groups.dynamic_ancillary_file_group.troposphere_weather_model_files.secondary_troposphere_file",
+        # Curated stage-enable toggles (Component 4): allow partial reruns by
+        # disabling offset/resample stages or enabling ionosphere/troposphere
+        # corrections. These are the only real `enabled:` switches in insar.yaml.
+        "runconfig.groups.processing.dense_offsets.enabled",
+        "runconfig.groups.processing.offsets_product.enabled",
+        "runconfig.groups.processing.rubbersheet.enabled",
+        "runconfig.groups.processing.fine_resample.enabled",
+        "runconfig.groups.processing.ionosphere_phase_correction.enabled",
+        "runconfig.groups.processing.troposphere_delay.enabled",
     ],
     "gslc": [
         "runconfig.groups.input_file_group.input_file_path",
