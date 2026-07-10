@@ -229,6 +229,33 @@ def build_workflow_command(
     return ["bash", "-c", inner_cmd]
 
 
+# Canonical topsApp.py step names (ISCE2 topsApp STEP_LIST). Used to validate
+# from_step/to_step for partial re-runs.
+TOPSAPP_STEPS: tuple[str, ...] = (
+    "startup", "preprocess", "computeBaselines", "verifyDEM", "topo",
+    "subsetoverlaps", "coarseoffsets", "coarseresamp", "overlapifg",
+    "prepesd", "esd", "rangecoreg", "fineoffsets", "fineresamp", "ion",
+    "burstifg", "mergebursts", "filter", "unwrap", "unwrap2stage",
+    "geocode", "denseoffsets", "filteroffsets", "geocodeoffsets",
+)
+
+
+def validate_tops_steps(from_step: str = "", to_step: str = "") -> list[str]:
+    """Validate topsApp --start/--end step names against the whitelist.
+
+    Empty strings mean 'unbounded on that side' and are always allowed. Returns
+    a list of human-readable error strings (empty when valid).
+    """
+    errors: list[str] = []
+    for label, value in (("from_step", from_step), ("to_step", to_step)):
+        if value and value not in TOPSAPP_STEPS:
+            errors.append(
+                f"{label}={value!r} is not a valid topsApp step; "
+                f"allowed: {', '.join(TOPSAPP_STEPS)}"
+            )
+    return errors
+
+
 def build_tops_resume_command(
     config_path: str,
     conda_env: str | None = None,
@@ -243,14 +270,17 @@ def build_tops_resume_command(
     re-run — e.g. re-running ``--start=unwrap --end=geocode`` with a corrected
     ``unwrapper name`` after a bad unwrap (icu emitting an all-zero phase). Must be
     executed with the run directory as the working directory so PICKLE/ and merged/
-    are discovered.
+    are discovered. An empty ``start``/``end`` omits that flag (unbounded on that
+    side).
     """
     quoted_config = shlex.quote(config_path)
     tops_app = f'python "$ISCE_HOME/applications/topsApp.py" {quoted_config}'
-    inner_cmd = (
-        'export PATH="$ISCE_HOME/applications:$PATH" && '
-        f"{tops_app} --steps --start={shlex.quote(start)} --end={shlex.quote(end)}"
-    )
+    steps = f"{tops_app} --steps"
+    if start:
+        steps += f" --start={shlex.quote(start)}"
+    if end:
+        steps += f" --end={shlex.quote(end)}"
+    inner_cmd = f'export PATH="$ISCE_HOME/applications:$PATH" && {steps}'
     if conda_env:
         return ["conda", "run", "-n", conda_env, "--no-capture-output", "bash", "-c", inner_cmd]
     return ["bash", "-c", inner_cmd]

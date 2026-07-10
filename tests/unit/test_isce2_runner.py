@@ -5,6 +5,11 @@ from pathlib import Path
 from insar_agent.engines.isce2.runner import build_topsapp_xml
 from insar_agent.engines.isce2.runner import build_workflow_command
 from insar_agent.engines.isce2.runner import materialize_dem_for_tops
+from insar_agent.engines.isce2.runner import (
+    TOPSAPP_STEPS,
+    build_tops_resume_command,
+    validate_tops_steps,
+)
 from insar_agent.engines.isce2.stack import build_stack_command
 
 
@@ -472,3 +477,45 @@ def test_build_stack_command_start_step_overrides_resume_from_run(tmp_path: Path
     inner = command[-1]
     assert "RESUME_FROM=6" in inner
     assert "RESUME_TO=8" in inner
+
+
+# ---------------------------------------------------------------------------
+# C4 — tops partial execution: topsApp --steps --start/--end whitelist + wiring
+# ---------------------------------------------------------------------------
+
+def test_validate_tops_steps_accepts_whitelisted_and_empty() -> None:
+    assert validate_tops_steps("unwrap", "geocode") == []
+    assert validate_tops_steps("", "") == []        # unbounded both sides
+    assert validate_tops_steps("filter", "") == []  # unbounded end
+    assert "unwrap" in TOPSAPP_STEPS and "geocode" in TOPSAPP_STEPS
+
+
+def test_validate_tops_steps_rejects_unknown_step() -> None:
+    errors = validate_tops_steps("bogus", "geocode")
+    assert len(errors) == 1
+    assert "from_step" in errors[0]
+    assert "bogus" in errors[0]
+
+
+def test_build_tops_resume_command_emits_both_bounds() -> None:
+    command = build_tops_resume_command(
+        "/run/insar_product/configs/topsApp.xml",
+        conda_env="isce2",
+        start="unwrap",
+        end="geocode",
+    )
+    inner = command[-1]
+    assert "--steps --start=unwrap --end=geocode" in inner
+    assert "topsApp.py" in inner
+
+
+def test_build_tops_resume_command_omits_empty_flag() -> None:
+    command = build_tops_resume_command(
+        "/run/insar_product/configs/topsApp.xml",
+        conda_env="isce2",
+        start="",
+        end="geocode",
+    )
+    inner = command[-1]
+    assert "--steps --end=geocode" in inner
+    assert "--start=" not in inner

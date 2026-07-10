@@ -513,3 +513,64 @@ def test_insar_run_workflow_generate_only_rejected_for_non_stack(monkeypatch, tm
 
     assert result["status"] == "error"
     assert "stack" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# C4 — tops from_step/to_step wiring through _run_workflow_isce2
+# ---------------------------------------------------------------------------
+
+def test_run_workflow_isce2_tops_from_to_step_builds_resume_command(monkeypatch, tmp_path):
+    project = _make_tops_project(tmp_path)
+    monkeypatch.setattr(server, "_validate_isce2_safe_annotation_geolocation", lambda _p, _w: [], raising=False)
+    monkeypatch.setattr(server, "_validate_isce2_dem_scene_overlap", lambda _p, _w: [], raising=False)
+
+    result = server._run_workflow_isce2(project, dry_run=True, from_step="unwrap", to_step="geocode")
+
+    command = str(result["command"])
+    assert "--steps --start=unwrap --end=geocode" in command
+    assert "topsApp.py" in command
+
+
+def test_run_workflow_isce2_tops_rejects_unknown_step(monkeypatch, tmp_path):
+    project = _make_tops_project(tmp_path)
+    monkeypatch.setattr(server, "_validate_isce2_safe_annotation_geolocation", lambda _p, _w: [], raising=False)
+    monkeypatch.setattr(server, "_validate_isce2_dem_scene_overlap", lambda _p, _w: [], raising=False)
+
+    result = server._run_workflow_isce2(project, dry_run=True, from_step="bogus")
+
+    assert result["error"] == "params_invalid"
+    assert any("bogus" in e for e in result["errors"])
+
+
+def test_run_workflow_isce2_stack_rejects_from_step(tmp_path):
+    project = _make_stack_project(tmp_path)
+    result = server._run_workflow_isce2(project, dry_run=True, from_step="unwrap")
+    assert result["error"] == "params_invalid"
+    assert any("only apply to the ISCE2 tops" in (result["message"] + " ".join(result["errors"]))
+               for _ in [0])
+
+
+def test_run_workflow_isce2_tops_partial_bypasses_dedup(monkeypatch, tmp_path):
+    """A tops step-window launch must NOT be deduplicated against a prior done job."""
+    project = _make_tops_project(tmp_path)
+    _save_job(project, "done")
+    monkeypatch.setattr(server, "_validate_isce2_safe_annotation_geolocation", lambda _p, _w: [], raising=False)
+    monkeypatch.setattr(server, "_validate_isce2_dem_scene_overlap", lambda _p, _w: [], raising=False)
+
+    popen_calls = []
+
+    class FakeProcess:
+        pid = 4242
+
+    def fake_popen(*args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, from_step="filter", to_step="geocode")
+
+    assert result.get("deduplicated") is not True
+    assert result["status"] == "running"
+    assert "--start=filter --end=geocode" in str(result["command"])
+    assert len(popen_calls) == 1

@@ -146,7 +146,14 @@ def _validate_isce2_dem_scene_overlap(params: dict, workflow: str) -> list[str]:
     return errors
 
 
-def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 0, generate_only: bool = False) -> dict:
+def _run_workflow_isce2(
+    project: Project,
+    dry_run: bool,
+    resume_from_run: int = 0,
+    generate_only: bool = False,
+    from_step: str = "",
+    to_step: str = "",
+) -> dict:
     """Launch an ISCE2 workflow (topsApp.py or stackSentinel.py)."""
     params = project.runconfig
 
@@ -159,14 +166,36 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
             "errors": errors,
         }
 
-    # On resume (resume_from_run >= 1) or generate_only bypass dedup: a resume is
-    # deliberately re-running from a step, and generate_only must regenerate
-    # run_files/configs + refresh the topology signature even if a prior job for
-    # this run already reached "done" — otherwise edits made after that "done"
-    # job (e.g. num_connections) would be silently dropped. The live-pid
-    # concurrency guard (_find_live_running_workflow_job, checked upstream in
-    # insar_run_workflow) still blocks a genuinely running job either way.
-    if not dry_run and resume_from_run < 1 and not generate_only:
+    # C4: from_step/to_step select a topsApp.py --steps --start/--end partial
+    # re-run (tops workflow only). Validate against the fixed whitelist before
+    # anything else touches disk.
+    from_step = (from_step or "").strip()
+    to_step = (to_step or "").strip()
+    tops_partial = bool(from_step or to_step)
+    if tops_partial and project.workflow != "tops":
+        return {
+            "error": "params_invalid",
+            "message": "from_step/to_step only apply to the ISCE2 tops workflow.",
+            "errors": [f"workflow={project.workflow!r} does not support step windows"],
+        }
+    if tops_partial:
+        step_errors = isce2_validate_tops_steps(from_step, to_step)
+        if step_errors:
+            return {
+                "error": "params_invalid",
+                "message": "Invalid topsApp step name(s) for from_step/to_step.",
+                "errors": step_errors,
+            }
+
+    # On resume (resume_from_run >= 1), generate_only, or a tops step window bypass
+    # dedup: a resume is deliberately re-running from a step, generate_only must
+    # regenerate run_files/configs + refresh the topology signature even if a prior
+    # job for this run already reached "done", and a tops_partial launch is a
+    # deliberate remediation re-run — otherwise edits made after that "done" job
+    # (e.g. num_connections, a corrected unwrapper) would be silently dropped. The
+    # live-pid concurrency guard (_find_live_running_workflow_job, checked upstream
+    # in insar_run_workflow) still blocks a genuinely running job either way.
+    if not dry_run and resume_from_run < 1 and not generate_only and not tops_partial:
         existing_job = _find_reusable_workflow_job(project)
         if existing_job is not None:
             return {
@@ -222,12 +251,20 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
         project.runconfig_exported_path = str(config_path)
         project.save()
 
-        command = isce2_build_workflow_command(
-            workflow="tops",
-            config_path=str(config_path),
-            conda_env=project.conda_env,
-            do_esd=params.get("do_esd"),
-        )
+        if tops_partial:
+            command = isce2_build_tops_resume_command(
+                str(config_path),
+                conda_env=project.conda_env,
+                start=from_step,
+                end=to_step,
+            )
+        else:
+            command = isce2_build_workflow_command(
+                workflow="tops",
+                config_path=str(config_path),
+                conda_env=project.conda_env,
+                do_esd=params.get("do_esd"),
+            )
 
     elif project.workflow == "stack":
         # stackSentinel.py args are passed directly (no config file)
@@ -381,8 +418,13 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
 
 @mcp.tool()
 def insar_run_workflow(
-    project_id: str, dry_run: bool = False, conda_env: str = "",
-    resume_from_run: int = 0, generate_only: bool = False,
+    project_id: str,
+    dry_run: bool = False,
+    conda_env: str = "",
+    resume_from_run: int = 0,
+    generate_only: bool = False,
+    from_step: str = "",
+    to_step: str = "",
 ) -> dict:
     """
     Validate, export, and launch an InSAR workflow (ISCE3 NISAR, or ISCE2 tops/stack).
@@ -405,6 +447,12 @@ def insar_run_workflow(
             produce run_files/ + configs/ then STOP (no execution) so the parameters
             can be reviewed before the irreversible execute phase; resume the execute
             phase later with resume_from_run=1. Mutually exclusive with resume_from_run.
+        from_step: ISCE2 tops only. topsApp.py --steps --start=<from_step>; validated
+            against a fixed topsApp step-name whitelist. Bypasses the done/running
+            dedup so a fresh partial job launches. E.g. re-run from_step="unwrap",
+            to_step="geocode" to redo unwrap..geocode after a bad unwrap.
+        to_step: ISCE2 tops only. topsApp.py --steps --end=<to_step>; validated
+            against the same whitelist as from_step.
     """
     try:
         project = Project.load(project_id)
@@ -470,7 +518,14 @@ def insar_run_workflow(
 
     # Dispatch to engine-specific run logic
     if project.engine == "isce2":
-        return _run_workflow_isce2(project, dry_run, resume_from_run=resume_from_run, generate_only=generate_only)
+        return _run_workflow_isce2(
+            project,
+            dry_run,
+            resume_from_run=resume_from_run,
+            generate_only=generate_only,
+            from_step=from_step,
+            to_step=to_step,
+        )
     if project.engine == "isce3" and project.workflow == "stack":
         return {
             "error": "workflow_not_runnable",

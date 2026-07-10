@@ -79,7 +79,9 @@ from insar_agent.engines.isce2.defaults import (
 from insar_agent.engines.isce2.runner import (
     build_topsapp_xml,
     build_workflow_command as isce2_build_workflow_command,
+    build_tops_resume_command as isce2_build_tops_resume_command,
     materialize_dem_for_tops,
+    validate_tops_steps as isce2_validate_tops_steps,
 )
 from insar_agent.engines.isce2.mintpy import (
     MANAGED_MINTPY_CFG_NAME,
@@ -193,7 +195,8 @@ __all__ = [
     "isce2_load_processing_params",
     "isce2_get_mintpy_processing_param_keys", "isce2_load_mintpy_processing_params",
     "build_topsapp_xml",
-    "isce2_build_workflow_command", "materialize_dem_for_tops",
+    "isce2_build_workflow_command", "isce2_build_tops_resume_command",
+    "isce2_validate_tops_steps", "materialize_dem_for_tops",
     "run_mintpy_isce2_stack", "set_mintpy_cfg_value", "MANAGED_MINTPY_CFG_NAME",
     "managed_mintpy_cfg_path",
     "_read_safe_metadata",
