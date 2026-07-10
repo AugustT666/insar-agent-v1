@@ -223,6 +223,30 @@ def insar_set_processing_param(
                 "error": "mintpy_work_dir_required",
                 "message": "scope='mintpy' requires mintpy_work_dir (the MintPy run directory).",
             }
+
+        # Guard against writing into a missing/sparse managed template. A fresh "new
+        # MintPy version" dir has no isce2_stack.txt yet; writing only the edited key
+        # there would produce a cfg MISSING all the mintpy.load.metaFile/unwFile/
+        # corFile/demFile/lookup*/... input-path lines that _default_template_text
+        # supplies. The tuned rerun would then feed smallbaselineApp.py -g a cfg with
+        # no input paths, and MintPy load_data would fail. param_tools has no
+        # stack_work_dir to auto-generate the template from, so refuse and tell the
+        # caller to seed it first (run insar_run_mintpy_isce2 once, or copy an
+        # existing version's isce2_stack.txt into this dir).
+        cfg_path = managed_mintpy_cfg_path(work_dir)
+        cfg_text = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
+        if not cfg_path.exists() or "mintpy.load." not in cfg_text:
+            return {
+                "error": "mintpy_template_not_seeded",
+                "message": (
+                    f"{cfg_path} does not exist or has no mintpy.load.* input-path "
+                    "lines yet. Seed the managed template first — run "
+                    "insar_run_mintpy_isce2 once (it writes the full default "
+                    "template) or copy an existing MintPy version's isce2_stack.txt "
+                    "into this directory — THEN apply scope='mintpy' edits."
+                ),
+            }
+
         try:
             written = set_mintpy_cfg_value(work_dir, key, value)
         except Exception as exc:

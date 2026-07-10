@@ -153,6 +153,8 @@ def _run_workflow_isce2(
     generate_only: bool = False,
     from_step: str = "",
     to_step: str = "",
+    start_step: int = 0,
+    end_step: int = 0,
 ) -> dict:
     """Launch an ISCE2 workflow (topsApp.py or stackSentinel.py)."""
     params = project.runconfig
@@ -187,15 +189,24 @@ def _run_workflow_isce2(
                 "errors": step_errors,
             }
 
-    # On resume (resume_from_run >= 1), generate_only, or a tops step window bypass
-    # dedup: a resume is deliberately re-running from a step, generate_only must
-    # regenerate run_files/configs + refresh the topology signature even if a prior
-    # job for this run already reached "done", and a tops_partial launch is a
-    # deliberate remediation re-run — otherwise edits made after that "done" job
-    # (e.g. num_connections, a corrected unwrapper) would be silently dropped. The
+    # PSF-final: start_step/end_step select a bounded [start..end] window over
+    # run_NN steps (ISCE2 stack workflow only; caller validation in
+    # insar_run_workflow enforces stack-only + mutual exclusivity with
+    # resume_from_run/generate_only + a non-inverted window before this is
+    # reached). Treated as a deliberate remediation re-run, same as
+    # resume_from_run and tops_partial below.
+    stack_window = bool(start_step) or bool(end_step)
+
+    # On resume (resume_from_run >= 1), generate_only, a tops step window, or a
+    # stack start/end window bypass dedup: a resume is deliberately re-running
+    # from a step, generate_only must regenerate run_files/configs + refresh the
+    # topology signature even if a prior job for this run already reached
+    # "done", and a tops_partial/stack_window launch is a deliberate
+    # remediation re-run — otherwise edits made after that "done" job (e.g.
+    # num_connections, a corrected unwrapper) would be silently dropped. The
     # live-pid concurrency guard (_find_live_running_workflow_job, checked upstream
     # in insar_run_workflow) still blocks a genuinely running job either way.
-    if not dry_run and resume_from_run < 1 and not generate_only and not tops_partial:
+    if not dry_run and resume_from_run < 1 and not generate_only and not tops_partial and not stack_window:
         existing_job = _find_reusable_workflow_job(project)
         if existing_job is not None:
             return {
@@ -275,11 +286,13 @@ def _run_workflow_isce2(
             _isce2_layout.stack_dir.mkdir(parents=True, exist_ok=True)
             _isce2_layout.logs_dir.mkdir(parents=True, exist_ok=True)
 
-        # D3 (Bug §7.3): a stack resume reuses run_files that a PRIOR stackSentinel.py
-        # invocation generated. If a topology-changing param (num_connections / swaths /
-        # coregistration) was edited since then, resuming would silently run the OLD
-        # network/coreg graph. Refuse the resume and require a full re-run.
-        if resume_from_run >= 1:
+        # D3 (Bug §7.3): a stack resume (or a start_step/end_step window — same class
+        # of "reuse existing run_files without regenerating") reuses run_files that a
+        # PRIOR stackSentinel.py invocation generated. If a topology-changing param
+        # (num_connections / swaths / coregistration) was edited since then, resuming
+        # would silently run the OLD network/coreg graph. Refuse and require a full
+        # re-run (or generate_only) instead.
+        if resume_from_run >= 1 or stack_window:
             _changed = detect_stack_topology_change(isce2_work_dir, params)
             if _changed:
                 return {
@@ -301,10 +314,13 @@ def _run_workflow_isce2(
             conda_env=project.conda_env,
             resume_from_run=resume_from_run,
             generate_only=generate_only,
+            start_step=start_step,
+            end_step=end_step,
         )
         # Record the topology signature that produced these run_files so a later resume
-        # can detect a topology-changing edit (D3). Skip on dry_run (nothing generated).
-        if resume_from_run < 1 and not dry_run:
+        # can detect a topology-changing edit (D3). Skip on dry_run (nothing generated)
+        # and skip on a start_step/end_step window (no regeneration happened either).
+        if resume_from_run < 1 and not stack_window and not dry_run:
             try:
                 write_stack_topology(isce2_work_dir, params)
             except OSError:
@@ -425,6 +441,8 @@ def insar_run_workflow(
     generate_only: bool = False,
     from_step: str = "",
     to_step: str = "",
+    start_step: int = 0,
+    end_step: int = 0,
 ) -> dict:
     """
     Validate, export, and launch an InSAR workflow (ISCE3 NISAR, or ISCE2 tops/stack).
@@ -453,6 +471,17 @@ def insar_run_workflow(
             to_step="geocode" to redo unwrap..geocode after a bad unwrap.
         to_step: ISCE2 tops only. topsApp.py --steps --end=<to_step>; validated
             against the same whitelist as from_step.
+        start_step: ISCE2 stack only. Inclusive lower bound of a bounded
+            [start_step..end_step] window over run_files/run_NN steps (0 == unbounded
+            on that side). Reuses existing run_files/configs/outputs (fails with exit
+            4 if run_files/ is missing); bypasses the done/running dedup so a fresh
+            windowed job launches; refused if a topology-changing param
+            (num_connections/swaths/coregistration) drifted since run_files/ was
+            generated (re-run with generate_only=True first). Mutually exclusive with
+            resume_from_run and generate_only — use resume_from_run OR
+            start_step/end_step, not both.
+        end_step: ISCE2 stack only. Inclusive upper bound of the start_step/end_step
+            window (0 == unbounded). Must not be less than start_step when both are set.
     """
     try:
         project = Project.load(project_id)
@@ -496,6 +525,57 @@ def insar_run_workflow(
             "workflow": project.workflow,
         }
 
+    # PSF-final: normalize start_step/end_step at the boundary (MCP transport may
+    # deliver them as strings), then validate. start_step/end_step are ISCE2 STACK
+    # only, and are mutually exclusive with resume_from_run/generate_only —
+    # combining them is ambiguous about which mechanism should govern the run.
+    try:
+        start_step = int(start_step or 0)
+    except (TypeError, ValueError):
+        return {"status": "error", "error": f"start_step must be an integer, got {start_step!r}"}
+    if start_step < 0:
+        start_step = 0
+    try:
+        end_step = int(end_step or 0)
+    except (TypeError, ValueError):
+        return {"status": "error", "error": f"end_step must be an integer, got {end_step!r}"}
+    if end_step < 0:
+        end_step = 0
+
+    stack_window = start_step > 0 or end_step > 0
+
+    if stack_window and resume_from_run >= 1:
+        return {
+            "status": "error",
+            "error": (
+                "start_step/end_step and resume_from_run are mutually exclusive: use "
+                "either resume_from_run OR start_step/end_step, not both"
+            ),
+        }
+    if stack_window and generate_only:
+        return {
+            "status": "error",
+            "error": (
+                "start_step/end_step and generate_only are mutually exclusive: use "
+                "either generate_only OR start_step/end_step, not both"
+            ),
+        }
+    if start_step > 0 and end_step > 0 and start_step > end_step:
+        return {
+            "status": "error",
+            "error": (
+                f"start_step ({start_step}) must not exceed end_step ({end_step}) — "
+                "inverted window"
+            ),
+        }
+    if stack_window and not (project.engine == "isce2" and project.workflow == "stack"):
+        return {
+            "status": "error",
+            "error": "start_step/end_step only apply to the ISCE2 stack workflow",
+            "engine": project.engine,
+            "workflow": project.workflow,
+        }
+
     if conda_env.strip() and conda_env.strip() != (project.conda_env or ""):
         project.conda_env = conda_env.strip()
         try:
@@ -525,6 +605,8 @@ def insar_run_workflow(
             generate_only=generate_only,
             from_step=from_step,
             to_step=to_step,
+            start_step=start_step,
+            end_step=end_step,
         )
     if project.engine == "isce3" and project.workflow == "stack":
         return {

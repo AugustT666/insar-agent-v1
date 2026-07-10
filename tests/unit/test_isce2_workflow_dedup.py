@@ -574,3 +574,127 @@ def test_run_workflow_isce2_tops_partial_bypasses_dedup(monkeypatch, tmp_path):
     assert result["status"] == "running"
     assert "--start=filter --end=geocode" in str(result["command"])
     assert len(popen_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# PSF-final — start_step/end_step stack window wiring through
+# insar_run_workflow / _run_workflow_isce2
+# ---------------------------------------------------------------------------
+
+def test_run_workflow_isce2_stack_start_end_step_builds_windowed_command(tmp_path):
+    """start_step/end_step thread into build_stack_command as RESUME_FROM/RESUME_TO."""
+    project = _make_stack_project(tmp_path)
+
+    result = server._run_workflow_isce2(project, dry_run=True, start_step=5, end_step=8)
+
+    command = str(result["command"])
+    assert "RESUME_FROM=5" in command
+    assert "RESUME_TO=8" in command
+    assert "stackSentinel.py" not in command
+
+
+def test_run_workflow_isce2_stack_window_bypasses_dedup(monkeypatch, tmp_path):
+    """A stack start_step/end_step window launch must NOT be deduplicated against a
+    prior done job — it is a deliberate remediation re-run, same as resume_from_run
+    and tops_partial."""
+    project = _make_stack_project(tmp_path)
+    _save_job(project, "done")
+
+    popen_calls = []
+
+    class FakeProcess:
+        pid = 5150
+
+    def fake_popen(*args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, start_step=5, end_step=8)
+
+    assert result.get("deduplicated") is not True
+    assert result["status"] == "running"
+    assert "RESUME_FROM=5" in str(result["command"])
+    assert "RESUME_TO=8" in str(result["command"])
+    assert len(popen_calls) == 1
+
+
+def test_run_workflow_isce2_stack_window_refuses_on_topology_change(monkeypatch, tmp_path):
+    """A start_step/end_step window must be refused, like resume_from_run, when a
+    topology-changing param differs from what generated the existing run_files/ —
+    otherwise it would silently reuse the old topology."""
+    project = _make_stack_project(tmp_path)
+    project.run_id = "20260101T000000Z"
+
+    stack_dir = server._resolve_run_layout(project).stack_dir
+    write_stack_topology(str(stack_dir), {**project.runconfig, "num_connections": 3})
+    project.runconfig["num_connections"] = 5
+
+    def fail_popen(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("topology change must be refused before any launch")
+
+    monkeypatch.setattr(server.subprocess, "Popen", fail_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, start_step=5, end_step=8)
+
+    assert result["error"] == "topology_changed"
+    assert "num_connections" in result["changed_fields"]
+
+
+def test_insar_run_workflow_stack_window_builds_resume_command(monkeypatch, tmp_path):
+    """Public tool: insar_run_workflow(start_step=5, end_step=8) on a stack project
+    builds the windowed command."""
+    project = _make_stack_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(project.project_id, dry_run=True, start_step=5, end_step=8)
+
+    command = str(result["command"])
+    assert "RESUME_FROM=5" in command
+    assert "RESUME_TO=8" in command
+
+
+def test_insar_run_workflow_rejects_inverted_window(monkeypatch, tmp_path):
+    project = _make_stack_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(project.project_id, dry_run=True, start_step=8, end_step=5)
+
+    assert result["status"] == "error"
+    assert "start_step" in result["error"] and "end_step" in result["error"]
+
+
+def test_insar_run_workflow_rejects_window_combined_with_generate_only(monkeypatch, tmp_path):
+    project = _make_stack_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(
+        project.project_id, dry_run=True, start_step=5, generate_only=True
+    )
+
+    assert result["status"] == "error"
+    assert "mutually exclusive" in result["error"]
+
+
+def test_insar_run_workflow_rejects_window_combined_with_resume_from_run(monkeypatch, tmp_path):
+    project = _make_stack_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(
+        project.project_id, dry_run=True, start_step=5, resume_from_run=1
+    )
+
+    assert result["status"] == "error"
+    assert "mutually exclusive" in result["error"]
+
+
+def test_insar_run_workflow_rejects_window_for_non_stack_workflow(monkeypatch, tmp_path):
+    project = _make_tops_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(project.project_id, dry_run=True, start_step=5, end_step=8)
+
+    assert result["status"] == "error"
+    assert "stack" in result["error"].lower()
