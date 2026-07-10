@@ -12,6 +12,48 @@ import numpy as np
 
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_isce2_stack.sh"
 
+MINTPY_CFG_NAME = "smallbaselineApp.cfg"
+
+
+def _format_cfg_value(value: object) -> str:
+    """Render a MintPy cfg value using MintPy conventions (yes/no bools, comma lists)."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(v) for v in value)
+    return str(value)
+
+
+def set_mintpy_cfg_value(cfg_path: str | Path, key: str, value: object) -> Path:
+    """Insert or replace ``mintpy.<key> = <value>`` in a smallbaselineApp cfg.
+
+    Every other line is preserved byte-for-byte. The key is written as a fully
+    qualified ``mintpy.<key>`` line; if a matching non-comment assignment already
+    exists it is replaced in place, otherwise the line is appended. The file
+    (and its parent directory) is created if absent.
+    """
+    path = Path(cfg_path)
+    full_key = key if key.startswith("mintpy.") else f"mintpy.{key}"
+    new_line = f"{full_key} = {_format_cfg_value(value)}"
+
+    existing = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    out: list[str] = []
+    replaced = False
+    for line in existing:
+        stripped = line.strip()
+        left = stripped.split("=", 1)[0].strip() if "=" in stripped else ""
+        if left == full_key and not stripped.startswith("#"):
+            out.append(new_line)
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.append(new_line)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return path
+
 
 def _default_meta_file(stack_work_dir: Path) -> Path:
     matches = sorted((stack_work_dir / "reference").glob("IW*.xml"))
