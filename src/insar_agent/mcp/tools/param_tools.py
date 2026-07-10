@@ -125,6 +125,8 @@ def insar_set_processing_param(
     key: str,
     value: object,
     justification: str,
+    scope: str = "isce2",
+    mintpy_work_dir: str = "",
 ) -> dict:
     """
     Set a core processing parameter in the project runconfig.
@@ -137,6 +139,16 @@ def insar_set_processing_param(
     Must be called by the param-advisor skill after its project-level
     subagent has produced an explicit recommendation package, with a specific
     justification for each change relative to the default template.
+
+    scope="isce2" (default): validate against the project's ISCE2/ISCE3
+    processing_params_<workflow>.yaml registry and write into the project
+    runconfig (unchanged behavior).
+    scope="mintpy": validate against processing_params_mintpy.yaml and write the
+    key into the run's managed smallbaselineApp.cfg located at
+    <mintpy_work_dir>/smallbaselineApp.cfg. This path is project-less; pass
+    mintpy_work_dir (required). Path keys (mintpy.load.*,
+    troposphericDelay.weatherDir) are NOT science parameters and go through
+    insar_set_runconfig_value instead.
 
     After applying all parameters, call insar_get_runconfig(format='yaml') to
     show the full runconfig and wait for user confirmation before proceeding to
@@ -159,6 +171,73 @@ def insar_set_processing_param(
         return {
             "error": "justification_required",
             "message": "justification is too vague. Tie the change to scene characteristics, data quality, or processing goals.",
+        }
+
+    # scope="mintpy": project-less controlled write into the run's managed
+    # smallbaselineApp.cfg (mirrors insar_run_mintpy_isce2, which works on a
+    # work dir, not a project). Validate against the MintPy science whitelist.
+    if scope == "mintpy":
+        allowed_keys = isce2_get_mintpy_processing_param_keys()
+        if key not in allowed_keys:
+            return {
+                "error": "key_not_allowed",
+                "message": (
+                    f"Key {key!r} is not in the MintPy processing parameter "
+                    f"registry (processing_params_mintpy.yaml). "
+                    f"Allowed keys: {allowed_keys}"
+                ),
+            }
+        params_meta = {p["key"]: p for p in isce2_load_mintpy_processing_params()}
+        meta = params_meta[key]
+        value = _coerce_processing_param_value(value, meta)
+
+        type_error = _validate_processing_param_type(value, meta)
+        if type_error is not None:
+            return type_error
+        structure_error = _validate_processing_param_structure(value, meta)
+        if structure_error is not None:
+            return structure_error
+
+        valid_values = meta.get("valid_values")
+        valid_range = meta.get("valid_range")
+        if valid_values is not None and value not in valid_values:
+            return {
+                "error": "value_not_allowed",
+                "message": f"Value {value!r} is not in valid_values {valid_values} for key {key!r}.",
+            }
+        if valid_range is not None and value is not None:
+            lo, hi = valid_range
+            try:
+                if not (lo <= value <= hi):
+                    return {
+                        "error": "value_out_of_range",
+                        "message": f"Value {value!r} is outside valid_range {valid_range} for key {key!r}.",
+                    }
+            except TypeError:
+                pass
+
+        work_dir = mintpy_work_dir.strip()
+        if not work_dir:
+            return {
+                "error": "mintpy_work_dir_required",
+                "message": "scope='mintpy' requires mintpy_work_dir (the MintPy run directory holding smallbaselineApp.cfg).",
+            }
+        cfg_path = Path(work_dir) / MINTPY_CFG_NAME
+        try:
+            written = set_mintpy_cfg_value(cfg_path, key, value)
+        except Exception as exc:
+            return {"error": "write_failed", "message": str(exc)}
+
+        return {
+            "project_id": project_id,
+            "scope": "mintpy",
+            "key": key,
+            "label": meta.get("label", key),
+            "new_value": value,
+            "risk_level": meta.get("risk_level", "unknown"),
+            "justification": justification.strip(),
+            "validated_against": f"isce2/processing_params_mintpy.yaml@{meta.get('label', key)}",
+            "cfg_path": str(written),
         }
 
     try:

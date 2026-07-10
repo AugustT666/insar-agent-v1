@@ -71,15 +71,21 @@ from insar_agent.engines.isce2.adapter import ISCE2Adapter
 from insar_agent.engines.isce2.defaults import (
     REQUIRED_PARAM_FIELDS as ISCE2_REQUIRED_PARAM_FIELDS,
     get_processing_param_keys as isce2_get_processing_param_keys,
+    get_mintpy_processing_param_keys as isce2_get_mintpy_processing_param_keys,
     load_default_params as isce2_load_default_params,
     load_processing_params as isce2_load_processing_params,
+    load_mintpy_processing_params as isce2_load_mintpy_processing_params,
 )
 from insar_agent.engines.isce2.runner import (
     build_topsapp_xml,
     build_workflow_command as isce2_build_workflow_command,
     materialize_dem_for_tops,
 )
-from insar_agent.engines.isce2.mintpy import run_mintpy_isce2_stack
+from insar_agent.engines.isce2.mintpy import (
+    MINTPY_CFG_NAME,
+    run_mintpy_isce2_stack,
+    set_mintpy_cfg_value,
+)
 from insar_agent.engines.isce2.sentinel_prep import (
     _read_safe_metadata,
     check_annotation_geolocation_grid,
@@ -179,9 +185,12 @@ __all__ = [
     # isce2
     "ISCE2_ALLOWED_SET_FIELDS", "ISCE2Adapter", "ISCE2_REQUIRED_PARAM_FIELDS",
     "isce2_get_processing_param_keys", "isce2_load_default_params",
-    "isce2_load_processing_params", "build_topsapp_xml",
+    "isce2_load_processing_params",
+    "isce2_get_mintpy_processing_param_keys", "isce2_load_mintpy_processing_params",
+    "build_topsapp_xml",
     "isce2_build_workflow_command", "materialize_dem_for_tops",
-    "run_mintpy_isce2_stack", "_read_safe_metadata",
+    "run_mintpy_isce2_stack", "set_mintpy_cfg_value", "MINTPY_CFG_NAME",
+    "_read_safe_metadata",
     "check_annotation_geolocation_grid", "prepare_sentinel_data",
     "isce2_build_stack_command", "isce2_validate_params",
     # constants + instance
