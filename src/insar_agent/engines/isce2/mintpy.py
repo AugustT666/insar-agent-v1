@@ -12,7 +12,19 @@ import numpy as np
 
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_isce2_stack.sh"
 
-MINTPY_CFG_NAME = "smallbaselineApp.cfg"
+# Canonical managed MintPy template filename for ISCE2/topsStack runs.
+# ONE file is the single source of truth: (a) the auto-generated default template,
+# (b) the target that scope="mintpy" science-param writes edit, and (c) the file the
+# tuned rerun passes back as mintpy_config=. run_mintpy_isce2_stack feeds this file to
+# `smallbaselineApp.py -g`, which regenerates <work_dir>/smallbaselineApp.cfg FROM it —
+# so edits must land here to reach the workflow. Writing smallbaselineApp.cfg directly
+# is clobbered by the -g regeneration.
+MANAGED_MINTPY_CFG_NAME = "isce2_stack.txt"
+
+
+def managed_mintpy_cfg_path(mintpy_work_dir: str | Path) -> Path:
+    """Absolute path of the canonical managed MintPy template inside a work dir."""
+    return Path(mintpy_work_dir) / MANAGED_MINTPY_CFG_NAME
 
 
 def _format_cfg_value(value: object) -> str:
@@ -24,19 +36,22 @@ def _format_cfg_value(value: object) -> str:
     return str(value)
 
 
-def set_mintpy_cfg_value(cfg_path: str | Path, key: str, value: object) -> Path:
-    """Insert or replace ``mintpy.<key> = <value>`` in a smallbaselineApp cfg.
+def set_mintpy_cfg_value(mintpy_work_dir: str | Path, key: str, value: object) -> Path:
+    """Upsert ``mintpy.<key> = <value>`` into the canonical managed MintPy template.
 
-    Every other line is preserved byte-for-byte. The key is written as a fully
-    qualified ``mintpy.<key>`` line; if a matching non-comment assignment already
-    exists it is replaced in place, otherwise the line is appended. The file
-    (and its parent directory) is created if absent.
+    Writes to ``<mintpy_work_dir>/isce2_stack.txt`` — the exact file
+    run_mintpy_isce2_stack feeds to ``smallbaselineApp.py -g`` — so scope="mintpy"
+    science-param edits actually reach the regenerated smallbaselineApp.cfg and the
+    workflow. Every other line is preserved byte-for-byte; the key is written as a
+    fully qualified ``mintpy.<key>`` line, replacing a matching non-comment
+    assignment in place, or appended if absent. Creates the file (and its parent
+    directory) if absent. Never mutates its inputs. Returns the cfg path written.
     """
-    path = Path(cfg_path)
+    cfg_path = managed_mintpy_cfg_path(mintpy_work_dir)
     full_key = key if key.startswith("mintpy.") else f"mintpy.{key}"
     new_line = f"{full_key} = {_format_cfg_value(value)}"
 
-    existing = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    existing = cfg_path.read_text(encoding="utf-8").splitlines() if cfg_path.exists() else []
     out: list[str] = []
     replaced = False
     for line in existing:
@@ -50,9 +65,9 @@ def set_mintpy_cfg_value(cfg_path: str | Path, key: str, value: object) -> Path:
     if not replaced:
         out.append(new_line)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
-    return path
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return cfg_path
 
 
 def _default_meta_file(stack_work_dir: Path) -> Path:
@@ -171,7 +186,7 @@ def _write_default_template(
     weather_dir: str | None = None,
     weather_model: str = "ERA5",
 ) -> Path:
-    template_path = mintpy_work_dir / "isce2_stack.txt"
+    template_path = managed_mintpy_cfg_path(mintpy_work_dir)
     template_path.write_text(
         _default_template_text(stack_work_dir, baseline_dir, weather_dir=weather_dir, weather_model=weather_model),
         encoding="utf-8",

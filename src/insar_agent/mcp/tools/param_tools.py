@@ -144,9 +144,10 @@ def insar_set_processing_param(
     processing_params_<workflow>.yaml registry and write into the project
     runconfig (unchanged behavior).
     scope="mintpy": validate against processing_params_mintpy.yaml and write the
-    key into the run's managed smallbaselineApp.cfg located at
-    <mintpy_work_dir>/smallbaselineApp.cfg. This path is project-less; pass
-    mintpy_work_dir (required). Path keys (mintpy.load.*,
+    key into the run's managed MintPy template located at
+    <mintpy_work_dir>/isce2_stack.txt (the file run_mintpy_isce2_stack feeds to
+    the MintPy CLI's `-g` regenerate-config flag, which rebuilds the working
+    config from it). This path is project-less; pass mintpy_work_dir (required). Path keys (mintpy.load.*,
     troposphericDelay.weatherDir) are NOT science parameters and go through
     insar_set_runconfig_value instead.
 
@@ -174,7 +175,7 @@ def insar_set_processing_param(
         }
 
     # scope="mintpy": project-less controlled write into the run's managed
-    # smallbaselineApp.cfg (mirrors insar_run_mintpy_isce2, which works on a
+    # isce2_stack.txt template (mirrors insar_run_mintpy_isce2, which works on a
     # work dir, not a project). Validate against the MintPy science whitelist.
     if scope == "mintpy":
         allowed_keys = isce2_get_mintpy_processing_param_keys()
@@ -220,11 +221,10 @@ def insar_set_processing_param(
         if not work_dir:
             return {
                 "error": "mintpy_work_dir_required",
-                "message": "scope='mintpy' requires mintpy_work_dir (the MintPy run directory holding smallbaselineApp.cfg).",
+                "message": "scope='mintpy' requires mintpy_work_dir (the MintPy run directory).",
             }
-        cfg_path = Path(work_dir) / MINTPY_CFG_NAME
         try:
-            written = set_mintpy_cfg_value(cfg_path, key, value)
+            written = set_mintpy_cfg_value(work_dir, key, value)
         except Exception as exc:
             return {"error": "write_failed", "message": str(exc)}
 

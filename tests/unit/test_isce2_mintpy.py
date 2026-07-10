@@ -280,3 +280,44 @@ class TestInsarRunMintpyISCE2:
         assert kwargs["start_step"] == ""          # full run by default
         assert kwargs["end_step"] == "velocity"
         assert "prep_isce_bin" not in kwargs
+
+
+def test_scope_mintpy_write_lands_in_file_runner_consumes(tmp_path: Path) -> None:
+    """A scope="mintpy" write must land in the exact template the runner feeds to
+    `smallbaselineApp.py -g` (isce2_stack.txt), NOT in smallbaselineApp.cfg (which -g
+    regenerates and would clobber). Proves writer target == runner CUSTOM_CFG."""
+    from insar_agent.engines.isce2.mintpy import (
+        managed_mintpy_cfg_path,
+        run_mintpy_isce2_stack,
+        set_mintpy_cfg_value,
+    )
+
+    stack = _make_stack_root(tmp_path / "stack")
+    work = tmp_path / "mintpy"
+    work.mkdir(parents=True, exist_ok=True)
+
+    # 1) scope="mintpy" science-param write hits the canonical managed template.
+    cfg = set_mintpy_cfg_value(work, "mintpy.network.tempBaseMax", "60")
+    assert cfg == managed_mintpy_cfg_path(work)
+    assert cfg.name == "isce2_stack.txt"
+    assert "mintpy.network.tempBaseMax = 60" in cfg.read_text(encoding="utf-8")
+
+    # 2) A tuned rerun passing that path makes it the file the runner consumes.
+    fake_script = tmp_path / "run_mintpy_isce2_stack.sh"
+    fake_script.write_text("#!/bin/bash\n", encoding="utf-8")
+    mock_proc = MagicMock()
+    mock_proc.pid = 999
+    with patch("insar_agent.engines.isce2.mintpy._SCRIPT", fake_script), \
+         patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+        result = run_mintpy_isce2_stack(
+            mintpy_work_dir=str(work),
+            stack_work_dir=str(stack),
+            conda_env="isce2",
+            mintpy_config=str(managed_mintpy_cfg_path(work)),
+        )
+
+    command = mock_popen.call_args.args[0]
+    assert str(managed_mintpy_cfg_path(work)) in command          # runner CUSTOM_CFG
+    assert result["mintpy_config"] == str(managed_mintpy_cfg_path(work))
+    # rerun did NOT regenerate the template — the scope="mintpy" edit is preserved.
+    assert "mintpy.network.tempBaseMax = 60" in managed_mintpy_cfg_path(work).read_text(encoding="utf-8")

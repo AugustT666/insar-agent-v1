@@ -82,7 +82,8 @@ from insar_agent.engines.isce2.runner import (
     materialize_dem_for_tops,
 )
 from insar_agent.engines.isce2.mintpy import (
-    MINTPY_CFG_NAME,
+    MANAGED_MINTPY_CFG_NAME,
+    managed_mintpy_cfg_path,
     run_mintpy_isce2_stack,
     set_mintpy_cfg_value,
 )
@@ -189,7 +190,8 @@ __all__ = [
     "isce2_get_mintpy_processing_param_keys", "isce2_load_mintpy_processing_params",
     "build_topsapp_xml",
     "isce2_build_workflow_command", "materialize_dem_for_tops",
-    "run_mintpy_isce2_stack", "set_mintpy_cfg_value", "MINTPY_CFG_NAME",
+    "run_mintpy_isce2_stack", "set_mintpy_cfg_value", "MANAGED_MINTPY_CFG_NAME",
+    "managed_mintpy_cfg_path",
     "_read_safe_metadata",
     "check_annotation_geolocation_grid", "prepare_sentinel_data",
     "isce2_build_stack_command", "isce2_validate_params",

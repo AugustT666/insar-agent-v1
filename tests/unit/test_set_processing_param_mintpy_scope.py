@@ -13,7 +13,7 @@ def isolated_registry(tmp_path, monkeypatch):
 def test_scope_mintpy_writes_whitelisted_key_into_cfg(tmp_path):
     work = tmp_path / "mintpy"
     work.mkdir()
-    cfg = work / "smallbaselineApp.cfg"
+    cfg = work / "isce2_stack.txt"
     cfg.write_text(
         "mintpy.load.processor = isce\nmintpy.network.tempBaseMax = auto\n",
         encoding="utf-8",
@@ -41,7 +41,7 @@ def test_scope_mintpy_writes_whitelisted_key_into_cfg(tmp_path):
 def test_scope_mintpy_rejects_non_whitelisted_key(tmp_path):
     work = tmp_path / "mintpy"
     work.mkdir()
-    cfg = work / "smallbaselineApp.cfg"
+    cfg = work / "isce2_stack.txt"
     cfg.write_text("mintpy.load.processor = isce\n", encoding="utf-8")
 
     result = insar_set_processing_param(
