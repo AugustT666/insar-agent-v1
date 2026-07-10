@@ -93,6 +93,10 @@ from insar_agent.engines.isce2.sentinel_prep import (
     prepare_sentinel_data,
 )
 from insar_agent.engines.isce2.stack import build_stack_command as isce2_build_stack_command
+from insar_agent.engines.isce2.stack import (
+    detect_stack_topology_change,
+    write_stack_topology,
+)
 from insar_agent.engines.isce2.validator import validate_params as isce2_validate_params
 
 ENGINE_ALLOWED_FIELDS: dict[str, dict[str, list[str]]] = {
@@ -195,6 +199,7 @@ __all__ = [
     "_read_safe_metadata",
     "check_annotation_geolocation_grid", "prepare_sentinel_data",
     "isce2_build_stack_command", "isce2_validate_params",
+    "detect_stack_topology_change", "write_stack_topology",
     # constants + instance
     "ENGINE_ALLOWED_FIELDS", "_WORKFLOW_TO_TASK_ID", "_ADAPTER", "_ISCE2_ADAPTER",
     "_ENGINES", "mcp", "_CONDA_SAFE_DEFAULTS", "_WORKFLOW_GUIDE_SKILL_PATH",

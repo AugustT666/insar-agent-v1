@@ -146,7 +146,7 @@ def _validate_isce2_dem_scene_overlap(params: dict, workflow: str) -> list[str]:
     return errors
 
 
-def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 0) -> dict:
+def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 0, generate_only: bool = False) -> dict:
     """Launch an ISCE2 workflow (topsApp.py or stackSentinel.py)."""
     params = project.runconfig
 
@@ -232,12 +232,40 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
         if _isce2_layout:
             _isce2_layout.stack_dir.mkdir(parents=True, exist_ok=True)
             _isce2_layout.logs_dir.mkdir(parents=True, exist_ok=True)
+
+        # D3 (Bug §7.3): a stack resume reuses run_files that a PRIOR stackSentinel.py
+        # invocation generated. If a topology-changing param (num_connections / swaths /
+        # coregistration) was edited since then, resuming would silently run the OLD
+        # network/coreg graph. Refuse the resume and require a full re-run.
+        if resume_from_run >= 1:
+            _changed = detect_stack_topology_change(isce2_work_dir, params)
+            if _changed:
+                return {
+                    "status": "error",
+                    "error": "topology_changed",
+                    "message": (
+                        "resume refused: topology-changing stack params "
+                        f"({', '.join(_changed)}) differ from what generated the existing "
+                        "run_files/. Resuming would silently reuse the old topology — re-run "
+                        "the full workflow (resume_from_run=0) to regenerate run_files/configs."
+                    ),
+                    "changed_fields": _changed,
+                }
+
         command = isce2_build_stack_command(
             params=params,
             work_dir=isce2_work_dir,
             conda_env=project.conda_env,
             resume_from_run=resume_from_run,
+            generate_only=generate_only,
         )
+        # Record the topology signature that produced these run_files so a later resume
+        # can detect a topology-changing edit (D3). Skip on dry_run (nothing generated).
+        if resume_from_run < 1 and not dry_run:
+            try:
+                write_stack_topology(isce2_work_dir, params)
+            except OSError:
+                pass
         config_path = None
 
     else:
@@ -347,7 +375,8 @@ def _run_workflow_isce2(project: Project, dry_run: bool, resume_from_run: int = 
 
 @mcp.tool()
 def insar_run_workflow(
-    project_id: str, dry_run: bool = False, conda_env: str = "", resume_from_run: int = 0
+    project_id: str, dry_run: bool = False, conda_env: str = "",
+    resume_from_run: int = 0, generate_only: bool = False,
 ) -> dict:
     """
     Validate, export, and launch an InSAR workflow (ISCE3 NISAR, or ISCE2 tops/stack).
@@ -366,6 +395,10 @@ def insar_run_workflow(
             run_NN steps with NN >= N (bypasses the done/running dedup so a fresh job
             launches; run_files/ must already exist). 0 (default) runs the full
             workflow from scratch.
+        generate_only: ISCE2 stack only. When True, run stackSentinel.py prep to
+            produce run_files/ + configs/ then STOP (no execution) so the parameters
+            can be reviewed before the irreversible execute phase; resume the execute
+            phase later with resume_from_run=1. Mutually exclusive with resume_from_run.
     """
     try:
         project = Project.load(project_id)
@@ -384,6 +417,27 @@ def insar_run_workflow(
         return {
             "status": "error",
             "error": "resume_from_run only applies to the ISCE2 stack workflow",
+            "engine": project.engine,
+            "workflow": project.workflow,
+        }
+
+    # Normalize generate_only (MCP transport may deliver it as a string) and guard it.
+    if isinstance(generate_only, str):
+        generate_only = generate_only.strip().lower() in {"1", "true", "yes", "on"}
+    generate_only = bool(generate_only)
+
+    if generate_only and resume_from_run >= 1:
+        return {
+            "status": "error",
+            "error": (
+                "generate_only and resume_from_run are mutually exclusive: generate_only "
+                "prepares run_files then stops; resume_from_run executes existing run_files"
+            ),
+        }
+    if generate_only and not (project.engine == "isce2" and project.workflow == "stack"):
+        return {
+            "status": "error",
+            "error": "generate_only only applies to the ISCE2 stack workflow",
             "engine": project.engine,
             "workflow": project.workflow,
         }
@@ -410,7 +464,7 @@ def insar_run_workflow(
 
     # Dispatch to engine-specific run logic
     if project.engine == "isce2":
-        return _run_workflow_isce2(project, dry_run, resume_from_run=resume_from_run)
+        return _run_workflow_isce2(project, dry_run, resume_from_run=resume_from_run, generate_only=generate_only)
     if project.engine == "isce3" and project.workflow == "stack":
         return {
             "error": "workflow_not_runnable",

@@ -5,6 +5,7 @@ from pathlib import Path
 from insar_agent.core.jobs import Job
 from insar_agent.core.project import Project
 from insar_agent.mcp import server
+from insar_agent.engines.isce2.stack import write_stack_topology
 
 
 def _make_stack_project(tmp_path: Path) -> Project:
@@ -373,3 +374,110 @@ def test_run_workflow_isce2_resume_dry_run_command_resumes(monkeypatch, tmp_path
 
     assert "RESUME_FROM=7" in str(result["command"])
     assert "stackSentinel.py" not in str(result["command"])
+
+
+# ---------------------------------------------------------------------------
+# PHASE C2 — generate_only handoff + D3 topology-change resume refusal
+# ---------------------------------------------------------------------------
+
+def test_run_workflow_isce2_generate_only_command_stops_after_prep(tmp_path):
+    """generate_only threads to build_stack_command: prep present, exec loop absent."""
+    project = _make_stack_project(tmp_path)
+
+    result = server._run_workflow_isce2(project, dry_run=True, generate_only=True)
+    cmd = str(result["command"])
+
+    assert "stackSentinel.py" in cmd
+    assert "ls -v run_files/run_*" not in cmd  # no execution loop in the generate phase
+
+
+def test_run_workflow_isce2_generate_only_writes_topology_signature(monkeypatch, tmp_path):
+    """A real generate launch records the topology signature for a later resume guard."""
+    project = _make_stack_project(tmp_path)
+    project.run_id = "20260101T000000Z"
+
+    class FakeProcess:
+        pid = 4242
+
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **k: FakeProcess())
+
+    result = server._run_workflow_isce2(project, dry_run=False, generate_only=True)
+
+    assert result["status"] == "running"
+    stack_dir = server._resolve_run_layout(project).stack_dir
+    assert (stack_dir / ".insar_stack_topology.json").exists()
+
+
+def test_run_workflow_isce2_resume_refuses_on_topology_change(monkeypatch, tmp_path):
+    """D3: resume must refuse when a topology param differs from the recorded run_files."""
+    project = _make_stack_project(tmp_path)
+    project.run_id = "20260101T000000Z"
+
+    stack_dir = server._resolve_run_layout(project).stack_dir
+    # run_files were generated earlier with num_connections=3 ...
+    write_stack_topology(str(stack_dir), {**project.runconfig, "num_connections": 3})
+    # ... the user then edits the topology param and tries to resume.
+    project.runconfig["num_connections"] = 5
+
+    def fail_popen(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("topology change must be refused before any launch")
+
+    monkeypatch.setattr(server.subprocess, "Popen", fail_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, resume_from_run=1)
+
+    assert result["error"] == "topology_changed"
+    assert "num_connections" in result["changed_fields"]
+    assert "resume_from_run=0" in result["message"]
+
+
+def test_run_workflow_isce2_resume_allows_when_topology_unchanged(monkeypatch, tmp_path):
+    """Resume proceeds when the recorded signature matches the current topology params."""
+    project = _make_stack_project(tmp_path)
+    project.run_id = "20260101T000000Z"
+
+    stack_dir = server._resolve_run_layout(project).stack_dir
+    write_stack_topology(str(stack_dir), project.runconfig)  # identical topology
+
+    popen_calls = []
+
+    class FakeProcess:
+        pid = 777
+
+    def fake_popen(*args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return FakeProcess()
+
+    monkeypatch.setattr(server.subprocess, "Popen", fake_popen)
+
+    result = server._run_workflow_isce2(project, dry_run=False, resume_from_run=1)
+
+    assert result.get("error") != "topology_changed"
+    assert result["status"] == "running"
+    assert "RESUME_FROM=1" in str(result["command"])
+    assert len(popen_calls) == 1
+
+
+def test_insar_run_workflow_generate_only_and_resume_mutually_exclusive(monkeypatch, tmp_path):
+    """The public tool rejects generate_only + resume_from_run together."""
+    project = _make_stack_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(
+        project.project_id, generate_only=True, resume_from_run=5
+    )
+
+    assert result["status"] == "error"
+    assert "mutually exclusive" in result["error"]
+
+
+def test_insar_run_workflow_generate_only_rejected_for_non_stack(monkeypatch, tmp_path):
+    """generate_only only applies to ISCE2 stack — a tops project is refused."""
+    project = _make_tops_project(tmp_path)
+    monkeypatch.setattr(server.Project, "load", classmethod(lambda cls, pid: project))
+
+    result = server.insar_run_workflow(project.project_id, generate_only=True)
+
+    assert result["status"] == "error"
+    assert "stack" in result["error"].lower()
