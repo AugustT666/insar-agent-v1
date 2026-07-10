@@ -151,3 +151,46 @@ def main_marker() -> None:
         sys.exit(0)
     record_advisor_marker(payload)
     sys.exit(0)
+
+
+# ── Controlled write policy: mode-aware gate for the parameter-write tool ──────
+# Non-path science parameters (insar_set_processing_param, incl. scope=mintpy)
+# require user confirmation. Allow iff a per-session auto-mode marker OR a
+# per-run user-confirm marker exists. Path fields (insar_set_runconfig_value)
+# are routed to a different tool and are never gated here.
+
+_PARAM_WRITE_DENY_REASON = (
+    "Blocked: non-path science parameters require user confirmation (or auto mode). "
+    "In interactive mode, surface the parameter diff and wait for user OK — that "
+    "records a per-run confirm marker; or enter auto mode, which records a "
+    "per-session auto marker; then retry. Path fields go through "
+    "insar_set_runconfig_value and are not gated."
+)
+
+
+def decide_param_write_gate(payload: dict) -> bool:
+    """PreToolUse gate for the parameter-write tool (insar_set_processing_param).
+
+    Returns True (allow) iff a per-session auto-mode marker OR a per-run
+    user-confirm marker exists; otherwise False (deny). Only marker existence is
+    checked — the gate never parses the science-parameter args (same as
+    decide_execution_gate). The per-run key is the tool's project_id.
+    """
+    session_id = str(payload.get("session_id") or "")
+    if auto_marker_path(session_id).exists():
+        return True
+    tool_input = payload.get("tool_input") or {}
+    run_id = str(tool_input.get("project_id") or "")
+    if run_id and confirm_marker_path(run_id).exists():
+        return True
+    return False
+
+
+def main_param_write_gate() -> None:
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        sys.exit(0)  # never block on malformed hook input
+    if not decide_param_write_gate(payload):
+        print(json.dumps(_decision("deny", _PARAM_WRITE_DENY_REASON)))
+    sys.exit(0)
