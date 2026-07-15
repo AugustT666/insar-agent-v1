@@ -12,6 +12,11 @@ import numpy as np
 
 _SCRIPT = Path(__file__).parent / "assets" / "run_mintpy_isce2_stack.sh"
 
+# Pinned copy of MintPy's official full smallbaselineApp.cfg template (all 119
+# parameters listed with comments). Used as the seed base and as a fallback when
+# the official template cannot be read from the resolved MintPy conda env.
+OFFICIAL_MINTPY_TEMPLATE_ASSET = Path(__file__).parent / "assets" / "smallbaselineApp_full.cfg"
+
 # Canonical managed MintPy template filename for ISCE2/topsStack runs.
 # ONE file is the single source of truth: (a) the auto-generated default template,
 # (b) the target that scope="mintpy" science-param writes edit, and (c) the file the
@@ -143,6 +148,32 @@ def export_mintpy_tops_baselines(stack_work_dir: str | Path) -> Path:
         )
 
     return output_root
+
+
+def _official_mintpy_template_text(conda_env: str = "") -> str:
+    """Return the official full MintPy smallbaselineApp.cfg template text.
+
+    Prefers the copy shipped inside the resolved MintPy conda env (so the seed
+    matches the exact MintPy version the run will use); falls back to the pinned
+    asset shipped with the plugin when no env is given or the lookup fails.
+    """
+    if conda_env:
+        try:
+            proc = subprocess.run(
+                [
+                    "conda", "run", "-n", conda_env, "python", "-c",
+                    "import mintpy, os, sys; "
+                    "sys.stdout.write(os.path.join(os.path.dirname(mintpy.__file__), "
+                    "'defaults', 'smallbaselineApp.cfg'))",
+                ],
+                capture_output=True, text=True, timeout=60,
+            )
+            cand = Path(proc.stdout.strip())
+            if proc.returncode == 0 and cand.is_file():
+                return cand.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    return OFFICIAL_MINTPY_TEMPLATE_ASSET.read_text(encoding="utf-8")
 
 
 def _default_template_text(
