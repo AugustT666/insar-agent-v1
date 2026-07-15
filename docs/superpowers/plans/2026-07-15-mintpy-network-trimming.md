@@ -14,7 +14,8 @@
 - MintPy cfg 值渲染沿用 `_format_cfg_value`：bool→`yes`/`no`，list→逗号连接，其余→`str()`。
 - `_upsert_cfg_line` 必须**精确键匹配**（`left == full_key`，忽略以 `#` 开头的行），避免 `mintpy.deramp` 误伤 `mintpy.deramp.maskFile`。
 - network 默认值（模板 override）：`coherenceBased=yes`、`minCoherence=0.2`、`keepMinSpanTree=yes`。`0.2` 是安全地板，**不写死激进值、不加锁阈值的不变量测试**。
-- mintpy3 本次力度：`minCoherence=0.406`（只剔最差 ~5 对，阈值非硬标准），其余对齐 mintpy2。
+- mintpy3 本次力度：`minCoherence=0.468`（**MintPy waterMask 度量**下只剔最差 5 对；注意 MintPy 的相干均值比原始逐像元均值高 ~0.05，须按 `coherenceSpatialAvg.txt` 的值定阈值），其余对齐 mintpy2。
+- 测试用 base 环境 python：`/home/august/miniconda3/bin/python -m pytest`（`insar_agent` 已 `pip install -e` 指向开发树；mintpy/isce2 等环境无 pytest）。
 - 数据安全：mintpy3 用**独立 inputs**，绝不复用 `../mintpy/inputs` 软链；跑前校验。
 - 关键绝对路径：
   - stack: `/mnt/HDD2T/August/IntegrationTest2/workspace/stack-insar-isce2_20260621T181630Z/insar_product/stack`
@@ -641,7 +642,7 @@ grep -nE 'network\.(coherenceBased|minCoherence|keepMinSpanTree)|troposphericDel
 ```
 Expected: 打印 seed 路径；network 默认 `coherenceBased=yes / minCoherence=0.2 / keepMinSpanTree=yes`、tropo pyaps + weatherDir、SET/deramp/topographicResidual 已设。
 
-- [ ] **Step 3: 覆盖本次力度 `minCoherence=0.406`**
+- [ ] **Step 3: 覆盖本次力度 `minCoherence=0.468`**（先跑一次 modify_network 看 `coherenceSpatialAvg.txt`，按 MintPy waterMask 度量选阈值使剔除数≈5；若阈值定错剔了 0 对，改键后用 `start_step="modify_network"` 断点续跑即可，无需重 load_data）
 
 Run:
 ```bash

@@ -26,9 +26,11 @@
 | 0.45 | 73 | 14 | 1（连通） | 偏强 |
 | 0.50 | 52 | 35 | 7（需 MST 回补） | 剔掉整个夏季差对 |
 
-被剔的 5 对（均为 2020 夏季失相干）：`20200528_20200703`(0.388)、`20200727_20200820`(0.392)、`20200621_20200727`(0.402)、`20200703_20200727`(0.404)、`20200820_20200925`(0.405)。
+被剔的 5 对（均为 2020 夏季失相干）：`20200528_20200703`、`20200727_20200820`、`20200621_20200727`、`20200703_20200727`、`20200820_20200925`。
 
-**阈值非硬标准**——目标是剔掉少量最差对（~5 对）。`0.406` 落在第 5、6 差对之间（0.4054 / 0.4078）。`keepMinSpanTree = yes` 作兜底保连通（本力度下网络本已连通，无需 MST 回补）。
+**阈值非硬标准**——目标是剔掉少量最差对（~5 对）。`keepMinSpanTree = yes` 作兜底保连通（本力度下网络本已连通，无需 MST 回补）。
+
+> ⚠️ **度量口径修正（实跑发现）**：上表按"原始整幅逐像元均值"算。但 MintPy `network.coherenceBased` 实际用的是 **waterMask 后的空间均值**（`coherenceSpatialAvg.txt` 头 `Mask file: waterMask.h5`），比原始度量高约 0.05-0.06（本数据最差对 MintPy 值 0.4467 vs 原始 0.388）。故本次实际阈值取 **MintPy 度量下的 `minCoherence=0.468`**（落在 MintPy 第 5 差 0.4663 与第 6 差 0.469 之间），剔的仍是同样那 5 个夏季对。默认地板 0.2 在 MintPy 度量下仍安全（最小值 0.4467，不误伤）。
 
 ## 2. 目标 / 非目标
 
@@ -95,7 +97,7 @@
 **3.7 配置**
 
 - 与 mintpy2 **仅改一个变量**（网络提质），其余对齐以便干净对比：
-  - network：`coherenceBased=yes`、`minCoherence=0.406`（本次力度，只剔最差 ~5 对，覆盖默认 0.2；阈值非硬标准）、`keepMinSpanTree=yes`。
+  - network：`coherenceBased=yes`、`minCoherence=0.468`（本次力度，MintPy waterMask 度量下只剔最差 5 对，覆盖默认 0.2；阈值非硬标准）、`keepMinSpanTree=yes`。
   - 校正链沿用 mintpy2：SET + ERA5 tropo + quadratic deramp + topographicResidual(demErr)；`unwrapError.method=bridging+phase_closure`。
 - 通过新版插件 seed 完整模板 → 将 `minCoherence` 覆盖为 0.45 → 以 `mintpy_config=<mintpy3>/isce2_stack.txt` 显式重跑（dogfood 新模板）。
 
