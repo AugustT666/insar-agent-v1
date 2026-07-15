@@ -36,25 +36,20 @@ def _format_cfg_value(value: object) -> str:
     return str(value)
 
 
-def set_mintpy_cfg_value(mintpy_work_dir: str | Path, key: str, value: object) -> Path:
-    """Upsert ``mintpy.<key> = <value>`` into the canonical managed MintPy template.
+def _upsert_cfg_line(text: str, key: str, value: object) -> str:
+    """Upsert ``mintpy.<key> = <value>`` into MintPy cfg text (pure).
 
-    Writes to ``<mintpy_work_dir>/isce2_stack.txt`` — the exact file
-    run_mintpy_isce2_stack feeds to ``smallbaselineApp.py -g`` — so scope="mintpy"
-    science-param edits actually reach the regenerated smallbaselineApp.cfg and the
-    workflow. Every other line is preserved byte-for-byte; the key is written as a
-    fully qualified ``mintpy.<key>`` line, replacing a matching non-comment
-    assignment in place, or appended if absent. Creates the file (and its parent
-    directory) if absent. Never mutates its inputs. Returns the cfg path written.
+    Replaces the single non-comment assignment whose left-hand side exactly
+    equals the fully-qualified key; appends the line if absent. Every other
+    line (comments, unrelated keys) is preserved verbatim. Exact-key matching
+    means ``mintpy.deramp`` never clobbers ``mintpy.deramp.maskFile``. Returns
+    new text ending in a newline. Never mutates its input.
     """
-    cfg_path = managed_mintpy_cfg_path(mintpy_work_dir)
     full_key = key if key.startswith("mintpy.") else f"mintpy.{key}"
     new_line = f"{full_key} = {_format_cfg_value(value)}"
-
-    existing = cfg_path.read_text(encoding="utf-8").splitlines() if cfg_path.exists() else []
     out: list[str] = []
     replaced = False
-    for line in existing:
+    for line in text.splitlines():
         stripped = line.strip()
         left = stripped.split("=", 1)[0].strip() if "=" in stripped else ""
         if left == full_key and not stripped.startswith("#"):
@@ -64,9 +59,24 @@ def set_mintpy_cfg_value(mintpy_work_dir: str | Path, key: str, value: object) -
             out.append(line)
     if not replaced:
         out.append(new_line)
+    return "\n".join(out) + "\n"
 
+
+def set_mintpy_cfg_value(mintpy_work_dir: str | Path, key: str, value: object) -> Path:
+    """Upsert ``mintpy.<key> = <value>`` into the canonical managed MintPy template.
+
+    Writes to ``<mintpy_work_dir>/isce2_stack.txt`` — the exact file
+    run_mintpy_isce2_stack feeds to ``smallbaselineApp.py -g`` — so scope="mintpy"
+    science-param edits actually reach the regenerated smallbaselineApp.cfg and the
+    workflow. Delegates the text edit to :func:`_upsert_cfg_line` (matching key
+    replaced in place, else appended; all other lines preserved). Creates the file
+    (and its parent directory) if absent. Never mutates its inputs. Returns the cfg
+    path written.
+    """
+    cfg_path = managed_mintpy_cfg_path(mintpy_work_dir)
+    existing = cfg_path.read_text(encoding="utf-8") if cfg_path.exists() else ""
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    cfg_path.write_text(_upsert_cfg_line(existing, key, value), encoding="utf-8")
     return cfg_path
 
 
