@@ -182,41 +182,50 @@ def _default_template_text(
     *,
     weather_dir: str | None = None,
     weather_model: str = "ERA5",
+    conda_env: str = "",
 ) -> str:
     baseline_dir = baseline_dir or export_mintpy_tops_baselines(stack_work_dir)
+    ifg = stack_work_dir / "merged" / "interferograms"
+    geom = stack_work_dir / "merged" / "geom_reference"
+    overrides: list[tuple[str, object]] = [
+        ("mintpy.load.processor", "isce"),
+        ("mintpy.load.autoPath", False),
+        ("mintpy.load.metaFile", _default_meta_file(stack_work_dir).as_posix()),
+        ("mintpy.load.baselineDir", baseline_dir.as_posix()),
+        ("mintpy.load.unwFile", (ifg / "*" / "filt_fine.unw").as_posix()),
+        ("mintpy.load.corFile", (ifg / "*" / "filt_fine.cor").as_posix()),
+        ("mintpy.load.connCompFile", (ifg / "*" / "filt_fine.unw.conncomp").as_posix()),
+        ("mintpy.load.intFile", "None"),
+        ("mintpy.load.demFile", (geom / "hgt.rdr").as_posix()),
+        ("mintpy.load.lookupYFile", (geom / "lat.rdr").as_posix()),
+        ("mintpy.load.lookupXFile", (geom / "lon.rdr").as_posix()),
+        ("mintpy.load.incAngleFile", (geom / "los.rdr").as_posix()),
+        ("mintpy.load.azAngleFile", (geom / "los.rdr").as_posix()),
+        ("mintpy.load.shadowMaskFile", (geom / "shadowMask.rdr").as_posix()),
+        ("mintpy.plot", False),
+        ("mintpy.unwrapError.method", "bridging+phase_closure"),
+        ("mintpy.solidEarthTides", True),
+        ("mintpy.deramp", "quadratic"),
+        ("mintpy.ionosphericDelay.method", "no"),
+        ("mintpy.topographicResidual", True),
+        # network trimming defaults (increment A): mechanism on, conservative floor.
+        ("mintpy.network.coherenceBased", True),
+        ("mintpy.network.minCoherence", 0.2),
+        ("mintpy.network.keepMinSpanTree", True),
+    ]
     if weather_dir:
-        tropo_lines = [
-            "mintpy.troposphericDelay.method = pyaps",
-            f"mintpy.troposphericDelay.weatherModel = {weather_model}",
-            f"mintpy.troposphericDelay.weatherDir = {weather_dir}",
+        overrides += [
+            ("mintpy.troposphericDelay.method", "pyaps"),
+            ("mintpy.troposphericDelay.weatherModel", weather_model),
+            ("mintpy.troposphericDelay.weatherDir", weather_dir),
         ]
     else:
-        tropo_lines = ["mintpy.troposphericDelay.method = no"]
-    return "\n".join(
-        [
-            "mintpy.load.processor = isce",
-            "mintpy.load.autoPath = no",
-            f"mintpy.load.metaFile = {(_default_meta_file(stack_work_dir)).as_posix()}",
-            f"mintpy.load.baselineDir = {baseline_dir.as_posix()}",
-            f"mintpy.load.unwFile = {(stack_work_dir / 'merged' / 'interferograms' / '*' / 'filt_fine.unw').as_posix()}",
-            f"mintpy.load.corFile = {(stack_work_dir / 'merged' / 'interferograms' / '*' / 'filt_fine.cor').as_posix()}",
-            f"mintpy.load.connCompFile = {(stack_work_dir / 'merged' / 'interferograms' / '*' / 'filt_fine.unw.conncomp').as_posix()}",
-            "mintpy.load.intFile = None",
-            f"mintpy.load.demFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'hgt.rdr').as_posix()}",
-            f"mintpy.load.lookupYFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'lat.rdr').as_posix()}",
-            f"mintpy.load.lookupXFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'lon.rdr').as_posix()}",
-            f"mintpy.load.incAngleFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'los.rdr').as_posix()}",
-            f"mintpy.load.azAngleFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'los.rdr').as_posix()}",
-            f"mintpy.load.shadowMaskFile = {(stack_work_dir / 'merged' / 'geom_reference' / 'shadowMask.rdr').as_posix()}",
-            "mintpy.plot = no",
-            "mintpy.unwrapError.method = bridging+phase_closure",
-            "mintpy.solidEarthTides = yes",
-            "mintpy.deramp = quadratic",
-            "mintpy.ionosphericDelay.method = no",
-            *tropo_lines,
-            "mintpy.topographicResidual = yes",
-        ]
-    ) + "\n"
+        overrides += [("mintpy.troposphericDelay.method", "no")]
+
+    text = _official_mintpy_template_text(conda_env)
+    for key, value in overrides:
+        text = _upsert_cfg_line(text, key, value)
+    return text
 
 
 def _write_default_template(
@@ -226,10 +235,14 @@ def _write_default_template(
     *,
     weather_dir: str | None = None,
     weather_model: str = "ERA5",
+    conda_env: str = "",
 ) -> Path:
     template_path = managed_mintpy_cfg_path(mintpy_work_dir)
     template_path.write_text(
-        _default_template_text(stack_work_dir, baseline_dir, weather_dir=weather_dir, weather_model=weather_model),
+        _default_template_text(
+            stack_work_dir, baseline_dir,
+            weather_dir=weather_dir, weather_model=weather_model, conda_env=conda_env,
+        ),
         encoding="utf-8",
     )
     return template_path
@@ -273,8 +286,18 @@ def run_mintpy_isce2_stack(
     logs_dir = resolve_output(run_root, "logs")
     logs_dir.mkdir(parents=True, exist_ok=True)
 
+    # Discover a MintPy+pyaps3 env at runtime FIRST — the seed reads the official
+    # template from this env, and the runner uses it. Never hardcode the env name.
+    from insar_agent.core.conda_env import resolve_conda_env
+    conda_env = resolve_conda_env(conda_env, ["mintpy", "pyaps3"], prefer=["isce2", "mintpy"])
+    if not conda_env:
+        raise RuntimeError(
+            "no conda env with MintPy+pyaps3 found to run smallbaselineApp (run insar_check_env)"
+        )
+
     config_path = Path(mintpy_config) if mintpy_config else _write_default_template(
-        work_dir, stack_dir, baseline_dir, weather_dir=weather_dir, weather_model=weather_model
+        work_dir, stack_dir, baseline_dir,
+        weather_dir=weather_dir, weather_model=weather_model, conda_env=conda_env,
     )
     if not config_path.exists():
         raise FileNotFoundError(str(config_path))
@@ -282,13 +305,6 @@ def run_mintpy_isce2_stack(
     job_id = str(uuid4())
     log_path = str(logs_dir / f"{job_id}.log")
 
-    # Discover a MintPy+pyaps3 env at runtime; never hardcode the env name.
-    from insar_agent.core.conda_env import resolve_conda_env
-    conda_env = resolve_conda_env(conda_env, ["mintpy", "pyaps3"], prefer=["isce2", "mintpy"])
-    if not conda_env:
-        raise RuntimeError(
-            "no conda env with MintPy+pyaps3 found to run smallbaselineApp (run insar_check_env)"
-        )
     command = [
         "conda",
         "run",

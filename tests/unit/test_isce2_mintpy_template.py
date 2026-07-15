@@ -67,3 +67,37 @@ def test_official_loader_falls_back_to_asset_when_no_env():
     text = mp._official_mintpy_template_text("")
     assert "mintpy.network.coherenceBased" in text
     assert sum(1 for l in text.splitlines() if l.strip().startswith("mintpy.")) >= 110
+
+
+def _make_stack(tmp_path: Path) -> Path:
+    ref = tmp_path / "reference"
+    ref.mkdir(parents=True)
+    (ref / "IW2.xml").write_text(
+        '<property name="width"><value>100</value></property>\n'
+        '<property name="length"><value>200</value></property>\n',
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_default_template_is_full_with_network_defaults(tmp_path: Path):
+    stack = _make_stack(tmp_path)
+    txt = mp._default_template_text(stack, baseline_dir=tmp_path, conda_env="")
+    lines = txt.splitlines()
+    # full template: proves keys the sparse template never had are present
+    assert sum(1 for l in lines if l.strip().startswith("mintpy.")) >= 110
+    assert any(l.strip().startswith("mintpy.networkInversion.weightFunc") for l in lines)
+    assert any(l.strip().startswith("mintpy.timeFunc.polynomial") for l in lines)
+    # network trimming defaults (the whole point of increment A)
+    assert "mintpy.network.coherenceBased = yes" in lines
+    assert "mintpy.network.minCoherence = 0.2" in lines
+    assert "mintpy.network.keepMinSpanTree = yes" in lines
+    # processing-toggle overrides still applied, exactly once each
+    assert "mintpy.solidEarthTides = yes" in lines
+    assert "mintpy.deramp = quadratic" in lines
+    assert "mintpy.unwrapError.method = bridging+phase_closure" in lines
+    assert "mintpy.plot = no" in lines
+    assert "mintpy.topographicResidual = yes" in lines
+    assert sum(1 for l in lines if l.strip().startswith("mintpy.deramp ")) == 1
+    # load paths point into the stack
+    assert any("filt_fine.unw" in l for l in lines)
