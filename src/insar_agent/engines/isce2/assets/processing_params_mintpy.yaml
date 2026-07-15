@@ -49,6 +49,26 @@ parameters:
       Minimum average spatial coherence for keeping an interferogram when
       coherence-based trimming is on (mintpy.network.minCoherence).
 
+  - key: network.keepMinSpanTree
+    label: Keep minimum spanning tree
+    type: bool
+    required: false
+    risk_level: low
+    description: >
+      After coherence/baseline trimming, add back the minimum-spanning-tree
+      interferograms so every acquisition stays connected
+      (mintpy.network.keepMinSpanTree). Recommended yes when coherenceBased is on.
+
+  - key: network.excludeIfgIndex
+    label: Exclude interferogram indices
+    type: str
+    required: false
+    risk_level: medium
+    description: >
+      Comma-separated 0-based interferogram indices to drop explicitly, e.g.
+      '3,7,12' (mintpy.network.excludeIfgIndex). Use to remove specific bad
+      pairs the coherence threshold does not catch.
+
   - key: troposphericDelay.method
     label: Tropospheric delay correction method
     type: str
