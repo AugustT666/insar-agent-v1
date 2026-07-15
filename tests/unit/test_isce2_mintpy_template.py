@@ -101,3 +101,14 @@ def test_default_template_is_full_with_network_defaults(tmp_path: Path):
     assert sum(1 for l in lines if l.strip().startswith("mintpy.deramp ")) == 1
     # load paths point into the stack
     assert any("filt_fine.unw" in l for l in lines)
+
+
+def test_skill_documents_network_trimming_and_editable_template():
+    import insar_agent
+    root = Path(insar_agent.__file__).resolve().parents[2]
+    skill = (root / "skills" / "mintpy" / "SKILL.md").read_text(encoding="utf-8")
+    assert "coherenceBased" in skill
+    assert "minCoherence" in skill
+    assert "keepMinSpanTree" in skill
+    # tells the agent to surface the full editable template path
+    assert "isce2_stack.txt" in skill and "完整" in skill
