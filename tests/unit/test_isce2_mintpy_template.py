@@ -21,7 +21,7 @@ def test_upsert_replaces_in_place_and_preserves_comments():
     assert "# header comment" in lines
     assert "mintpy.plot            = auto  #[yes / no]" in lines
     # no duplicate deramp line
-    assert sum(1 for l in lines if l.strip().startswith("mintpy.deramp ")) == 1
+    assert sum(1 for ln in lines if ln.strip().startswith("mintpy.deramp ")) == 1
 
 
 def test_upsert_appends_when_absent():
@@ -56,7 +56,7 @@ def _non_comment_keys(text: str) -> set[str]:
 def test_official_asset_is_full_and_has_all_override_keys():
     text = mp.OFFICIAL_MINTPY_TEMPLATE_ASSET.read_text(encoding="utf-8")
     # a full official template (>= 110 mintpy.* param lines)
-    assert sum(1 for l in text.splitlines() if l.strip().startswith("mintpy.")) >= 110
+    assert sum(1 for ln in text.splitlines() if ln.strip().startswith("mintpy.")) >= 110
     # every override key exists as a non-comment assignment (so upsert replaces, not appends)
     keys = _non_comment_keys(text)
     for key in OVERRIDE_KEYS:
@@ -66,7 +66,7 @@ def test_official_asset_is_full_and_has_all_override_keys():
 def test_official_loader_falls_back_to_asset_when_no_env():
     text = mp._official_mintpy_template_text("")
     assert "mintpy.network.coherenceBased" in text
-    assert sum(1 for l in text.splitlines() if l.strip().startswith("mintpy.")) >= 110
+    assert sum(1 for ln in text.splitlines() if ln.strip().startswith("mintpy.")) >= 110
 
 
 def _make_stack(tmp_path: Path) -> Path:
@@ -85,9 +85,9 @@ def test_default_template_is_full_with_network_defaults(tmp_path: Path):
     txt = mp._default_template_text(stack, baseline_dir=tmp_path, conda_env="")
     lines = txt.splitlines()
     # full template: proves keys the sparse template never had are present
-    assert sum(1 for l in lines if l.strip().startswith("mintpy.")) >= 110
-    assert any(l.strip().startswith("mintpy.networkInversion.weightFunc") for l in lines)
-    assert any(l.strip().startswith("mintpy.timeFunc.polynomial") for l in lines)
+    assert sum(1 for ln in lines if ln.strip().startswith("mintpy.")) >= 110
+    assert any(ln.strip().startswith("mintpy.networkInversion.weightFunc") for ln in lines)
+    assert any(ln.strip().startswith("mintpy.timeFunc.polynomial") for ln in lines)
     # network trimming defaults (the whole point of increment A)
     assert "mintpy.network.coherenceBased = yes" in lines
     assert "mintpy.network.minCoherence = 0.2" in lines
@@ -98,9 +98,9 @@ def test_default_template_is_full_with_network_defaults(tmp_path: Path):
     assert "mintpy.unwrapError.method = bridging+phase_closure" in lines
     assert "mintpy.plot = no" in lines
     assert "mintpy.topographicResidual = yes" in lines
-    assert sum(1 for l in lines if l.strip().startswith("mintpy.deramp ")) == 1
+    assert sum(1 for ln in lines if ln.strip().startswith("mintpy.deramp ")) == 1
     # load paths point into the stack
-    assert any("filt_fine.unw" in l for l in lines)
+    assert any("filt_fine.unw" in ln for ln in lines)
 
 
 def test_skill_documents_network_trimming_and_editable_template():
