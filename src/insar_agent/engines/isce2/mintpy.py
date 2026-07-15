@@ -188,6 +188,10 @@ def _default_template_text(
     ifg = stack_work_dir / "merged" / "interferograms"
     geom = stack_work_dir / "merged" / "geom_reference"
     overrides: list[tuple[str, object]] = [
+        # dask parallelism default-on: invert_network / correct_topography are
+        # CPU-bound and single-threaded under MintPy's default cluster=none.
+        ("mintpy.compute.cluster", "local"),
+        ("mintpy.compute.numWorker", 8),
         ("mintpy.load.processor", "isce"),
         ("mintpy.load.autoPath", False),
         ("mintpy.load.metaFile", _default_meta_file(stack_work_dir).as_posix()),

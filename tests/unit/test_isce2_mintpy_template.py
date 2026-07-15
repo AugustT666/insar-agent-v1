@@ -103,6 +103,18 @@ def test_default_template_is_full_with_network_defaults(tmp_path: Path):
     assert any("filt_fine.unw" in ln for ln in lines)
 
 
+def test_default_template_enables_compute_parallelism(tmp_path: Path):
+    stack = _make_stack(tmp_path)
+    txt = mp._default_template_text(stack, baseline_dir=tmp_path, conda_env="")
+    lines = txt.splitlines()
+    # dask parallelism default-on so invert_network / correct_topography use many cores
+    assert "mintpy.compute.cluster = local" in lines
+    assert "mintpy.compute.numWorker = 8" in lines
+    # exactly once each (in-place override, not appended twice)
+    assert sum(1 for ln in lines if ln.strip().startswith("mintpy.compute.cluster ")) == 1
+    assert sum(1 for ln in lines if ln.strip().startswith("mintpy.compute.numWorker ")) == 1
+
+
 def test_skill_documents_network_trimming_and_editable_template():
     import insar_agent
     root = Path(insar_agent.__file__).resolve().parents[2]

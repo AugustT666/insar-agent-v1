@@ -66,6 +66,10 @@
 - `0.2` 是**安全地板**：本数据 0 对 < 0.3，故默认几乎不误伤；作用是"机制默认开着、阈值保守，是否收紧交给参数顾问审后建议"。符合既有原则「模板默认值不写死激进值」（见记忆 feedback_insar_template_defaults_not_hardcoded）。
 - 不加"锁比例/锁阈值"的不变量测试。
 
+**3.2b 并行加速（compute，实跑发现追加）**
+
+mintpy3 实跑发现 MintPy 默认 `compute.cluster=none` **单核串行**（32 核机器只用 1 核、`%wa≈0` 属 CPU 受限非 I/O），`invert_network` 单核 ~8 分钟。故模板 override 追加默认并行：`compute.cluster=local`、`compute.numWorker=8`（dask 可用性已确认）；注册表补 `compute.cluster`/`compute.numWorker`；SKILL 加并行与 CPU/IO 判断说明。默认开（用户确认），仍可调。
+
 **3.3 参数注册表补键**
 
 `engines/isce2/assets/processing_params_mintpy.yaml` 已有 `network.coherenceBased/minCoherence/tempBaseMax/perpBaseMax/excludeDate`。新增：

@@ -1,5 +1,26 @@
 parameters:
 
+  - key: compute.cluster
+    label: Parallel cluster type
+    type: str
+    required: false
+    risk_level: low
+    valid_values: [none, local, slurm, pbs, lsf]
+    description: >
+      Dask parallel backend for invert_network / correct_topography
+      (mintpy.compute.cluster). 'local' uses a local dask cluster to spread the
+      CPU-bound inversion across cores; 'none' runs serial. Default 'local'.
+
+  - key: compute.numWorker
+    label: Number of parallel workers
+    type: str
+    required: false
+    risk_level: low
+    description: >
+      Number of dask workers when compute.cluster != none
+      (mintpy.compute.numWorker). Accepts an int, 'all', or 'N%'. Default 8;
+      raise for large stacks with ample RAM, lower to reduce memory pressure.
+
   - key: network.tempBaseMax
     label: Max temporal baseline (days)
     type: float

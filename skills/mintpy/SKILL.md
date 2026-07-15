@@ -178,6 +178,15 @@ MintPy 的 `modify_network` 步骤可在反演前剔除低质量干涉对，显�
 
 跑 MintPy 前应审查网络相干性（如逐对平均相干分布），据此决定是否收紧阈值。
 
+### 并行加速（compute.cluster / numWorker）
+
+`invert_network` 与 `correct_topography` 是 CPU 密集步，MintPy 默认 `cluster=none` **单核串行**（大核数机器上会明显偏慢，且非 I/O 瓶颈）。受管模板默认已开 dask 并行：
+
+- `mintpy.compute.cluster = local`（本地 dask 集群，跨核并行）。
+- `mintpy.compute.numWorker = 8`（worker 数；大 stack + 大内存可调高，内存吃紧调低；`none` 回退串行）。
+
+判断慢不慢时先看是 CPU 受限（`%CPU≈100`、`%wa≈0`）还是 I/O 受限（`load_data` 写大 HDF5 到机械盘那种），并行只对前者有效。
+
 ### Step 2 — Poll status — Monitor 优先 + 后台 sleep 兜底（自定节奏睡-醒-判断）
 
 `insar_get_job(job_id=<job_id>, work_dir=<mintpy_work_dir>)` 为状态权威源（回收僵尸进程）。
