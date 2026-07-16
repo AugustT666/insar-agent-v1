@@ -50,6 +50,15 @@ def test_registry_has_compute_parallelism_keys():
     assert "compute.numWorker" in keys
 
 
+def test_registry_has_subset_and_aoi_keys():
+    # subsetting / AOI to the study area matters: coherence-based network trimming
+    # averages coherence over the whole frame otherwise, and low-coherence areas
+    # outside the study area drag the per-pair average down -> over-aggressive drop.
+    keys = get_mintpy_processing_param_keys()
+    assert "subset.lalo" in keys
+    assert "network.aoiLALO" in keys
+
+
 def test_mintpy_registry_ranges_and_values():
     meta = {p["key"]: p for p in load_mintpy_processing_params()}
     assert meta["reference.minCoherence"]["valid_range"] == [0.0, 1.0]

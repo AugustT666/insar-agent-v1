@@ -174,6 +174,8 @@ MintPy 的 `modify_network` 步骤可在反演前剔除低质量干涉对，显�
 - `mintpy.network.keepMinSpanTree = yes`：阈值裁剪后回补最小生成树边，保证所有采集连通（默认开）。
 - `mintpy.network.excludeIfgIndex`：显式剔除指定 0 基索引的坏对。
 
+> ⚠️ **先裁到研究区，再做时序/相干裁剪（关键）**：`coherenceBased` 用的是每个干涉对**在整幅上取平均**的相干。若不裁研究区，研究区**外**的低相干区（山区、失相干农田、水体边缘）会把逐对平均相干**拉低**，导致同一个 `minCoherence` 阈值**过度剔除**（实测同 0.60，全帧剔 39 对、只在研究区算只剔 7 对）。做时序前应把数据裁到研究区：设 `mintpy.subset.lalo = S:N,W:E`（裁剪整个数据集，更快、更聚焦），或 `mintpy.network.aoiLALO = S:N,W:E`（只把相干平均限制在研究区、不裁数据）。研究区范围可取自 stack 处理时用的 bbox/AOI。
+
 **受管模板即完整可编辑模板**：`insar_run_mintpy_isce2` 播种的 `<mintpy_work_dir>/isce2_stack.txt` 现为**官方完整 smallbaselineApp.cfg（全部参数带注释）+ 插件 override**。跑 MintPy 后应把该路径回报给用户，专业用户可就地编辑任意 MintPy 参数；收紧 `minCoherence` 等科学参数仍走参数顾问 `stage=mintpy` + `insar_set_processing_param(scope="mintpy")`，之后以 `mintpy_config=<mintpy_work_dir>/isce2_stack.txt` 显式 rerun。
 
 跑 MintPy 前应审查网络相干性（如逐对平均相干分布），据此决定是否收紧阈值。

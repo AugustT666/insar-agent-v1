@@ -21,6 +21,32 @@ parameters:
       (mintpy.compute.numWorker). Accepts an int, 'all', or 'N%'. Default 8;
       raise for large stacks with ample RAM, lower to reduce memory pressure.
 
+  - key: subset.lalo
+    label: Subset to study area (S:N,W:E)
+    type: str
+    required: false
+    risk_level: medium
+    description: >
+      Crop the whole dataset to a lat/lon box before time-series analysis, e.g.
+      '39.78:40.08,116.25:116.85' (mintpy.subset.lalo). IMPORTANT for
+      coherence-based trimming: without a subset, coherence is averaged over the
+      full SAR frame, and low-coherence areas outside the study area (mountains,
+      decorrelated fields, water) drag the per-interferogram average down and
+      make coherenceBased over-drop. Subset to the study area so trimming and the
+      inversion focus on the region of interest.
+
+  - key: network.aoiLALO
+    label: AOI for coherence averaging (S:N,W:E)
+    type: str
+    required: false
+    risk_level: medium
+    description: >
+      Restrict the area over which per-interferogram average coherence is
+      computed for network modification, e.g. '39.78:40.08,116.25:116.85'
+      (mintpy.network.aoiLALO). Use this to make coherenceBased trimming judge
+      coherence over the study area only, without cropping the whole dataset the
+      way subset.lalo does.
+
   - key: network.tempBaseMax
     label: Max temporal baseline (days)
     type: float
