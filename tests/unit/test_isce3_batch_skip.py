@@ -21,7 +21,7 @@ def test_parallel_runner_skip_not_only_nonempty(tmp_path: Path) -> None:
     now go through is_valid_product (which itself opens the HDF5)."""
     write_parallel_runner(tmp_path)
     script = (tmp_path / "run_parallel.sh").read_text(encoding="utf-8")
-    assert 'if is_valid_product "$out_file"; then' in script
+    assert 'if is_valid_product "$out_file" && [ "$out_file" -nt "$cfg" ]; then' in script
 
 
 def test_serial_runner_has_validity_skip(tmp_path: Path) -> None:
@@ -45,3 +45,17 @@ def test_is_valid_product_helper_reads_root_groups(tmp_path: Path) -> None:
     for script in (parallel, serial):
         assert "h5py.File" in script
         assert "len(" in script  # root-group count guard
+
+
+def test_runners_skip_guarded_on_config_change_by_mtime(tmp_path: Path) -> None:
+    """SKIP must also require the product be NEWER than its runconfig (mtime
+    guard). Otherwise a config edit (e.g. a toggled stage) leaves the still-valid
+    old product in place and the runner would skip it — silently dropping the
+    change. `-nt "$cfg"` forces a re-run when the runconfig was touched after the
+    product was written, while preserving crash-resume (products stay newer than
+    their unchanged cfgs)."""
+    write_parallel_runner(tmp_path)
+    write_runner(tmp_path, [tmp_path / "runconfigs" / "20200101_20200113.yaml"])
+    for name in ("run_parallel.sh", "run_all.sh"):
+        script = (tmp_path / name).read_text(encoding="utf-8")
+        assert '-nt "$cfg"' in script
